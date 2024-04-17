@@ -27,11 +27,11 @@
   "dependencies": {
     "express": "^4.19.2",
     "nanoid": "^5.0.4",
-    "nconf": "^0.12.1",
     "node-fetch": "^2.6.1",
     "node-thermal-printer": "^4.4.2",
     "signale": "^1.4.0",
-    "swc": "^1.0.11"
+    "swc": "^1.0.11",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@swc-node/register": "^1.6.8",
