@@ -1,0 +1,56 @@
+{
+  "env": {
+    "es2021": true,
+    "node": true,
+    "jest": true
+  },
+  "extends": [
+    "airbnb-base",
+    "plugin:prettier/recommended",
+    "plugin:import/recommended"
+  ],
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2023,
+    "sourceType": "module",
+    "project": "tsconfig.json"
+  },
+  "plugins": [
+    "import",
+    "simple-import-sort",
+    "prettier",
+    "@typescript-eslint",
+    "sort-destructure-keys",
+    "sort-keys-fix",
+    "typescript-sort-keys"
+  ],
+  "rules": {
+    "simple-import-sort/imports": "error",
+    "simple-import-sort/exports": "error",
+    "prefer-destructuring": "off",
+    "prettier/prettier": "error",
+    "no-underscore-dangle": ["error", { "allow": ["_id"] }],
+    "no-prototype-builtins": "off",
+    "import/extensions": "off",
+    "padding-line-between-statements": [
+      "error",
+      { "blankLine": "always", "prev": "*", "next": "if" }
+    ],
+    "sort-destructure-keys/sort-destructure-keys": [
+      1,
+      { "caseSensitive": false }
+    ],
+    "sort-keys-fix/sort-keys-fix": "warn",
+    "typescript-sort-keys/interface": "warn",
+    "typescript-sort-keys/string-enum": "warn"
+  },
+  "settings": {
+    "import/resolver": {
+      "node": {
+        "extensions": [".js", ".ts"]
+      },
+      "typescript": {}
+    }
+  },
+  "ignorePatterns": ["dist/**/*", "node_modules/**/*", "scripts/**/*", "jest.config.cjs"]
+}

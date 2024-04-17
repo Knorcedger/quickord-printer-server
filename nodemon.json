@@ -1,0 +1,13 @@
+{
+  "execMap": {
+    "ts": "node --loader @swc-node/register/esm --env-file=.env src/index.ts"
+  },
+  "ext": ".ts,.js,.json",
+  "ignore": [
+    "dist",
+    "test"
+  ],
+  "watch": [
+    "./"
+  ]
+}
