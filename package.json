@@ -27,6 +27,7 @@
   "dependencies": {
     "express": "^4.19.2",
     "nanoid": "^5.0.4",
+    "network": "^0.7.0",
     "node-fetch": "^2.6.1",
     "node-thermal-printer": "^4.4.2",
     "signale": "^1.4.0",

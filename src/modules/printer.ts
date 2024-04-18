@@ -3,7 +3,9 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
+import { z } from 'zod';
 
+import { Order } from '../printOrdersResolver';
 import logger from './logger';
 import { getSettings, IPrinterSettings } from './settings';
 
@@ -41,7 +43,7 @@ export const setupPrinters = async () => {
   });
 };
 
-export const print = async (order: any) => {
+export const print = async (order: z.infer<typeof Order>) => {
   const products =
     order?.products?.reduce(
       (acc, product) => {
@@ -77,7 +79,7 @@ export const print = async (order: any) => {
 
     try {
       printer.execute().then((execute) => {
-        logger.info('Print done!', execute);
+        logger.info(`Printed order ${order._id}`, execute);
       });
     } catch (error) {
       logger.error('Print failed:', error);

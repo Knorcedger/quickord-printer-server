@@ -2,53 +2,70 @@ import express from 'express';
 
 import homepage from './homepage';
 import logger from './modules/logger';
+import { initNetWorkScanner, scanNetworkForPrinters } from './modules/network';
 import { getSettings, loadSettings } from './modules/settings';
+import printOrdersResolver from './printOrdersResolver';
 import settingsResolver from './settingsResolver';
 
-const SERVER_PORT = 7810;
+const main = async () => {
+  const SERVER_PORT = 7810;
 
-// init log file
-logger.init();
+  logger.init();
 
-loadSettings();
+  await initNetWorkScanner();
 
-const app = express();
+  await loadSettings();
 
-app.route('/').get((req, res) => {
-  res.send(homepage());
-});
+  const app = express();
 
-app
-  .route('/settings')
-  .put(express.json({ type: 'application/json' }), settingsResolver)
-  .get((req, res) => {
-    res.status(200).send(getSettings());
+  app.route('/').get((req, res) => {
+    res.send(homepage());
   });
 
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  const errorMessage = `Problem: Unhandled error detected. Message: ${err.message}. URL: ${req.url}.`;
+  app
+    .route('/settings')
+    .post(express.json({ type: 'application/json' }), settingsResolver)
+    .get((req, res) => {
+      res.status(200).send(getSettings());
+    });
 
-  logger.error(errorMessage);
+  app.route('/status').get((req, res) => {
+    res.status(200).send({ status: 'ok' });
+  });
 
-  let status = 500;
+  app.route('/network').get(async (req, res) => {
+    res.status(200).send({ printers: await scanNetworkForPrinters() });
+  });
 
-  if (err.message === 'invalidGraphqlQuery') {
-    status = 400;
-  }
+  app
+    .route('/print-orders')
+    .post(express.json({ type: 'application/json' }), printOrdersResolver);
 
-  res.status(status).send(`{"errors":[{"message":"${err.message}"}]}`);
-});
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    const errorMessage = `Problem: Unhandled error detected. Message: ${err.message}. URL: ${req.url}.`;
 
-// start server
-const server = app.listen(SERVER_PORT, () => {
-  logger.info(
-    'API listening at port',
-    (server?.address?.() as { port: number })?.port
-  );
-});
+    logger.error(errorMessage);
 
-const skipErrorNames = ['ValidationError'];
+    let status = 500;
+
+    if (err.message === 'invalidGraphqlQuery') {
+      status = 400;
+    }
+
+    res.status(status).send(`{"errors":[{"message":"${err.message}"}]}`);
+  });
+
+  // start server
+  const server = app.listen(SERVER_PORT, () => {
+    logger.info(
+      'API listening at port',
+      (server?.address?.() as { port: number })?.port
+    );
+  });
+};
+
+const skipErrorNames: string[] = [];
 
 // catch any uncaught exceptions, so that the server never crashes
 process.on('uncaughtException', (err) => {
@@ -67,3 +84,5 @@ process.on('unhandledRejection', (reason, p) => {
     reason
   );
 });
+
+main();

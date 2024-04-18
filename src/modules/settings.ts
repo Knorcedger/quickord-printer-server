@@ -17,17 +17,18 @@ export interface ISettings {
   venueId: string;
 }
 
+const CharacterSetEnum = z.nativeEnum(CharacterSet);
+
 export const PrinterSettings = z.object({
   categoriesToNotPrint: z.array(z.string()),
-  characterSet: z.string(),
-  ip: z.string().optional(),
+  characterSet: CharacterSetEnum,
+  ip: z.string().ip({ version: 'v4' }).optional(),
   name: z.string(),
   port: z.string().optional(),
 });
 
 export const Settings = z.object({
   printers: z.array(PrinterSettings),
-  venueId: z.string(),
 });
 
 let settings: ISettings = { printers: [], venueId: '' };

@@ -27,6 +27,7 @@ const settingsResolver = (
 
     res.status(200).send({ status: 'updated', updatedFields });
   } catch (error) {
+    logger.error('Error updating settings:', error);
     res.status(400).send(error.message);
   }
 };

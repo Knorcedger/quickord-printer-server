@@ -1,9 +1,29 @@
 import fs from 'fs';
 import signale from 'signale';
 
-const info = (...args: unknown[]) => signale.info(args);
-const error = (...args: unknown[]) => signale.error(args);
-const warn = (...args: unknown[]) => signale.warn(args);
+const appendLog = (...args: unknown[]) => {
+  fs.appendFileSync(
+    'app.log',
+    `${args
+      .map((arg) => {
+        return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
+      })
+      .join(' ')}\n`
+  );
+};
+
+const info = (...args: unknown[]) => {
+  appendLog(args);
+  signale.info(...args);
+};
+const error = (...args: unknown[]) => {
+  appendLog(args);
+  signale.error(...args);
+};
+const warn = (...args: unknown[]) => {
+  appendLog(args);
+  signale.warn(...args);
+};
 const init = () => {
   const logs = fs.readdirSync('./').filter((file) => file.endsWith('.log'));
 
