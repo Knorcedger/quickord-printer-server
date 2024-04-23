@@ -16,13 +16,14 @@
     "dev": "npm run start:test",
     "debug": "nodemon --exec \"node --inspect=0.0.0.0:9229 --loader @swc-node/register/esm --env-file=.env src/index.ts\"",
     "lint": "eslint . --ext .ts",
+    "postinstall": "nr build",
     "----------------------------------Typescript----------------------------------": "",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "npm run typecheck && rm -rf ./dist/ && npx swc ./src/ -d ./dist/",
     "build:watch": "nodemon --watch ./ -e ts --exec npm run build",
     "----------------------------------Build----------------------------------": "",
-    "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./out/server-bin ./src/index.ts",
-    "deno:compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./out/server-bin.exe ./src/index.ts"
+    "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./compiled-out/server-bin ./src/index.ts",
+    "deno:compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./compiled-out/server-bin.exe ./src/index.ts"
   },
   "keywords": [],
   "author": "",
