@@ -19,12 +19,18 @@
     "----------------------------------Typescript----------------------------------": "",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "npm run typecheck && rm -rf ./dist/ && npx swc ./src/ -d ./dist/",
-    "build:watch": "nodemon --watch ./ -e ts --exec npm run build"
+    "build:watch": "nodemon --watch ./ -e ts --exec npm run build",
+    "----------------------------------Build----------------------------------": "",
+    "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./out/server-bin ./src/index.ts",
+    "deno:compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./out/server-bin.exe ./src/index.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "type": "module",
   "dependencies": {
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
     "express": "^4.19.2",
     "nanoid": "^5.0.4",
     "network": "^0.7.0",

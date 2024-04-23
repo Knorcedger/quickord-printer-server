@@ -1,37 +1,33 @@
-import fs from 'fs';
+import fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
 
-import logger from './logger';
-
-export interface IPrinterSettings {
-  categoriesToNotPrint: string[];
-  characterSet: CharacterSet;
-  ip?: string;
-  name: string;
-  port?: string;
-}
-
-export interface ISettings {
-  printers: IPrinterSettings[];
-  venueId: string;
-}
+import logger from './logger.ts';
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet);
 
+export const PrinterTextSize = z.enum(['normal', 'double', 'triple']);
+
 export const PrinterSettings = z.object({
-  categoriesToNotPrint: z.array(z.string()),
+  categoriesToNotPrint: z.any(),
   characterSet: CharacterSetEnum,
-  ip: z.string().ip({ version: 'v4' }).optional(),
-  name: z.string(),
+  copies: z.number().int().default(1),
+  ip: z.string().ip({ version: 'v4' }),
+  name: z.string().optional(),
+  networkName: z.string(),
   port: z.string().optional(),
+  textSize: PrinterTextSize.optional().default('normal'),
 });
+
+export type IPrinterSettings = z.infer<typeof PrinterSettings>;
 
 export const Settings = z.object({
   printers: z.array(PrinterSettings),
 });
 
-let settings: ISettings = { printers: [], venueId: '' };
+export type ISettings = z.infer<typeof Settings>;
+
+let settings: ISettings = { printers: [] };
 
 export const loadSettings = async () => {
   try {
@@ -66,4 +62,8 @@ export const saveSettings = async () => {
 
 export const getSettings = () => {
   return settings;
+};
+
+export const updateSettings = (newSettings: ISettings) => {
+  settings = newSettings;
 };

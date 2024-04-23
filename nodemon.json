@@ -5,7 +5,9 @@
   "ext": ".ts,.js,.json",
   "ignore": [
     "dist",
-    "test"
+    "test",
+    "settings.json",
+    "*.log"
   ],
   "watch": [
     "./"

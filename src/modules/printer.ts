@@ -1,13 +1,14 @@
 /* eslint-disable no-continue */
 import {
+  CharacterSet,
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import { z } from 'zod';
 
-import { Order } from '../printOrdersResolver';
-import logger from './logger';
-import { getSettings, IPrinterSettings } from './settings';
+import { Order } from '../resolvers/printOrders.ts';
+import logger from './logger.ts';
+import { getSettings, IPrinterSettings } from './settings.ts';
 
 const printers: Array<[ThermalPrinter, IPrinterSettings]> = [];
 
@@ -43,7 +44,45 @@ export const setupPrinters = async () => {
   });
 };
 
-export const print = async (order: z.infer<typeof Order>) => {
+export const printTestPage = async (
+  ip: string,
+  charset: CharacterSet
+): Promise<string> => {
+  const printer = new ThermalPrinter({
+    characterSet: charset || CharacterSet.ISO8859_7_GREEK,
+    interface: `tcp://${ip}`,
+    type: PrinterTypes.EPSON,
+  });
+
+  printer.alignCenter();
+  printer.println(`charset: ${charset || CharacterSet.ISO8859_7_GREEK}`);
+  printer.println(`ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω`);
+  printer.println('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
+  printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
+  printer.setTextNormal();
+  printer.println('text normal');
+  printer.setTextSize(1, 1);
+  printer.println('text size 1');
+  printer.setTextSize(2, 2);
+  printer.println('text size 2');
+  printer.setTextSize(3, 3);
+  printer.println('text size 3');
+  printer.cut();
+
+  try {
+    await printer.execute();
+    logger.info(`Printed test page to ${ip}`);
+
+    return 'success';
+  } catch (error) {
+    logger.error('Print failed:', error);
+    throw new Error('print failed', {
+      cause: error,
+    });
+  }
+};
+
+export const printOrder = async (order: z.infer<typeof Order>) => {
   const products =
     order?.products?.reduce(
       (acc, product) => {
@@ -64,7 +103,7 @@ export const print = async (order: z.infer<typeof Order>) => {
       continue;
     }
 
-    order?.products?.filter(
+    const productsToPrint = order?.products?.filter(
       (product) =>
         // If product has categories, check if they are in the categoriesToNotPrint array
         !products[product._id || '']?.some((category) =>
@@ -72,14 +111,18 @@ export const print = async (order: z.infer<typeof Order>) => {
         )
     );
 
+    if (!productsToPrint?.length) {
+      continue;
+    }
+
     printer.alignCenter();
     printer.println('ISO8859_7_GREEK');
     printer.println('Καλημέρα Ελλάδα, € 10.00 1234567890');
     printer.cut();
 
     try {
-      printer.execute().then((execute) => {
-        logger.info(`Printed order ${order._id}`, execute);
+      printer.execute().then(() => {
+        logger.info(`Printed order ${order._id}`);
       });
     } catch (error) {
       logger.error('Print failed:', error);

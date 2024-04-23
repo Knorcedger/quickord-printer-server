@@ -1,10 +1,11 @@
-import fs from 'fs';
+import fs from 'node:fs/promises';
+import process from 'node:process';
 import signale from 'signale';
 
-const appendLog = (...args: unknown[]) => {
-  fs.appendFileSync(
+const appendLog = async (...args: unknown[]) => {
+  fs.appendFile(
     'app.log',
-    `${args
+    `${new Date().toISOString()} ${args
       .map((arg) => {
         return typeof arg === 'object' ? JSON.stringify(arg) : String(arg);
       })
@@ -24,22 +25,22 @@ const warn = (...args: unknown[]) => {
   appendLog(args);
   signale.warn(...args);
 };
-const init = () => {
-  const logs = fs.readdirSync('./').filter((file) => file.endsWith('.log'));
+const init = async () => {
+  const logs = (await fs.readdir('./')).filter((file) => file.endsWith('.log'));
 
   if (logs[0]) {
-    const log1 = fs.readFileSync('./app.log', 'utf8');
-    fs.writeFileSync('app.1.log', log1);
+    const log1 = await fs.readFile('./app.log', 'utf8');
+    await fs.writeFile('app.1.log', log1);
 
     if (logs[1]) {
-      const log2 = fs.readFileSync('./app.1.log', 'utf8');
-      fs.writeFileSync('app.2.log', log2);
+      const log2 = await fs.readFile('./app.1.log', 'utf8');
+      await fs.writeFile('app.2.log', log2);
     }
   }
 
-  fs.writeFileSync(
+  await fs.writeFile(
     'app.log',
-    `Log file created at ${new Date()}. OS: ${process.platform}\n`
+    `${new Date().toISOString()} Log file created at ${new Date()}. OS: ${process.platform}\n`
   );
 };
 

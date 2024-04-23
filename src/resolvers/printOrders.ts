@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 
-import logger from './modules/logger';
+import logger from '../modules/logger.ts';
 
 export const Product = z.object({
   _id: z.string(),
@@ -25,20 +25,17 @@ export const Order = z.object({
 
 const Orders = z.array(Order);
 
-const printOrdersResolver = (
-  req: Request<{}, any, any>,
-  res: Response<{}, any>
-) => {
+const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     const newSettings = Orders.parse(req.body);
 
-    logger.info('Settings updated:', newSettings);
+    logger.info('orders to print:', newSettings);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {
-    logger.error('Error updating settings:', error);
+    logger.error('Error printing orders:', error);
     res.status(400).send({ error: error.message });
   }
 };
 
-export default printOrdersResolver;
+export default printOrders;

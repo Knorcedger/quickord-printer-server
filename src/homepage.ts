@@ -1,4 +1,4 @@
-import { getSettings } from './modules/settings';
+import { getSettings } from './modules/settings.ts';
 
 export default () => {
   return `<div style="padding: 12px;">

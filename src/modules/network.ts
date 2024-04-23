@@ -1,9 +1,9 @@
 /* eslint-disable consistent-return */
-import { execSync } from 'child_process';
-import { Request, Response } from 'express';
 import network from 'network';
+import { exec, execSync } from 'node:child_process';
+import process from 'node:process';
 
-import logger from './logger';
+import logger from './logger.ts';
 
 let IS_NMAP_INSTALLED = false;
 
@@ -30,8 +30,8 @@ export const initNetWorkScanner = async () => {
 
   try {
     logger.info('Installing nmap on Windows');
-    execSync('./binaries/npcap-1.79.exe /q');
-    execSync('./binaries/nmap-7.94-setup.exe /q /x');
+    execSync('./binaries/npcap-1.79.exe /quiet /norestart');
+    execSync('./binaries/nmap-7.94-setup.exe /quiet /norestart');
     logger.info('nmap installed');
     IS_NMAP_INSTALLED = true;
   } catch (error) {
@@ -39,55 +39,76 @@ export const initNetWorkScanner = async () => {
   }
 };
 
-export const scanNetworkForPrinters = async () => {
+const execPromise = (command: string) => {
+  return new Promise((resolve, reject) => {
+    exec(command, (err, stdout) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+
+      resolve(stdout);
+    });
+  });
+};
+
+export const scanNetworkForConnections = async (): Promise<
+  Array<Array<string>>
+> => {
   if (!IS_NMAP_INSTALLED) {
     logger.error('nmap is not installed, cannot scan network.');
     return [];
   }
 
   return new Promise((resolve, reject) => {
-    network.get_gateway_ip(async (err, ip) => {
+    network.get_gateway_ip(async (err: any, ip: string) => {
       if (err) {
         logger.error('Error getting gateway ip:', err);
-        return reject(err);
+        reject(err);
+        return;
       }
 
       try {
-        logger.info('Scanning network for printers');
-        const IPs = execSync(`nmap -sn ${ip}/24`).toString();
+        logger.info('Scanning network');
+        let IPs = '';
+
+        if (process.platform === 'win32') {
+          IPs = (
+            (await execPromise(`nmap -sn ${ip}/24`)) as any
+          ).toString() as string;
+        } else if (process.platform === 'linux') {
+          IPs = (
+            (await execPromise(`nmap -sn ${ip}/24`)) as any
+          ).toString() as string;
+        }
         logger.info('Network scan info received:', IPs);
 
-        const printers: Array<Array<string>> = [];
+        const connections: Array<Array<string>> = [];
 
         IPs.split('\n').forEach((line) => {
-          if (line.toLowerCase().includes('prn')) {
-            const printerName = line.split(' ')[4];
+          if (line.includes('Nmap scan report for')) {
+            const info = line.split('Nmap scan report for ')[1] || '';
+            let connectionName = info.split(' ')[0];
 
-            const printerIp = line.split(' ')[5];
+            let connectionIp = info
+              .split(' ')[1]
+              ?.replace('(', '')
+              .replace(')', '');
 
-            if (!printerIp) return;
+            if (!connectionIp) {
+              connectionIp = connectionName;
+              connectionName = '';
+            }
 
-            printers.push([printerName || 'Unknown', printerIp]);
+            connections.push([connectionName || 'Unknown', connectionIp || '']);
           }
         });
 
-        resolve(printers);
+        resolve(connections);
       } catch (error) {
         logger.error('Error scanning network:', error);
-        return reject(error);
+        reject(error);
       }
     });
-  });
-};
-
-export const networkResolver = async (
-  req: Request<{}, any, any>,
-  res: Response<{}, any>
-) => {
-  try {
-    res.status(200).send({ printers: await scanNetworkForPrinters() });
-  } catch (error) {
-    logger.error('Error scanning network:', error);
-    res.status(400).send({ error: error.message });
-  }
+  }) as Promise<Array<Array<string>>>;
 };
