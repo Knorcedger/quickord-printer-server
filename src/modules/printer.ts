@@ -44,10 +44,33 @@ export const setupPrinters = async () => {
   });
 };
 
-export const printTestPage = async (
+export const testUsbPrint = async () => {
+  const printer = new ThermalPrinter({
+    characterSet: CharacterSet.ISO8859_7_GREEK,
+    driver: 'printer',
+    interface: 'usb',
+    type: PrinterTypes.EPSON,
+  });
+
+  printer.alignCenter();
+  printer.println('ISO8859_7_GREEK');
+  printer.println('Καλημέρα Ελλάδα, € 10.00 1234567890');
+  printer.cut();
+
+  try {
+    await printer.execute();
+
+    logger.info('Printed test page to usb');
+  } catch (error) {
+    logger.error('Print failed:', error);
+  }
+};
+
+export const printTestPage = async <HasBuffer extends boolean>(
   ip: string,
-  charset: CharacterSet
-): Promise<string> => {
+  charset?: CharacterSet,
+  getBuffer?: HasBuffer
+): Promise<string | Buffer> => {
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.ISO8859_7_GREEK,
     interface: `tcp://${ip}`,
@@ -68,6 +91,10 @@ export const printTestPage = async (
   printer.setTextSize(3, 3);
   printer.println('text size 3');
   printer.cut();
+
+  if (getBuffer === true) {
+    return printer.getBuffer();
+  }
 
   try {
     await printer.execute();

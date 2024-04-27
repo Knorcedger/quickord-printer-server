@@ -28,15 +28,7 @@ export const initNetWorkScanner = async () => {
     return;
   }
 
-  try {
-    logger.info('Installing nmap on Windows');
-    execSync('./binaries/npcap-1.79.exe /quiet /norestart');
-    execSync('./binaries/nmap-7.94-setup.exe /quiet /norestart');
-    logger.info('nmap installed');
-    IS_NMAP_INSTALLED = true;
-  } catch (error) {
-    logger.error('Error installing nmap:', error);
-  }
+  logger.error('nmap is not installed, please install nmap manually.');
 };
 
 const execPromise = (command: string) => {

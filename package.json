@@ -16,7 +16,7 @@
     "dev": "npm run start:test",
     "debug": "nodemon --exec \"node --inspect=0.0.0.0:9229 --loader @swc-node/register/esm --env-file=.env src/index.ts\"",
     "lint": "eslint . --ext .ts",
-    "postinstall": "nr build",
+    "postinstall": "npm run build",
     "----------------------------------Typescript----------------------------------": "",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "npm run typecheck && rm -rf ./dist/ && npx swc ./src/ -d ./dist/",
@@ -39,6 +39,7 @@
     "node-thermal-printer": "^4.4.2",
     "signale": "^1.4.0",
     "swc": "^1.0.11",
+    "usb": "^2.12.1",
     "zod": "^3.22.4"
   },
   "devDependencies": {

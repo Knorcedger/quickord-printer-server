@@ -10,6 +10,7 @@ import {
   scanNetworkForConnections,
 } from './modules/network.ts';
 import { getSettings, loadSettings } from './modules/settings.ts';
+import { getUsbDevices, sendDataToUsb } from './modules/usbUtils.ts';
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
@@ -30,16 +31,7 @@ const main = async () => {
       origin(origin: string | undefined, callback: any) {
         logger.info('cors origin:', origin);
 
-        if (
-          !origin ||
-          origin.includes('localhost') ||
-          origin.includes('quickord.com')
-        ) {
-          callback(null, true);
-        } else {
-          logger.info('cors error, origin: ', origin);
-          callback(new Error('Not allowed by CORS'));
-        }
+        callback(null, true);
       },
     })
   );
@@ -67,9 +59,21 @@ const main = async () => {
     .route('/network')
     .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       try {
-        const connections = await scanNetworkForConnections();
+        const lanConnections = await scanNetworkForConnections();
 
-        res.status(200).send({ connections });
+        res.status(200).send({ lanConnections });
+      } catch (error) {
+        res.status(500).send({ error });
+      }
+    });
+
+  app
+    .route('/usb')
+    .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
+      try {
+        const usbConnections = await scanNetworkForConnections();
+
+        res.status(200).send({ usbConnections });
       } catch (error) {
         res.status(500).send({ error });
       }
@@ -78,6 +82,14 @@ const main = async () => {
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
+
+  app
+    .route('/test')
+    .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
+      console.log(await getUsbDevices());
+      // sendDataToUsb('GD107686A5EB80109', Buffer.from('test'));
+      res.status(200).send('test');
+    });
 
   // eslint-disable-next-line no-unused-vars
   app.use(
