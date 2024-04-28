@@ -8,11 +8,18 @@
       "exportDefaultFrom": false
     },
     "target": "esnext",
-    "baseUrl": "./"
+    "baseUrl": "./",
+    "minify": {
+      "compress": {
+        "unused": true
+      },
+      "mangle": true
+    }
   },
   "module": {
     "type": "es6"
   },
+  "minify": true,
   "sourceMaps": true,
   "inlineSourcesContent": true
 }
