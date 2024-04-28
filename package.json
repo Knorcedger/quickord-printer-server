@@ -39,7 +39,7 @@
     "node-thermal-printer": "^4.4.2",
     "signale": "^1.4.0",
     "swc": "^1.0.11",
-    "usb": "^2.12.1",
+    "transliteration": "^2.3.5",
     "zod": "^3.22.4"
   },
   "devDependencies": {

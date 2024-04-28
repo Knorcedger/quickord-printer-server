@@ -4,11 +4,14 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
+import { transliterate } from 'transliteration';
 import { z } from 'zod';
 
 import { Order } from '../resolvers/printOrders.ts';
+import { convertToDecimal, leftPad } from './common.ts';
 import logger from './logger.ts';
 import { getSettings, IPrinterSettings } from './settings.ts';
+import { SupportedLanguages, translations } from './translations.ts';
 
 const printers: Array<[ThermalPrinter, IPrinterSettings]> = [];
 
@@ -44,33 +47,10 @@ export const setupPrinters = async () => {
   });
 };
 
-export const testUsbPrint = async () => {
-  const printer = new ThermalPrinter({
-    characterSet: CharacterSet.ISO8859_7_GREEK,
-    driver: 'printer',
-    interface: 'usb',
-    type: PrinterTypes.EPSON,
-  });
-
-  printer.alignCenter();
-  printer.println('ISO8859_7_GREEK');
-  printer.println('Καλημέρα Ελλάδα, € 10.00 1234567890');
-  printer.cut();
-
-  try {
-    await printer.execute();
-
-    logger.info('Printed test page to usb');
-  } catch (error) {
-    logger.error('Print failed:', error);
-  }
-};
-
-export const printTestPage = async <HasBuffer extends boolean>(
+export const printTestPage = async (
   ip: string,
-  charset?: CharacterSet,
-  getBuffer?: HasBuffer
-): Promise<string | Buffer> => {
+  charset?: CharacterSet
+): Promise<string> => {
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.ISO8859_7_GREEK,
     interface: `tcp://${ip}`,
@@ -92,10 +72,6 @@ export const printTestPage = async <HasBuffer extends boolean>(
   printer.println('text size 3');
   printer.cut();
 
-  if (getBuffer === true) {
-    return printer.getBuffer();
-  }
-
   try {
     await printer.execute();
     logger.info(`Printed test page to ${ip}`);
@@ -116,7 +92,7 @@ export const printOrder = async (order: z.infer<typeof Order>) => {
         return {
           ...acc,
           [product._id || '']:
-            product.categories?.map((category) => category._id || '') || [],
+            product.categories?.map((category) => category || '') || [],
         };
       },
       {} as { [key: string]: string[] }
@@ -154,5 +130,170 @@ export const printOrder = async (order: z.infer<typeof Order>) => {
     } catch (error) {
       logger.error('Print failed:', error);
     }
+  }
+};
+export const testOrderPrint = async (
+  ip: string,
+  order: z.infer<typeof Order>,
+  lang: SupportedLanguages = 'el'
+) => {
+  const printer = new ThermalPrinter({
+    characterSet: CharacterSet.PC852_LATIN2,
+    interface: `tcp://${ip}`,
+    type: PrinterTypes.EPSON,
+  });
+
+  const orderCreationDate = new Date(order.createdAt);
+  const date =
+    orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') || '';
+
+  const time = orderCreationDate.toLocaleTimeString('el-GR', {
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+  });
+
+  printer.alignCenter();
+  printer.println(transliterate(translations.printOrder.orderForm[lang]));
+  printer.alignLeft();
+  printer.newLine();
+  printer.println(transliterate(order.venue.title));
+  printer.println(transliterate(order.venue.address));
+  printer.drawLine();
+  printer.table([
+    date,
+    time,
+    transliterate(
+      `${translations.printOrder.orderNumber[lang]}:#${order.number}`
+    ),
+  ]);
+  printer.println(
+    transliterate(
+      `${translations.printOrder.orderType[lang]}: ${translations.printOrder.orderTypes[order.orderType][lang]}`
+    )
+  );
+  printer.println(
+    transliterate(
+      `${translations.printOrder.paymentType[lang]}: ${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+    )
+  );
+  printer.drawLine();
+
+  if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
+    printer.println(
+      transliterate(
+        `${translations.printOrder.customerName[lang]}: ${order.deliveryInfo.customerName}`
+      )
+    );
+    printer.println(
+      transliterate(
+        `${translations.printOrder.deliveryAddress[lang]}: ${order.deliveryInfo.customerAddress}`
+      )
+    );
+    printer.println(
+      transliterate(
+        `${translations.printOrder.deliveryFloor[lang]}: ${order.deliveryInfo.customerFloor}`
+      )
+    );
+    printer.println(
+      transliterate(
+        `${translations.printOrder.deliveryBell[lang]}: ${order.deliveryInfo.customerBell}`
+      )
+    );
+    printer.println(
+      transliterate(
+        `${translations.printOrder.deliveryPhone[lang]}: ${order.deliveryInfo.customerPhoneNumber}`
+      )
+    );
+  } else if (
+    (order.orderType === 'TAKE_AWAY_INSIDE' ||
+      order.orderType === 'TAKE_AWAY_PACKAGE') &&
+    order.TakeAwayInfo
+  ) {
+    printer.println(
+      transliterate(
+        `${translations.printOrder.customerName[lang]}: ${order.TakeAwayInfo.customerName}`
+      )
+    );
+    printer.println(
+      transliterate(
+        `${translations.printOrder.customerEmail[lang]}: ${order.TakeAwayInfo.customerEmail}`
+      )
+    );
+  }
+
+  printer.drawLine();
+  order.products.forEach((product) => {
+    printer.newLine();
+    const leftAmount = `${product.quantity}x `.length;
+    printer.println(transliterate(`${product.quantity}x ${product.title}`));
+    product.choices?.forEach((choice) => {
+      printer.println(
+        leftPad(transliterate(`${choice.title}`), leftAmount, ' ')
+      );
+    });
+    printer.alignRight();
+    printer.println(
+      transliterate(`${convertToDecimal(product.total).toFixed(2)} E`)
+    );
+    printer.alignLeft();
+  });
+  printer.newLine();
+  printer.println(
+    transliterate(
+      `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment}`
+    )
+  );
+  printer.newLine();
+  printer.println(
+    transliterate(
+      `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`
+    )
+  );
+  printer.drawLine();
+
+  if (order.tip) {
+    printer.newLine();
+    printer.println(
+      transliterate(
+        `${translations.printOrder.tip[lang]}: ${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+      )
+    );
+  }
+
+  if (order.deliveryInfo) {
+    printer.newLine();
+    printer.println(
+      transliterate(
+        `${translations.printOrder.deliveryFee[lang]}: ${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+      )
+    );
+  }
+
+  printer.newLine();
+  printer.alignRight();
+  printer.println(
+    transliterate(
+      `${translations.printOrder.total[lang]}: ${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+    )
+  );
+  printer.newLine();
+  printer.println(transliterate(translations.printOrder.poweredBy[lang]));
+  printer.newLine();
+  printer.newLine();
+  printer.alignCenter();
+  printer.println(
+    transliterate(translations.printOrder.notReceiptNotice[lang])
+  );
+  printer.cut();
+
+  try {
+    await printer.execute();
+    logger.info(`Printed test page to ${ip}`);
+
+    return 'success';
+  } catch (error) {
+    logger.error('Print failed:', error);
+    return 'fail';
   }
 };

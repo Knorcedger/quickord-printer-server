@@ -1,0 +1,138 @@
+export default {
+  printOrder: {
+    customerComments: {
+      el: 'ΣΧΟΛΙΑ',
+      en: 'COMMENTS',
+    },
+    customerEmail: {
+      el: 'EMAIL',
+      en: 'EMAIL',
+    },
+    customerName: {
+      el: 'ΟΝΟΜΑ',
+      en: 'NAME',
+    },
+    deliveryAddress: {
+      el: 'ΔΙΕΥΘΥΝΣΗ',
+      en: 'ADDRESS',
+    },
+    deliveryBell: {
+      el: 'ΚΟΥΔ',
+      en: 'BELL',
+    },
+    deliveryFee: {
+      el: 'ΚΟΣΤΟΣ ΔΙΑΝΟΜΗΣ',
+      en: 'DELIVERY FEE',
+    },
+    deliveryFloor: {
+      el: 'ΟΡΟΦΟΣ',
+      en: 'FLOOR',
+    },
+    deliveryPhone: {
+      el: 'ΤΗΛ',
+      en: 'TEL',
+    },
+    notReceiptNotice: {
+      el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ ΣΥΝΑΛΛΑΓΗΣ',
+      en: 'ATTENTION THIS IS NOT A RECEIPT',
+    },
+    orderForm: {
+      el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER FORM',
+    },
+    orderNumber: {
+      el: 'ΠΑΡ',
+      en: 'ORD',
+    },
+    orderTable: {
+      el: 'ΤΡΑΠΖ',
+      en: 'TABLE',
+    },
+    orderType: {
+      el: 'ΤΥΠΟΣ',
+      en: 'TYPE',
+    },
+    orderTypes: {
+      DELIVERY: {
+        el: 'ΔΙΑΝΟΜΗ',
+        en: 'DELIVERY',
+      },
+      DINE_IN: {
+        el: 'ΚΑΤΑΝΑΛΩΣΗ',
+        en: 'DINE IN',
+      },
+      TAKE_AWAY_INSIDE: {
+        el: 'ΠΑΡΑΛΑΒΗ',
+        en: 'TAKE AWAY',
+      },
+      TAKE_AWAY_PACKAGE: {
+        el: 'ΠΑΡΑΛΑΒΗ',
+        en: 'TAKE AWAY',
+      },
+    },
+    orderWaiter: {
+      el: 'ΣΕΡΒΙΤ',
+      en: 'WAITER',
+    },
+    paymentType: {
+      el: 'ΤΡΟΠΟΣ ΠΛΗΡΩΜΗΣ',
+      en: 'PAYMENT METHOD',
+    },
+    paymentTypes: {
+      DELIVERY_CARD: {
+        el: 'ΚΑΡΤΑ ΣΤΟ DELIVERY',
+        en: 'CARD AT DELIVERY',
+      },
+      DELIVERY_CASH: {
+        el: 'ΜΕΤΡΗΤΑ ΣΤΟ DELIVERY',
+        en: 'CASH AT DELIVERY',
+      },
+      ONLINE: {
+        el: 'ONLINE',
+        en: 'ONLINE',
+      },
+      WAITER_CARD: {
+        el: 'ΚΑΡΤΑ ΣΤΟΝ ΣΕΡΒΙΤ',
+        en: 'CARD TO WAITER',
+      },
+      WAITER_CASH: {
+        el: 'ΜΕΤΡΗΤΑ ΣΤΟΝ ΣΕΡΒΙΤ',
+        en: 'CASH TO WAITER',
+      },
+      WAITER_CASH_AND_CARD: {
+        el: 'ΜΕΤΡΗΤΑ ΚΑΙ ΚΑΡΤΑ',
+        en: 'CASH AND CARD',
+      },
+    },
+    poweredBy: {
+      el: 'POWERED BY QUICKORD',
+      en: 'POWERED BY QUICKORD',
+    },
+    takeAwayType: {
+      el: 'ΠΑΡΑΛΑΒΗ',
+      en: 'TAKE AWAY',
+    },
+    takeAwayTypes: {
+      inside: {
+        el: 'ΕΝΤΟΣ',
+        en: 'INSIDE',
+      },
+      package: {
+        el: 'ΠΑΚΕΤΟ',
+        en: 'PACKAGE',
+      },
+    },
+    tip: {
+      el: 'TIP',
+      en: 'TIP',
+    },
+    total: {
+      el: 'ΣΥΝΟΛΟ',
+      en: 'TOTAL',
+    },
+    waiterComments: {
+      el: 'ΣΧΟΛΙΑ ΣΕΡΒ',
+      en: 'WAITER COM',
+    },
+  },
+};

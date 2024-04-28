@@ -9,8 +9,8 @@ import {
   initNetWorkScanner,
   scanNetworkForConnections,
 } from './modules/network.ts';
+import { testOrderPrint } from './modules/printer.ts';
 import { getSettings, loadSettings } from './modules/settings.ts';
-import { getUsbDevices, sendDataToUsb } from './modules/usbUtils.ts';
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
@@ -67,18 +67,6 @@ const main = async () => {
       }
     });
 
-  app
-    .route('/usb')
-    .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
-      try {
-        const usbConnections = await scanNetworkForConnections();
-
-        res.status(200).send({ usbConnections });
-      } catch (error) {
-        res.status(500).send({ error });
-      }
-    });
-
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
@@ -86,8 +74,51 @@ const main = async () => {
   app
     .route('/test')
     .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
-      console.log(await getUsbDevices());
-      // sendDataToUsb('GD107686A5EB80109', Buffer.from('test'));
+      await testOrderPrint('192.168.178.42', {
+        TakeAwayInfo: {
+          customerEmail: 'email',
+          customerName: 'name',
+        },
+        _id: 'ssss',
+        createdAt: new Date().toISOString(),
+        currency: '$',
+        customerComment: 'customer comment',
+        deliveryInfo: {
+          customerAddress: 'MITROPOLEOS 55 52100 KASTORIA',
+          customerBell: 'bell',
+          customerEmail: 'email',
+          customerFloor: 'floor',
+          customerName: 'name',
+          customerPhoneNumber: 'phone',
+          deliveryFee: 100,
+        },
+        number: 1,
+        orderType: 'DELIVERY',
+        paymentType: 'ONLINE',
+        products: [
+          {
+            _id: '1234',
+            categories: ['category'],
+            choices: [
+              {
+                quantity: 1,
+                title: 'choice',
+              },
+            ],
+            quantity: 1,
+            title: 'product',
+            total: 1000,
+          },
+        ],
+        tableNumber: '1',
+        tip: 500,
+        total: 1600,
+        venue: {
+          address: 'MITROPOLEOS 55 52100 KASTORIA',
+          title: 'KASTORIA CITY HOTEL',
+        },
+        waiterComment: 'waiter comment',
+      });
       res.status(200).send('test');
     });
 
