@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 
 import logger from '../modules/logger.ts';
+import { setupPrinters } from '../modules/printer.ts';
 import { saveSettings, Settings, updateSettings } from '../modules/settings.ts';
 
 const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
@@ -11,6 +12,7 @@ const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     updateSettings(newSettings);
 
     saveSettings();
+    setupPrinters(newSettings);
 
     logger.info('Settings updated:', newSettings);
 

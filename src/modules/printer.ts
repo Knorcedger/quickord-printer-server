@@ -10,14 +10,12 @@ import { z } from 'zod';
 import { Order } from '../resolvers/printOrders.ts';
 import { convertToDecimal, leftPad } from './common.ts';
 import logger from './logger.ts';
-import { getSettings, IPrinterSettings } from './settings.ts';
+import { IPrinterSettings, ISettings } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
 
 const printers: Array<[ThermalPrinter, IPrinterSettings]> = [];
 
-export const setupPrinters = async () => {
-  const settings = getSettings();
-
+export const setupPrinters = async (settings: ISettings) => {
   settings?.printers?.forEach((printerSettings) => {
     if (!printerSettings.ip && !printerSettings.port) {
       return;
@@ -221,7 +219,7 @@ export const printOrder = async (
       );
     }
 
-    if (order.deliveryInfo) {
+    if (order.deliveryInfo?.deliveryFee) {
       printer.newLine();
       printer.println(
         transliterate(
@@ -257,4 +255,10 @@ export const printOrder = async (
       logger.error('Print failed:', error);
     }
   }
+};
+
+export const printOrders = async (orders: z.infer<typeof Order>[]) => {
+  orders.forEach(async (order) => {
+    printOrder(order);
+  });
 };

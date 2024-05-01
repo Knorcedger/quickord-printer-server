@@ -2,17 +2,20 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 
 import logger from '../modules/logger.ts';
+import { printOrders as printerPrintOrders } from '../modules/printer.ts';
 
 export const Product = z.object({
   _id: z.string(),
   categories: z.array(z.string()),
-  choices: z.array(
-    z.object({
-      price: z.number().positive().optional(),
-      quantity: z.number().positive().optional(),
-      title: z.string(),
-    })
-  ),
+  choices: z
+    .array(
+      z.object({
+        price: z.number().positive().optional(),
+        quantity: z.number().positive().optional(),
+        title: z.string(),
+      })
+    )
+    .optional(),
   quantity: z.number().positive(),
   title: z.string(),
   total: z.number().positive(),
@@ -52,7 +55,10 @@ export const TakeAwayInfo = z.object({
 export const Order = z.object({
   TakeAwayInfo: TakeAwayInfo.optional(),
   _id: z.string(),
-  createdAt: z.string().datetime(),
+  createdAt: z
+    .string()
+    .datetime()
+    .describe('The date and time the order was created in ISO format'),
   currency: z.string(),
   customerComment: z.string().optional(),
   deliveryInfo: DeliveryInfo.optional(),
@@ -74,9 +80,11 @@ const Orders = z.array(Order);
 
 const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    const newSettings = Orders.parse(req.body);
+    const orders = Orders.parse(req.body);
 
-    logger.info('orders to print:', newSettings);
+    logger.info('orders to print:', orders);
+
+    printerPrintOrders(orders);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {

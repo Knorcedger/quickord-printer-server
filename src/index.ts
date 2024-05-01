@@ -9,6 +9,7 @@ import {
   initNetWorkScanner,
   scanNetworkForConnections,
 } from './modules/network.ts';
+import { setupPrinters } from './modules/printer.ts';
 import { getSettings, loadSettings } from './modules/settings.ts';
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
@@ -22,6 +23,8 @@ const main = async () => {
   await initNetWorkScanner();
 
   await loadSettings();
+
+  await setupPrinters(getSettings());
 
   const app = express();
 
