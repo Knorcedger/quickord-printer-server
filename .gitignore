@@ -4,3 +4,4 @@ settings.json
 dist
 .tsbuildinfo
 compiled-out
+builds

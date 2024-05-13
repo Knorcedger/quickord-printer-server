@@ -1,5 +1,10 @@
 # !/bin/bash
-npm run build
-npm run deno:compile:windows
+rm -rf dist
+rm -rf builds
 
-zip -r build.zip ./dist/ ./config.json
+npx swc ./src/ -d ./dist/
+
+node ./scripts/update_imports.js
+
+mkdir builds
+zip -r ./builds/quickord-cashier-server.zip ./dist/ ./config.json ./package.json ./package-lock.json ./init.bat

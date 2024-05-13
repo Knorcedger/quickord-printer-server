@@ -246,11 +246,13 @@ export const printOrder = async (
     printer.cut();
 
     try {
-      // eslint-disable-next-line no-await-in-loop
-      await printer.execute();
-      logger.info(
-        `Printed test page to ${settings?.name || settings?.networkName}:${settings?.ip || settings?.port}`
-      );
+      printer.execute().then(() => {
+        printer.clear();
+
+        logger.info(
+          `Printed order ${order._id} to ${settings?.name || settings?.networkName}:${settings?.ip || settings?.port}`
+        );
+      });
     } catch (error) {
       logger.error('Print failed:', error);
     }
