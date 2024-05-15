@@ -12,6 +12,7 @@ import {
 const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', req.body);
+
     const printers: IPrinterSettings[] = req.body.printers.map(
       (printer: IPrinterSettings) => ({
         ...printer,
