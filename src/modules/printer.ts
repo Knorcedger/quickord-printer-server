@@ -5,6 +5,7 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
+import { transliterate } from 'transliteration';
 import { z } from 'zod';
 
 import { Order } from '../resolvers/printOrders.ts';
@@ -188,50 +189,74 @@ export const printOrder = async (
       printer.drawLine();
       printer.newLine();
       printer.alignCenter();
-      printer.println(`${translations.printOrder.orderForm[lang]}`);
+      printer.println(
+        transliterate(`${translations.printOrder.orderForm[lang]}`)
+      );
       printer.alignLeft();
       printer.newLine();
-      printer.println(order.venue.title);
-      printer.println(order.venue.address);
+      printer.println(transliterate(order.venue.title));
+      printer.println(transliterate(order.venue.address));
       printer.drawLine();
       printer.table([
         `${date}`,
         `${time}`,
-        `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+        transliterate(
+          `${translations.printOrder.orderNumber[lang]}:#${order.number}`
+        ),
       ]);
 
       if (order?.tableNumber) {
         printer.table([
-          `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+          transliterate(
+            `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`
+          ),
           ...(order.waiterName
-            ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
+            ? [
+                transliterate(
+                  `${translations.printOrder.waiter[lang]}:${order.waiterName}`
+                ),
+              ]
             : []),
         ]);
       }
 
       printer.println(
-        `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
+        transliterate(
+          `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
+        )
       );
       printer.println(
-        `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+        transliterate(
+          `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+        )
       );
       printer.drawLine();
 
       if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
         printer.println(
-          `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
+          transliterate(
+            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
+          )
         );
         printer.println(
-          `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
+          transliterate(
+            `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
+          )
         );
         printer.println(
-          `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
+          transliterate(
+            `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
+          )
         );
         printer.println(
-          `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
+          transliterate(
+            `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
+          )
         );
         printer.println(
-          `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+          transliterate(
+            `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+          )
         );
       } else if (
         (order.orderType === 'TAKE_AWAY_INSIDE' ||
@@ -239,10 +264,14 @@ export const printOrder = async (
         order.TakeAwayInfo
       ) {
         printer.println(
-          `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+          transliterate(
+            `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+          )
         );
         printer.println(
-          `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+          transliterate(
+            `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+          )
         );
       }
 
@@ -250,26 +279,34 @@ export const printOrder = async (
       productsToPrint.forEach((product) => {
         printer.newLine();
         const leftAmount = `${product.quantity}x `.length;
-        printer.println(`${product.quantity}x ${product.title}`);
+        printer.println(transliterate(`${product.quantity}x ${product.title}`));
         product.choices?.forEach((choice) => {
-          printer.println(leftPad(`${choice.title}`, leftAmount, ' '));
+          printer.println(
+            transliterate(leftPad(`${choice.title}`, leftAmount, ' '))
+          );
         });
         printer.alignRight();
-        printer.println(`${convertToDecimal(product.total).toFixed(2)} E`);
+        printer.println(
+          transliterate(`${convertToDecimal(product.total).toFixed(2)} E`)
+        );
         printer.alignLeft();
       });
 
       if (order.waiterComment) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
+          transliterate(
+            `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
+          )
         );
       }
 
       if (order.customerComment) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
+          transliterate(
+            `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
+          )
         );
       }
 
@@ -278,28 +315,38 @@ export const printOrder = async (
       if (order.tip) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+          transliterate(
+            `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+          )
         );
       }
 
       if (order.deliveryInfo?.deliveryFee) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+          transliterate(
+            `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+          )
         );
       }
 
       printer.newLine();
       printer.alignRight();
       printer.println(
-        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+        transliterate(
+          `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+        )
       );
       printer.newLine();
-      printer.println(`${translations.printOrder.poweredBy[lang]}`);
+      printer.println(
+        transliterate(`${translations.printOrder.poweredBy[lang]}`)
+      );
       printer.newLine();
       printer.newLine();
       printer.alignCenter();
-      printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
+      printer.println(
+        transliterate(`${translations.printOrder.notReceiptNotice[lang]}`)
+      );
       printer.cut();
 
       await printer.execute();
