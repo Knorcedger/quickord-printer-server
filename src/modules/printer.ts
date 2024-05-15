@@ -1,3 +1,4 @@
+/* eslint-disable no-await-in-loop */
 /* eslint-disable no-continue */
 import {
   CharacterSet,
@@ -9,10 +10,13 @@ import { z } from 'zod';
 import { Order } from '../resolvers/printOrders.ts';
 import { convertToDecimal, leftPad } from './common.ts';
 import logger from './logger.ts';
-import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
+import {
+  getSettings,
+  IPrinterSettings,
+  ISettings,
+  PrinterTextSize,
+} from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
-
-const printers: Array<[ThermalPrinter, IPrinterSettings]> = [];
 
 const changeTextSize = (
   printer: ThermalPrinter,
@@ -35,6 +39,8 @@ const changeTextSize = (
 };
 
 export const setupPrinters = async (settings: ISettings) => {
+  const printers: [ThermalPrinter, IPrinterSettings][] = [];
+
   settings?.printers?.forEach((printerSettings) => {
     if (!printerSettings.ip && !printerSettings.port) {
       return;
@@ -49,9 +55,6 @@ export const setupPrinters = async (settings: ISettings) => {
     const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
       characterSet: printerSettings.characterSet,
       interface: interfaceString || '',
-      options: {
-        timeout: 30000,
-      },
       type: PrinterTypes.EPSON,
     };
 
@@ -60,8 +63,40 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([new ThermalPrinter(config), printerSettings]);
+    printers.push([
+      new ThermalPrinter({
+        characterSet: printerSettings.characterSet,
+        interface: interfaceString || '',
+        type: PrinterTypes.EPSON,
+      }),
+      printerSettings,
+    ]);
   });
+
+  return printers;
+};
+
+export const setupPrinter = (settings: IPrinterSettings) => {
+  if (!settings.ip && !settings.port) {
+    return null;
+  }
+
+  let interfaceString = settings.port;
+
+  if (settings.ip) {
+    interfaceString = `tcp://${settings.ip}`;
+  }
+
+  const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
+    characterSet:
+      CharacterSet[settings.characterSet] || CharacterSet.ISO8859_7_GREEK,
+    interface: interfaceString || '',
+    type: PrinterTypes.EPSON,
+  };
+
+  logger.info(`Setting up printer ${settings.name} with config:`, config);
+
+  return new ThermalPrinter(config);
 };
 
 export const printTestPage = async (
@@ -106,154 +141,171 @@ export const printOrder = async (
   order: z.infer<typeof Order>,
   lang: SupportedLanguages = 'el'
 ) => {
+  const printers = await setupPrinters(getSettings());
+
   for (let i = 0; i < printers.length; i += 1) {
-    const printer = printers[i]?.[0];
-    const settings = printers[i]?.[1];
-
-    if (!printer) {
-      continue;
-    }
-
-    printer.clear();
-    printer.setCharacterSet(
-      settings?.characterSet || CharacterSet.ISO8859_7_GREEK
-    );
-    changeTextSize(printer, settings?.textSize || 'NORMAL');
-
-    const productsToPrint = order.products.filter((product) =>
-      product.categories.some(
-        (category) => !settings?.categoriesToNotPrint?.includes(category)
-      )
-    );
-
-    if (!productsToPrint?.length) {
-      continue;
-    }
-
-    const orderCreationDate = new Date(order.createdAt);
-    const date =
-      orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') || '';
-
-    const time = orderCreationDate.toLocaleTimeString('el-GR', {
-      hour: '2-digit',
-      hour12: false,
-      minute: '2-digit',
-    });
-
-    printer.alignCenter();
-    printer.println(translations.printOrder.orderForm[lang]);
-    printer.alignLeft();
-    printer.newLine();
-    printer.println(order.venue.title);
-    printer.println(order.venue.address);
-    printer.drawLine();
-    printer.table([
-      date,
-      time,
-      `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
-    ]);
-
-    if (order?.tableNumber) {
-      printer.table([
-        `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
-        ...(order.waiterName
-          ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
-          : []),
-      ]);
-    }
-
-    printer.println(
-      `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
-    );
-    printer.println(
-      `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
-    );
-    printer.drawLine();
-
-    if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
-      printer.println(
-        `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
-      );
-      printer.println(
-        `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
-      );
-      printer.println(
-        `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
-      );
-      printer.println(
-        `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
-      );
-      printer.println(
-        `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
-      );
-    } else if (
-      (order.orderType === 'TAKE_AWAY_INSIDE' ||
-        order.orderType === 'TAKE_AWAY_PACKAGE') &&
-      order.TakeAwayInfo
-    ) {
-      printer.println(
-        `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
-      );
-      printer.println(
-        `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
-      );
-    }
-
-    printer.drawLine();
-    productsToPrint.forEach((product) => {
-      printer.newLine();
-      const leftAmount = `${product.quantity}x `.length;
-      printer.println(`${product.quantity}x ${product.title}`);
-      product.choices?.forEach((choice) => {
-        printer.println(leftPad(`${choice.title}`, leftAmount, ' '));
-      });
-      printer.alignRight();
-      printer.println(`${convertToDecimal(product.total).toFixed(2)} E`);
-      printer.alignLeft();
-    });
-    printer.newLine();
-    printer.println(
-      `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
-    );
-    printer.newLine();
-    printer.println(
-      `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
-    );
-    printer.drawLine();
-
-    if (order.tip) {
-      printer.newLine();
-      printer.println(
-        `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
-      );
-    }
-
-    if (order.deliveryInfo?.deliveryFee) {
-      printer.newLine();
-      printer.println(
-        `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
-      );
-    }
-
-    printer.newLine();
-    printer.alignRight();
-    printer.println(
-      `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
-    );
-    printer.newLine();
-    printer.println(translations.printOrder.poweredBy[lang]);
-    printer.newLine();
-    printer.newLine();
-    printer.alignCenter();
-    printer.println(translations.printOrder.notReceiptNotice[lang]);
-    printer.cut();
-
     try {
-      printer.execute().then(() => {
-        logger.info(
-          `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
-        );
+      const settings = printers[i]?.[1];
+
+      if (!settings) {
+        continue;
+      }
+
+      if (!settings.ip && !settings.port) {
+        continue;
+      }
+
+      const printer = new ThermalPrinter({
+        characterSet: settings.characterSet || CharacterSet.WPC1253_GREEK,
+        interface: `tcp://${settings.ip}`,
+        type: PrinterTypes.EPSON,
       });
+
+      const productsToPrint = order.products.filter((product) =>
+        product.categories.some(
+          (category) => !settings?.categoriesToNotPrint?.includes(category)
+        )
+      );
+
+      if (!productsToPrint?.length) {
+        continue;
+      }
+
+      const orderCreationDate = new Date(order.createdAt);
+      const date =
+        orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') ||
+        '';
+
+      const time = orderCreationDate.toLocaleTimeString('el-GR', {
+        hour: '2-digit',
+        hour12: false,
+        minute: '2-digit',
+      });
+
+      printer.clear();
+      changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+      printer.drawLine();
+      printer.newLine();
+      printer.alignCenter();
+      printer.println(`${translations.printOrder.orderForm[lang]}`);
+      printer.alignLeft();
+      printer.newLine();
+      printer.println(order.venue.title);
+      printer.println(order.venue.address);
+      printer.drawLine();
+      printer.table([
+        `${date}`,
+        `${time}`,
+        `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+      ]);
+
+      if (order?.tableNumber) {
+        printer.table([
+          `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+          ...(order.waiterName
+            ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
+            : []),
+        ]);
+      }
+
+      printer.println(
+        `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
+      );
+      printer.println(
+        `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+      );
+      printer.drawLine();
+
+      if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
+        printer.println(
+          `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
+        );
+        printer.println(
+          `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
+        );
+        printer.println(
+          `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
+        );
+        printer.println(
+          `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
+        );
+        printer.println(
+          `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+        );
+      } else if (
+        (order.orderType === 'TAKE_AWAY_INSIDE' ||
+          order.orderType === 'TAKE_AWAY_PACKAGE') &&
+        order.TakeAwayInfo
+      ) {
+        printer.println(
+          `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+        );
+        printer.println(
+          `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+        );
+      }
+
+      printer.drawLine();
+      productsToPrint.forEach((product) => {
+        printer.newLine();
+        const leftAmount = `${product.quantity}x `.length;
+        printer.println(`${product.quantity}x ${product.title}`);
+        product.choices?.forEach((choice) => {
+          printer.println(leftPad(`${choice.title}`, leftAmount, ' '));
+        });
+        printer.alignRight();
+        printer.println(`${convertToDecimal(product.total).toFixed(2)} E`);
+        printer.alignLeft();
+      });
+
+      if (order.waiterComment) {
+        printer.newLine();
+        printer.println(
+          `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
+        );
+      }
+
+      if (order.customerComment) {
+        printer.newLine();
+        printer.println(
+          `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
+        );
+      }
+
+      printer.drawLine();
+
+      if (order.tip) {
+        printer.newLine();
+        printer.println(
+          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+        );
+      }
+
+      if (order.deliveryInfo?.deliveryFee) {
+        printer.newLine();
+        printer.println(
+          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+        );
+      }
+
+      printer.newLine();
+      printer.alignRight();
+      printer.println(
+        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+      );
+      printer.newLine();
+      printer.println(`${translations.printOrder.poweredBy[lang]}`);
+      printer.newLine();
+      printer.newLine();
+      printer.alignCenter();
+      printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
+      printer.cut();
+
+      await printer.execute();
+      logger.info(
+        `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
+      );
     } catch (error) {
       logger.error('Print failed:', error);
     }
