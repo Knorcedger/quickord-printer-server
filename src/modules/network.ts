@@ -13,7 +13,7 @@ export const initNetWorkScanner = async () => {
   const isNmapInstalled =
     OS === 'linux'
       ? execSync('nmap --version').toString()
-      : execSync('where nmap').toString();
+      : execSync('nmap -V').toString();
 
   if (isNmapInstalled.toLowerCase().includes('nmap version ')) {
     logger.info('nmap is already installed');

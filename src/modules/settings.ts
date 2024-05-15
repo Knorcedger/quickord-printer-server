@@ -6,7 +6,7 @@ import logger from './logger.ts';
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet);
 
-export const PrinterTextSize = z.enum(['normal', 'double', 'triple']);
+export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE']);
 
 export const PrinterSettings = z.object({
   categoriesToNotPrint: z.any(),
@@ -16,7 +16,7 @@ export const PrinterSettings = z.object({
   name: z.string().optional(),
   networkName: z.string(),
   port: z.string().optional(),
-  textSize: PrinterTextSize.optional().default('normal'),
+  textSize: PrinterTextSize.optional().default('NORMAL'),
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
