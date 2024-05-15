@@ -115,11 +115,14 @@ export const printOrder = async (
     }
 
     printer.clear();
+    printer.setCharacterSet(
+      settings?.characterSet || CharacterSet.ISO8859_7_GREEK
+    );
     changeTextSize(printer, settings?.textSize || 'NORMAL');
 
     const productsToPrint = order.products.filter((product) =>
-      product.categories.some((category) =>
-        settings?.categoriesToNotPrint?.includes(category)
+      product.categories.some(
+        (category) => !settings?.categoriesToNotPrint?.includes(category)
       )
     );
 
@@ -247,8 +250,6 @@ export const printOrder = async (
 
     try {
       printer.execute().then(() => {
-        printer.clear();
-
         logger.info(
           `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
         );
