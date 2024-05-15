@@ -2,12 +2,25 @@ import { Request, Response } from 'express';
 
 import logger from '../modules/logger.ts';
 import { setupPrinters } from '../modules/printer.ts';
-import { saveSettings, Settings, updateSettings } from '../modules/settings.ts';
+import {
+  IPrinterSettings,
+  saveSettings,
+  Settings,
+  updateSettings,
+} from '../modules/settings.ts';
 
 const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', req.body);
-    const newSettings = Settings.parse(req.body?.replace(/\r/g, ''));
+
+    const printers: IPrinterSettings[] = req.body.printers.map(
+      (printer: IPrinterSettings) => ({
+        ...printer,
+        ip: printer.ip.replace('\r', ''),
+      })
+    );
+
+    const newSettings = Settings.parse({ ...req.body, printers });
 
     updateSettings(newSettings);
 
