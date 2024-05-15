@@ -108,6 +108,10 @@ export default {
       el: 'POWERED BY QUICKORD',
       en: 'POWERED BY QUICKORD',
     },
+    tableNumber: {
+      el: 'ΤΡΑΠΕ',
+      en: 'TABLE',
+    },
     takeAwayType: {
       el: 'ΠΑΡΑΛΑΒΗ',
       en: 'TAKE AWAY',
@@ -129,6 +133,10 @@ export default {
     total: {
       el: 'ΣΥΝΟΛΟ',
       en: 'TOTAL',
+    },
+    waiter: {
+      el: 'ΣΕΡΒ',
+      en: 'WTR',
     },
     waiterComments: {
       el: 'ΣΧΟΛΙΑ ΣΕΡΒ',

@@ -92,7 +92,10 @@ export const scanNetworkForConnections = async (): Promise<
               connectionName = '';
             }
 
-            connections.push([connectionName || 'Unknown', connectionIp || '']);
+            connections.push([
+              connectionName?.replace('\r', '') || 'Unknown',
+              connectionIp?.replace('\r', '') || '',
+            ]);
           }
         });
 

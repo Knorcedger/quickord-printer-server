@@ -7,7 +7,7 @@ import { printTestPage } from '../modules/printer.ts';
 
 const testPrint = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    const ip = z.string().ip().parse(req.body.ip);
+    const ip = z.string().ip().parse(req.body.ip.replace('\r', ''));
     const charset = z.nativeEnum(CharacterSet).parse(req.body.charset);
 
     logger.info('Printing test page for:', ip);

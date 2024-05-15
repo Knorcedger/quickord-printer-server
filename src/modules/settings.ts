@@ -4,18 +4,52 @@ import { z } from 'zod';
 
 import logger from './logger.ts';
 
-const CharacterSetEnum = z.nativeEnum(CharacterSet);
+const CharacterSetEnum = z.nativeEnum(CharacterSet, {
+  description: 'The character set to use for the printer.',
+  invalid_type_error: 'characterSet must be a valid CharacterSet.',
+  required_error: 'characterSet is required.',
+});
 
-export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE']);
+export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
+  description: 'The text size to use for the printer. Defaults to NORMAL.',
+  invalid_type_error: 'textSize must be a valid PrinterTextSize.',
+  required_error: 'textSize is required.',
+});
 
 export const PrinterSettings = z.object({
-  categoriesToNotPrint: z.any(),
+  categoriesToNotPrint: z.any().optional(),
   characterSet: CharacterSetEnum,
-  copies: z.number().int().default(1),
-  ip: z.string().ip({ version: 'v4' }),
-  name: z.string().optional(),
-  networkName: z.string(),
-  port: z.string().optional(),
+  copies: z
+    .number({
+      invalid_type_error: 'copies must be a number.',
+      required_error: 'copies is required.',
+    })
+    .int({
+      message: 'copies must be an integer.',
+    })
+    .default(1),
+  ip: z
+    .string({
+      description: 'The IP address of the printer.',
+      invalid_type_error: 'ip must be a valid IPv4 address.',
+      required_error: 'ip is required.',
+    })
+    .ip({ version: 'v4' }),
+  name: z
+    .string({
+      invalid_type_error: 'printer name must be a string.',
+      required_error: 'printer name is required.',
+    })
+    .optional(),
+  networkName: z.string({
+    invalid_type_error: 'printer networkName must be a string.',
+    required_error: 'printer networkName is required.',
+  }),
+  port: z
+    .string({
+      invalid_type_error: 'printer port must be a string.',
+    })
+    .optional(),
   textSize: PrinterTextSize.optional().default('NORMAL'),
 });
 
@@ -44,7 +78,8 @@ export const loadSettings = async () => {
     settings.printers = settings.printers?.map((printer) => {
       return {
         ...printer,
-        characterSet: CharacterSet[printer.characterSet],
+        characterSet:
+          CharacterSet[printer.characterSet] || CharacterSet.WPC1253_GREEK,
       };
     });
   } catch (error) {

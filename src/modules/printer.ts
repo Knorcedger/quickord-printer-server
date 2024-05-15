@@ -147,32 +147,41 @@ export const printOrder = async (
     printer.table([
       date,
       time,
-
       `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
     ]);
+
+    if (order?.tableNumber) {
+      printer.table([
+        `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+        ...(order.waiterName
+          ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
+          : []),
+      ]);
+    }
+
     printer.println(
-      `${translations.printOrder.orderType[lang]}: ${translations.printOrder.orderTypes[order.orderType][lang]}`
+      `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
     );
     printer.println(
-      `${translations.printOrder.paymentType[lang]}: ${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+      `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
     );
     printer.drawLine();
 
     if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
       printer.println(
-        `${translations.printOrder.customerName[lang]}: ${order.deliveryInfo.customerName}`
+        `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
       );
       printer.println(
-        `${translations.printOrder.deliveryAddress[lang]}: ${order.deliveryInfo.customerAddress}`
+        `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
       );
       printer.println(
-        `${translations.printOrder.deliveryFloor[lang]}: ${order.deliveryInfo.customerFloor}`
+        `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
       );
       printer.println(
-        `${translations.printOrder.deliveryBell[lang]}: ${order.deliveryInfo.customerBell}`
+        `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
       );
       printer.println(
-        `${translations.printOrder.deliveryPhone[lang]}: ${order.deliveryInfo.customerPhoneNumber}`
+        `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
       );
     } else if (
       (order.orderType === 'TAKE_AWAY_INSIDE' ||
@@ -180,10 +189,10 @@ export const printOrder = async (
       order.TakeAwayInfo
     ) {
       printer.println(
-        `${translations.printOrder.customerName[lang]}: ${order.TakeAwayInfo.customerName}`
+        `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
       );
       printer.println(
-        `${translations.printOrder.customerEmail[lang]}: ${order.TakeAwayInfo.customerEmail}`
+        `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
       );
     }
 
@@ -201,32 +210,32 @@ export const printOrder = async (
     });
     printer.newLine();
     printer.println(
-      `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment}`
+      `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
     );
     printer.newLine();
     printer.println(
-      `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`
+      `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
     );
     printer.drawLine();
 
     if (order.tip) {
       printer.newLine();
       printer.println(
-        `${translations.printOrder.tip[lang]}: ${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+        `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
       );
     }
 
     if (order.deliveryInfo?.deliveryFee) {
       printer.newLine();
       printer.println(
-        `${translations.printOrder.deliveryFee[lang]}: ${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+        `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
       );
     }
 
     printer.newLine();
     printer.alignRight();
     printer.println(
-      `${translations.printOrder.total[lang]}: ${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+      `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
     );
     printer.newLine();
     printer.println(translations.printOrder.poweredBy[lang]);
@@ -241,7 +250,7 @@ export const printOrder = async (
         printer.clear();
 
         logger.info(
-          `Printed order ${order._id} to ${settings?.name || settings?.networkName}:${settings?.ip || settings?.port}`
+          `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
         );
       });
     } catch (error) {

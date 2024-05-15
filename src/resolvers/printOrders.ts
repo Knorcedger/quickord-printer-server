@@ -5,20 +5,59 @@ import logger from '../modules/logger.ts';
 import { printOrders as printerPrintOrders } from '../modules/printer.ts';
 
 export const Product = z.object({
-  _id: z.string(),
-  categories: z.array(z.string()),
+  _id: z.string({
+    invalid_type_error: 'product _id must be a string.',
+    required_error: 'product _id is required.',
+  }),
+  categories: z.array(
+    z.string({ invalid_type_error: 'categories must be an array of strings.' })
+  ),
   choices: z
     .array(
       z.object({
-        price: z.number().positive().optional(),
-        quantity: z.number().positive().optional(),
-        title: z.string(),
+        price: z
+          .number({
+            invalid_type_error: 'choice price must be a number.',
+          })
+          .positive({
+            message: 'choice price must be a positive number.',
+          })
+          .optional(),
+        quantity: z
+          .number({
+            invalid_type_error: 'choice quantity must be a number.',
+          })
+          .positive({
+            message: 'choice quantity must be a positive number.',
+          })
+          .optional(),
+        title: z.string({
+          invalid_type_error: 'choice title must be a string.',
+          required_error: 'choice title is required.',
+        }),
       })
     )
     .optional(),
-  quantity: z.number().positive(),
-  title: z.string(),
-  total: z.number().positive(),
+  quantity: z
+    .number({
+      invalid_type_error: 'product quantity must be a number.',
+      required_error: 'product quantity is required.',
+    })
+    .positive({
+      message: 'product quantity must be a positive number.',
+    }),
+  title: z.string({
+    invalid_type_error: 'product title must be a string.',
+    required_error: 'product title is required.',
+  }),
+  total: z
+    .number({
+      invalid_type_error: 'product total must be a number.',
+      required_error: 'product total is required.',
+    })
+    .positive({
+      message: 'product total must be a positive number.',
+    }),
 });
 
 export const OrderType = z.enum([
@@ -38,42 +77,128 @@ export const PaymentType = z.enum([
 ]);
 
 export const DeliveryInfo = z.object({
-  customerAddress: z.string(),
-  customerBell: z.string(),
-  customerEmail: z.string(),
-  customerFloor: z.string(),
-  customerName: z.string(),
-  customerPhoneNumber: z.string(),
-  deliveryFee: z.number().positive().optional().default(0),
+  customerAddress: z.string({
+    invalid_type_error: 'customerAddress must be a string.',
+    required_error: 'customerAddress is required.',
+  }),
+  customerBell: z.string({
+    invalid_type_error: 'customer bell must be a string.',
+    required_error: 'customerBell is required.',
+  }),
+  customerEmail: z.string({
+    invalid_type_error: 'customerEmail must be a string.',
+    required_error: 'customerEmail is required.',
+  }),
+  customerFloor: z.string({
+    invalid_type_error: 'customerFloor must be a string.',
+    required_error: 'customerFloor is required.',
+  }),
+  customerName: z.string({
+    invalid_type_error: 'customerName must be a string.',
+    required_error: 'customerName is required.',
+  }),
+  customerPhoneNumber: z.string({
+    invalid_type_error: 'customerPhoneNumber must be a string.',
+    required_error: 'customerPhoneNumber is required.',
+  }),
+  deliveryFee: z
+    .number({
+      invalid_type_error: 'deliveryFee must be a number.',
+    })
+    .positive()
+    .optional()
+    .default(0),
 });
 
 export const TakeAwayInfo = z.object({
-  customerEmail: z.string().optional(),
-  customerName: z.string(),
+  customerEmail: z
+    .string({
+      invalid_type_error: 'customerEmail must be a string.',
+    })
+    .optional(),
+  customerName: z.string({
+    invalid_type_error: 'customerName must be a string.',
+    required_error: 'customerName is required.',
+  }),
 });
 
 export const Order = z.object({
   TakeAwayInfo: TakeAwayInfo.optional(),
-  _id: z.string(),
+  _id: z.string({
+    invalid_type_error: '_id must be a string.',
+    required_error: '_id is required.',
+  }),
   createdAt: z
-    .string()
-    .datetime()
+    .string({
+      invalid_type_error: 'Invalid date format. Please use ISO format.',
+      required_error: 'createdAt is required.',
+    })
+    .datetime({
+      message: 'Invalid date format. Please use ISO format.',
+    })
     .describe('The date and time the order was created in ISO format'),
-  currency: z.string(),
-  customerComment: z.string().optional(),
+  currency: z
+    .string({
+      invalid_type_error: 'currency must be a string.',
+    })
+    .optional()
+    .default('€'),
+  customerComment: z
+    .string({
+      invalid_type_error: 'customerComment must be a string.',
+    })
+    .optional(),
   deliveryInfo: DeliveryInfo.optional(),
-  number: z.number(),
+  number: z.number({
+    invalid_type_error: 'number must be a number.',
+    required_error: 'number is required.',
+  }),
   orderType: OrderType,
   paymentType: PaymentType,
-  products: z.array(Product),
-  tableNumber: z.string(),
-  tip: z.number().optional(),
-  total: z.number().positive(),
-  venue: z.object({
-    address: z.string().describe('The address of the venue in string format'),
-    title: z.string(),
+  products: z.array(Product, {
+    invalid_type_error: 'products must be an array of Product objects.',
+    required_error: 'products is required.',
   }),
-  waiterComment: z.string().optional(),
+  tableNumber: z.any({
+    invalid_type_error: 'tableNumber must be a string.',
+    required_error: 'tableNumber is required.',
+  }),
+  tip: z
+    .number({
+      invalid_type_error: 'tip must be a number.',
+    })
+    .optional(),
+  total: z
+    .number({
+      invalid_type_error: 'total must be a number.',
+      required_error: 'total is required.',
+    })
+    .positive({
+      message: 'total must be a positive number.',
+    }),
+  venue: z.object({
+    address: z
+      .string({
+        invalid_type_error: 'address must be a string.',
+        required_error: 'address is required.',
+      })
+      .describe('The address of the venue in string format'),
+    title: z.string({
+      invalid_type_error: 'title must be a string.',
+      required_error: 'title is required.',
+    }),
+  }),
+  waiterComment: z
+    .string({
+      invalid_type_error: 'waiterComment must be a string.',
+    })
+    .optional(),
+  waiterName: z
+    .string({
+      invalid_type_error: 'waiterName must be a string.',
+      required_error: 'waiterName is required.',
+    })
+    .optional(),
 });
 
 const Orders = z.array(Order);

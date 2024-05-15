@@ -7,7 +7,7 @@ import { saveSettings, Settings, updateSettings } from '../modules/settings.ts';
 const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', req.body);
-    const newSettings = Settings.parse(req.body);
+    const newSettings = Settings.parse(req.body?.replace(/\r/g, ''));
 
     updateSettings(newSettings);
 
