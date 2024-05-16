@@ -19,6 +19,15 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 export const PrinterSettings = z.object({
   categoriesToNotPrint: z.any().optional(),
   characterSet: CharacterSetEnum,
+  codePage: z
+    .number({
+      invalid_type_error: 'codePage must be a number.',
+    })
+    .positive({
+      message: 'codePage must be a positive number.',
+    })
+    .optional()
+    .default(40),
   copies: z
     .number({
       invalid_type_error: 'copies must be a number.',

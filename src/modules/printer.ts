@@ -5,19 +5,17 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
-import { transliterate } from 'transliteration';
 import { z } from 'zod';
 
 import { Order } from '../resolvers/printOrders.ts';
 import { convertToDecimal, leftPad } from './common.ts';
 import logger from './logger.ts';
-import {
-  getSettings,
-  IPrinterSettings,
-  ISettings,
-  PrinterTextSize,
-} from './settings.ts';
+import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
+
+const CODE_PAGE_WPC1253 = 90;
+
+const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
 const changeTextSize = (
   printer: ThermalPrinter,
@@ -39,9 +37,11 @@ const changeTextSize = (
   }
 };
 
-export const setupPrinters = async (settings: ISettings) => {
-  const printers: [ThermalPrinter, IPrinterSettings][] = [];
+const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
+  printer.add(Buffer.from([0x1b, 0x74, codePage]));
+};
 
+export const setupPrinters = async (settings: ISettings) => {
   settings?.printers?.forEach((printerSettings) => {
     if (!printerSettings.ip && !printerSettings.port) {
       return;
@@ -60,7 +60,7 @@ export const setupPrinters = async (settings: ISettings) => {
     };
 
     logger.info(
-      `Setting up printer ${printerSettings.name} with config:`,
+      `Setting up printer ${printerSettings.name || printerSettings.ip} with config:`,
       config
     );
 
@@ -73,8 +73,6 @@ export const setupPrinters = async (settings: ISettings) => {
       printerSettings,
     ]);
   });
-
-  return printers;
 };
 
 export const setupPrinter = (settings: IPrinterSettings) => {
@@ -102,13 +100,16 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
 export const printTestPage = async (
   ip: string,
-  charset?: CharacterSet
+  charset?: CharacterSet,
+  codePage?: number
 ): Promise<string> => {
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: `tcp://${ip}`,
     type: PrinterTypes.EPSON,
   });
+
+  changeCodePage(printer, codePage || CODE_PAGE_WPC1253);
 
   printer.alignCenter();
   printer.println(`charset: ${charset || CharacterSet.WPC1253_GREEK}`);
@@ -142,25 +143,18 @@ export const printOrder = async (
   order: z.infer<typeof Order>,
   lang: SupportedLanguages = 'el'
 ) => {
-  const printers = await setupPrinters(getSettings());
-
   for (let i = 0; i < printers.length; i += 1) {
     try {
       const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
 
       if (!settings) {
         continue;
       }
 
-      if (!settings.ip && !settings.port) {
+      if (!printer) {
         continue;
       }
-
-      const printer = new ThermalPrinter({
-        characterSet: settings.characterSet || CharacterSet.WPC1253_GREEK,
-        interface: `tcp://${settings.ip}`,
-        type: PrinterTypes.EPSON,
-      });
 
       const productsToPrint = order.products.filter((product) =>
         product.categories.some(
@@ -184,79 +178,58 @@ export const printOrder = async (
       });
 
       printer.clear();
+
+      changeCodePage(printer, settings?.codePage || CODE_PAGE_WPC1253);
       changeTextSize(printer, settings?.textSize || 'NORMAL');
 
       printer.drawLine();
       printer.newLine();
       printer.alignCenter();
-      printer.println(
-        transliterate(`${translations.printOrder.orderForm[lang]}`)
-      );
+      printer.println(`${translations.printOrder.orderForm[lang]}`);
       printer.alignLeft();
       printer.newLine();
-      printer.println(transliterate(order.venue.title));
-      printer.println(transliterate(order.venue.address));
+      printer.println(order.venue.title);
+      printer.println(order.venue.address);
       printer.drawLine();
       printer.table([
         `${date}`,
         `${time}`,
-        transliterate(
-          `${translations.printOrder.orderNumber[lang]}:#${order.number}`
-        ),
+
+        `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
       ]);
 
       if (order?.tableNumber) {
         printer.table([
-          transliterate(
-            `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`
-          ),
+          `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
           ...(order.waiterName
-            ? [
-                transliterate(
-                  `${translations.printOrder.waiter[lang]}:${order.waiterName}`
-                ),
-              ]
+            ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
             : []),
         ]);
       }
 
       printer.println(
-        transliterate(
-          `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
-        )
+        `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
       );
       printer.println(
-        transliterate(
-          `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
-        )
+        `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
       );
       printer.drawLine();
 
       if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
         printer.println(
-          transliterate(
-            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
-          )
+          `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
         );
         printer.println(
-          transliterate(
-            `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
-          )
+          `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
         );
         printer.println(
-          transliterate(
-            `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
-          )
+          `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
         );
         printer.println(
-          transliterate(
-            `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
-          )
+          `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
         );
         printer.println(
-          transliterate(
-            `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
-          )
+          `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
         );
       } else if (
         (order.orderType === 'TAKE_AWAY_INSIDE' ||
@@ -264,14 +237,10 @@ export const printOrder = async (
         order.TakeAwayInfo
       ) {
         printer.println(
-          transliterate(
-            `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
-          )
+          `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
         );
         printer.println(
-          transliterate(
-            `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
-          )
+          `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
         );
       }
 
@@ -279,34 +248,26 @@ export const printOrder = async (
       productsToPrint.forEach((product) => {
         printer.newLine();
         const leftAmount = `${product.quantity}x `.length;
-        printer.println(transliterate(`${product.quantity}x ${product.title}`));
+        printer.println(`${product.quantity}x ${product.title}`);
         product.choices?.forEach((choice) => {
-          printer.println(
-            transliterate(leftPad(`${choice.title}`, leftAmount, ' '))
-          );
+          printer.println(leftPad(`${choice.title}`, leftAmount, ' '));
         });
         printer.alignRight();
-        printer.println(
-          transliterate(`${convertToDecimal(product.total).toFixed(2)} E`)
-        );
+        printer.println(`${convertToDecimal(product.total).toFixed(2)} E`);
         printer.alignLeft();
       });
 
       if (order.waiterComment) {
         printer.newLine();
         printer.println(
-          transliterate(
-            `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
-          )
+          `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
         );
       }
 
       if (order.customerComment) {
         printer.newLine();
         printer.println(
-          transliterate(
-            `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
-          )
+          `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
         );
       }
 
@@ -315,38 +276,28 @@ export const printOrder = async (
       if (order.tip) {
         printer.newLine();
         printer.println(
-          transliterate(
-            `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
-          )
+          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
         );
       }
 
       if (order.deliveryInfo?.deliveryFee) {
         printer.newLine();
         printer.println(
-          transliterate(
-            `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
-          )
+          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
         );
       }
 
       printer.newLine();
       printer.alignRight();
       printer.println(
-        transliterate(
-          `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
-        )
+        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
       );
       printer.newLine();
-      printer.println(
-        transliterate(`${translations.printOrder.poweredBy[lang]}`)
-      );
+      printer.println(`${translations.printOrder.poweredBy[lang]}`);
       printer.newLine();
       printer.newLine();
       printer.alignCenter();
-      printer.println(
-        transliterate(`${translations.printOrder.notReceiptNotice[lang]}`)
-      );
+      printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
       printer.cut();
 
       await printer.execute();
