@@ -198,7 +198,7 @@ export const printOrder = async (
         `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
       ]);
 
-      if (order?.tableNumber) {
+      if (order?.tableNumber && order?.waiterName) {
         printer.table([
           `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
           ...(order.waiterName
@@ -231,29 +231,68 @@ export const printOrder = async (
         printer.println(
           `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
         );
+        printer.drawLine();
       } else if (
         (order.orderType === 'TAKE_AWAY_INSIDE' ||
           order.orderType === 'TAKE_AWAY_PACKAGE') &&
         order.TakeAwayInfo
       ) {
-        printer.println(
-          `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
-        );
-        printer.println(
-          `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
-        );
+        let drawLine = false;
+
+        if (order.TakeAwayInfo.customerName) {
+          printer.println(
+            `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+          );
+          drawLine = true;
+        }
+
+        if (order.TakeAwayInfo.customerEmail) {
+          printer.println(
+            `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+          );
+          drawLine = true;
+        }
+
+        if (drawLine) {
+          printer.drawLine();
+        }
       }
 
-      printer.drawLine();
+      if (settings?.textOptions) {
+        settings.textOptions?.forEach((textOption) => {
+          switch (textOption) {
+            case 'BOLD_PRODUCTS':
+              printer.setTextSize(1, 1);
+              break;
+            default:
+              break;
+          }
+        });
+      }
+
       productsToPrint.forEach((product) => {
+        let total = product.total;
+
         printer.newLine();
         const leftAmount = `${product.quantity}x `.length;
-        printer.println(`${product.quantity}x ${product.title}`);
+        printer.table([
+          `${product.quantity}x ${product.title}`,
+          product.total
+            ? `${convertToDecimal(product.total).toFixed(2)} €`
+            : '',
+        ]);
         product.choices?.forEach((choice) => {
-          printer.println(leftPad(`${choice.title}`, leftAmount, ' '));
+          total += choice.price || 0;
+          printer.table([
+            leftPad(`${choice.quantity}x ${choice.title}`, leftAmount, ' '),
+            choice.price
+              ? `${convertToDecimal(choice.price).toFixed(2)} €`
+              : '',
+          ]);
         });
+
         printer.alignRight();
-        printer.println(`${convertToDecimal(product.total).toFixed(2)} E`);
+        printer.println(`${convertToDecimal(total).toFixed(2)} €`);
         printer.alignLeft();
       });
 
@@ -273,24 +312,26 @@ export const printOrder = async (
 
       printer.drawLine();
 
+      changeTextSize(printer, settings?.textSize || 'NORMAL');
+
       if (order.tip) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} ${order.currency}`
+          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`
         );
       }
 
       if (order.deliveryInfo?.deliveryFee) {
         printer.newLine();
         printer.println(
-          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} ${order.currency}`
+          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
         );
       }
 
       printer.newLine();
       printer.alignRight();
       printer.println(
-        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} ${order.currency}`
+        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`
       );
       printer.newLine();
       printer.println(`${translations.printOrder.poweredBy[lang]}`);

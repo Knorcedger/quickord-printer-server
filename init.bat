@@ -6,7 +6,7 @@
 cd "printer server directory"
 
 @REM Run the server
-node dist/server.js
+node dist/index.js
 
 @REM Wait 5 seconds before restarting
 timeout /t 5

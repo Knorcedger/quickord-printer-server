@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import logger from '../modules/logger.ts';
 import { setupPrinters } from '../modules/printer.ts';
 import {
+  getSettings,
   IPrinterSettings,
   saveSettings,
   Settings,
@@ -13,8 +14,13 @@ const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', req.body);
 
+    const oldSettings = getSettings();
+
     const printers: IPrinterSettings[] = req.body.printers.map(
       (printer: IPrinterSettings) => ({
+        ...(oldSettings.printers.find(
+          (p) => p.ip === printer.ip.replace('\r', '')
+        ) || {}),
         ...printer,
         ip: printer.ip.replace('\r', ''),
       })

@@ -16,15 +16,18 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
   required_error: 'textSize is required.',
 });
 
+export const PrinterTextOptions = z.enum(['BOLD_PRODUCTS'], {
+  description: 'The text options to use for the printer.',
+  invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
+  required_error: 'textOptions is required.',
+});
+
 export const PrinterSettings = z.object({
   categoriesToNotPrint: z.any().optional(),
   characterSet: CharacterSetEnum,
   codePage: z
     .number({
       invalid_type_error: 'codePage must be a number.',
-    })
-    .positive({
-      message: 'codePage must be a positive number.',
     })
     .optional()
     .default(40),
@@ -59,6 +62,7 @@ export const PrinterSettings = z.object({
       invalid_type_error: 'printer port must be a string.',
     })
     .optional(),
+  textOptions: z.array(PrinterTextOptions).optional(),
   textSize: PrinterTextSize.optional().default('NORMAL'),
 });
 
