@@ -23,14 +23,21 @@ export const PrinterTextOptions = z.enum(['BOLD_PRODUCTS'], {
 });
 
 export const PrinterSettings = z.object({
-  categoriesToNotPrint: z.any().optional(),
+  categoriesToNotPrint: z
+    .array(z.string(), {
+      description: 'The product categories to not print on the receipt.',
+      invalid_type_error: 'categoriesToNotPrint must be an array of strings.',
+      required_error: 'categoriesToNotPrint is required.',
+    })
+    .optional()
+    .default([]),
   characterSet: CharacterSetEnum,
   codePage: z
     .number({
       invalid_type_error: 'codePage must be a number.',
     })
     .optional()
-    .default(40),
+    .default(17),
   copies: z
     .number({
       invalid_type_error: 'copies must be a number.',
@@ -46,13 +53,15 @@ export const PrinterSettings = z.object({
       invalid_type_error: 'ip must be a valid IPv4 address.',
       required_error: 'ip is required.',
     })
-    .ip({ version: 'v4' }),
+    .optional()
+    .default(''),
   name: z
     .string({
       invalid_type_error: 'printer name must be a string.',
       required_error: 'printer name is required.',
     })
-    .optional(),
+    .optional()
+    .default(''),
   networkName: z.string({
     invalid_type_error: 'printer networkName must be a string.',
     required_error: 'printer networkName is required.',
@@ -61,8 +70,16 @@ export const PrinterSettings = z.object({
     .string({
       invalid_type_error: 'printer port must be a string.',
     })
-    .optional(),
-  textOptions: z.array(PrinterTextOptions).optional(),
+    .optional()
+    .default(''),
+  textOptions: z
+    .array(PrinterTextOptions, {
+      description: 'The text options to use for the printer.',
+      invalid_type_error: 'textOptions must be an array of PrinterTextOptions.',
+      required_error: 'textOptions is required.',
+    })
+    .optional()
+    .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
 });
 

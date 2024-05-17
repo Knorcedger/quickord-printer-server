@@ -31,7 +31,10 @@ const main = async () => {
   app.use(
     cors({
       origin(origin: string | undefined, callback: any) {
-        if (!origin?.includes('quickord.com')) {
+        if (
+          !origin?.includes('quickord.com') &&
+          !origin?.includes('localhost')
+        ) {
           logger.info('cors origin:', origin);
         }
 

@@ -13,7 +13,7 @@ import logger from './logger.ts';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
 
-const CODE_PAGE_WPC1253 = 90;
+const CODE_PAGE_WPC1253 = 17;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
@@ -100,12 +100,19 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
 export const printTestPage = async (
   ip: string,
+  port: string,
   charset?: CharacterSet,
   codePage?: number
 ): Promise<string> => {
+  let interfaceString = port;
+
+  if (ip) {
+    interfaceString = `tcp://${ip}`;
+  }
+
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
-    interface: `tcp://${ip}`,
+    interface: interfaceString,
     type: PrinterTypes.EPSON,
   });
 
@@ -180,174 +187,180 @@ export const printOrder = async (
       printer.clear();
 
       changeCodePage(printer, settings?.codePage || CODE_PAGE_WPC1253);
-      changeTextSize(printer, settings?.textSize || 'NORMAL');
 
-      printer.drawLine();
-      printer.newLine();
-      printer.alignCenter();
-      printer.println(`${translations.printOrder.orderForm[lang]}`);
-      printer.alignLeft();
-      printer.newLine();
-      printer.println(order.venue.title);
-      printer.println(order.venue.address);
-      printer.drawLine();
-      printer.table([
-        `${date}`,
-        `${time}`,
+      for (let copies = 0; copies < settings.copies; copies += 1) {
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
 
-        `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
-      ]);
-
-      if (order?.tableNumber) {
+        printer.drawLine();
+        printer.newLine();
+        printer.alignCenter();
+        printer.println(`${translations.printOrder.orderForm[lang]}`);
+        printer.alignLeft();
+        printer.newLine();
+        printer.println(order.venue.title);
+        printer.println(order.venue.address);
+        printer.drawLine();
         printer.table([
-          `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
-          ...(order.waiterName
-            ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
-            : []),
+          `${date}`,
+          `${time}`,
+
+          `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
         ]);
-      }
 
-      printer.println(
-        `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
-      );
-      printer.println(
-        `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
-      );
-      printer.drawLine();
+        if (order?.tableNumber) {
+          printer.table([
+            `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+            ...(order.waiterName
+              ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
+              : []),
+          ]);
+        }
 
-      if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
         printer.println(
-          `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
+          `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
         );
         printer.println(
-          `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
-        );
-        printer.println(
-          `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
-        );
-        printer.println(
-          `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
-        );
-        printer.println(
-          `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+          `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
         );
         printer.drawLine();
-      } else if (
-        (order.orderType === 'TAKE_AWAY_INSIDE' ||
-          order.orderType === 'TAKE_AWAY_PACKAGE') &&
-        order.TakeAwayInfo
-      ) {
-        let drawLine = false;
 
-        if (order.TakeAwayInfo.customerName) {
+        if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
           printer.println(
-            `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
           );
-          drawLine = true;
-        }
-
-        if (order.TakeAwayInfo.customerEmail) {
           printer.println(
-            `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+            `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
           );
-          drawLine = true;
-        }
-
-        if (drawLine) {
+          printer.println(
+            `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
+          );
+          printer.println(
+            `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
+          );
+          printer.println(
+            `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+          );
           printer.drawLine();
-        }
-      }
+        } else if (
+          (order.orderType === 'TAKE_AWAY_INSIDE' ||
+            order.orderType === 'TAKE_AWAY_PACKAGE') &&
+          order.TakeAwayInfo
+        ) {
+          let drawLine = false;
 
-      if (settings?.textOptions) {
-        settings.textOptions?.forEach((textOption) => {
-          switch (textOption) {
-            case 'BOLD_PRODUCTS':
-              printer.setTextSize(1, 1);
-              break;
-            default:
-              break;
+          if (order.TakeAwayInfo.customerName) {
+            printer.println(
+              `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+            );
+            drawLine = true;
           }
-        });
-      }
 
-      productsToPrint.forEach((product) => {
-        let total = product.total;
+          if (order.TakeAwayInfo.customerEmail) {
+            printer.println(
+              `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+            );
+            drawLine = true;
+          }
 
-        printer.newLine();
-        const leftAmount = `${product.quantity}x `.length;
-        printer.println(
-          `${product.quantity}x ${product.title}  ${
-            product.total
-              ? `${convertToDecimal(product.total).toFixed(2)} €`
-              : ''
-          }`
-        );
-        product.choices?.forEach((choice) => {
-          total += choice.price || 0;
+          if (drawLine) {
+            printer.drawLine();
+          }
+        }
+
+        if (settings?.textOptions) {
+          settings.textOptions?.forEach((textOption) => {
+            switch (textOption) {
+              case 'BOLD_PRODUCTS':
+                printer.setTextSize(1, 1);
+                break;
+              default:
+                break;
+            }
+          });
+        }
+
+        productsToPrint.forEach((product) => {
+          let total = product.total;
+
+          printer.newLine();
+          const leftAmount = `${product.quantity}x `.length;
           printer.println(
-            `${leftPad(
-              ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
-              leftAmount,
-              ' '
-            )}  ${
-              choice.price
-                ? `+${convertToDecimal(choice.price).toFixed(2)} €`
+            `${product.quantity}x ${product.title}  ${
+              product.total
+                ? `${convertToDecimal(product.total).toFixed(2)} €`
                 : ''
             }`
           );
+          product.choices?.forEach((choice) => {
+            total += choice.price || 0;
+            printer.println(
+              `${leftPad(
+                ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
+                leftAmount,
+                ' '
+              )}  ${
+                choice.price
+                  ? `+${convertToDecimal(choice.price).toFixed(2)} €`
+                  : ''
+              }`
+            );
+          });
+
+          printer.alignRight();
+          printer.println(`${convertToDecimal(total).toFixed(2)} €`);
+          printer.alignLeft();
         });
 
+        if (order.waiterComment) {
+          printer.newLine();
+          printer.println(
+            `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
+          );
+        }
+
+        if (order.customerComment) {
+          printer.newLine();
+          printer.println(
+            `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
+          );
+        }
+
+        printer.drawLine();
+
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+        if (order.tip) {
+          printer.newLine();
+          printer.println(
+            `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`
+          );
+        }
+
+        if (order.deliveryInfo?.deliveryFee) {
+          printer.newLine();
+          printer.println(
+            `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
+          );
+        }
+
+        printer.newLine();
         printer.alignRight();
-        printer.println(`${convertToDecimal(total).toFixed(2)} €`);
-        printer.alignLeft();
+        printer.println(
+          `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`
+        );
+        printer.newLine();
+        printer.println(`${translations.printOrder.poweredBy[lang]}`);
+        printer.newLine();
+        printer.newLine();
+        printer.alignCenter();
+        printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
+        printer.cut();
+      }
+
+      await printer.execute({
+        waitForResponse: false,
       });
-
-      if (order.waiterComment) {
-        printer.newLine();
-        printer.println(
-          `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
-        );
-      }
-
-      if (order.customerComment) {
-        printer.newLine();
-        printer.println(
-          `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
-        );
-      }
-
-      printer.drawLine();
-
-      changeTextSize(printer, settings?.textSize || 'NORMAL');
-
-      if (order.tip) {
-        printer.newLine();
-        printer.println(
-          `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`
-        );
-      }
-
-      if (order.deliveryInfo?.deliveryFee) {
-        printer.newLine();
-        printer.println(
-          `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
-        );
-      }
-
-      printer.newLine();
-      printer.alignRight();
-      printer.println(
-        `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`
-      );
-      printer.newLine();
-      printer.println(`${translations.printOrder.poweredBy[lang]}`);
-      printer.newLine();
-      printer.newLine();
-      printer.alignCenter();
-      printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
-      printer.cut();
-
-      await printer.execute();
+      printer.clear();
       logger.info(
         `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
       );

@@ -19,10 +19,12 @@ const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     const printers: IPrinterSettings[] = req.body.printers.map(
       (printer: IPrinterSettings) => ({
         ...(oldSettings.printers.find(
-          (p) => p.ip === printer.ip.replace('\r', '')
+          (p) =>
+            (p.ip === printer.ip.replace('\r', '') && p.ip !== '') ||
+            (p.port === printer.port && p.port !== '')
         ) || {}),
         ...printer,
-        ip: printer.ip.replace('\r', ''),
+        ip: printer.ip ? printer.ip.replace('\r', '') : undefined,
       })
     );
 
