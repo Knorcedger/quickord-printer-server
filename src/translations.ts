@@ -58,7 +58,7 @@ export default {
         en: 'DELIVERY',
       },
       DINE_IN: {
-        el: 'ΚΑΤΑΝΑΛΩΣΗ',
+        el: 'ΚΑΤΑΝΑΛΩΣΗ ΕΝΤΟΣ',
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {

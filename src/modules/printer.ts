@@ -198,7 +198,7 @@ export const printOrder = async (
         `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
       ]);
 
-      if (order?.tableNumber && order?.waiterName) {
+      if (order?.tableNumber) {
         printer.table([
           `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
           ...(order.waiterName
@@ -275,20 +275,26 @@ export const printOrder = async (
 
         printer.newLine();
         const leftAmount = `${product.quantity}x `.length;
-        printer.table([
-          `${product.quantity}x ${product.title}`,
-          product.total
-            ? `${convertToDecimal(product.total).toFixed(2)} €`
-            : '',
-        ]);
+        printer.println(
+          `${product.quantity}x ${product.title}  ${
+            product.total
+              ? `${convertToDecimal(product.total).toFixed(2)} €`
+              : ''
+          }`
+        );
         product.choices?.forEach((choice) => {
           total += choice.price || 0;
-          printer.table([
-            leftPad(`${choice.quantity}x ${choice.title}`, leftAmount, ' '),
-            choice.price
-              ? `${convertToDecimal(choice.price).toFixed(2)} €`
-              : '',
-          ]);
+          printer.println(
+            `${leftPad(
+              ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
+              leftAmount,
+              ' '
+            )}  ${
+              choice.price
+                ? `+${convertToDecimal(choice.price).toFixed(2)} €`
+                : ''
+            }`
+          );
         });
 
         printer.alignRight();
