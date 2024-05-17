@@ -19,17 +19,12 @@ export const Product = z.object({
           .number({
             invalid_type_error: 'choice price must be a number.',
           })
-          .positive({
-            message: 'choice price must be a positive number.',
-          })
           .optional(),
         quantity: z
           .number({
             invalid_type_error: 'choice quantity must be a number.',
           })
-          .positive({
-            message: 'choice quantity must be a positive number.',
-          })
+
           .optional(),
         title: z.string({
           invalid_type_error: 'choice title must be a string.',
@@ -38,26 +33,18 @@ export const Product = z.object({
       })
     )
     .optional(),
-  quantity: z
-    .number({
-      invalid_type_error: 'product quantity must be a number.',
-      required_error: 'product quantity is required.',
-    })
-    .positive({
-      message: 'product quantity must be a positive number.',
-    }),
+  quantity: z.number({
+    invalid_type_error: 'product quantity must be a number.',
+    required_error: 'product quantity is required.',
+  }),
   title: z.string({
     invalid_type_error: 'product title must be a string.',
     required_error: 'product title is required.',
   }),
-  total: z
-    .number({
-      invalid_type_error: 'product total must be a number.',
-      required_error: 'product total is required.',
-    })
-    .positive({
-      message: 'product total must be a positive number.',
-    }),
+  total: z.number({
+    invalid_type_error: 'product total must be a number.',
+    required_error: 'product total is required.',
+  }),
 });
 
 export const OrderType = z.enum([
@@ -105,7 +92,6 @@ export const DeliveryInfo = z.object({
     .number({
       invalid_type_error: 'deliveryFee must be a number.',
     })
-    .positive()
     .optional()
     .default(0),
 });
@@ -168,14 +154,10 @@ export const Order = z.object({
       invalid_type_error: 'tip must be a number.',
     })
     .optional(),
-  total: z
-    .number({
-      invalid_type_error: 'total must be a number.',
-      required_error: 'total is required.',
-    })
-    .positive({
-      message: 'total must be a positive number.',
-    }),
+  total: z.number({
+    invalid_type_error: 'total must be a number.',
+    required_error: 'total is required.',
+  }),
   venue: z.object({
     address: z
       .string({
