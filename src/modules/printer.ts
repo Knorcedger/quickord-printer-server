@@ -292,7 +292,7 @@ export const printOrder = async (
             }`
           );
           product.choices?.forEach((choice) => {
-            total += choice.price || 0;
+            total += (choice.price || 0) * (choice.quantity || 1);
             printer.println(
               `${leftPad(
                 ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
@@ -300,7 +300,7 @@ export const printOrder = async (
                 ' '
               )}  ${
                 choice.price
-                  ? `+${convertToDecimal(choice.price).toFixed(2)} €`
+                  ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
                   : ''
               }`
             );
