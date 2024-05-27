@@ -20,6 +20,5 @@
     "type": "es6"
   },
   "minify": true,
-  "sourceMaps": true,
-  "inlineSourcesContent": true
+  "sourceMaps": "inline"
 }

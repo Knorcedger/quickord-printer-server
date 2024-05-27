@@ -203,7 +203,6 @@ export const printOrder = async (
         printer.table([
           `${date}`,
           `${time}`,
-
           `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
         ]);
 
@@ -360,9 +359,10 @@ export const printOrder = async (
       await printer.execute({
         waitForResponse: false,
       });
+
       printer.clear();
       logger.info(
-        `Printed order ${order._id} to ${settings?.name || settings?.networkName}: ${settings?.ip || settings?.port}`
+        `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
       );
     } catch (error) {
       logger.error('Print failed:', error);

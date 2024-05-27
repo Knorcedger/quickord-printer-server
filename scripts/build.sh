@@ -3,6 +3,7 @@ rm -rf dist
 rm -rf builds
 
 npx swc ./src/ -d ./dist/
+npx swc ./autoupdate.ts -d ./dist/autoupdate
 
 node ./scripts/update_imports.js
 
