@@ -5,6 +5,9 @@ on:
     branches:
       - "main"
 
+permissions:
+  contents: write
+
 jobs:
   create:
     runs-on: ubuntu-latest
@@ -27,8 +30,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --cache .npm --prefer-offline
 
-      - name: Build priject
+      - name: Build project
         run: npm run build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create release
         run: node ./scripts/create_release.js
