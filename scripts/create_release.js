@@ -19,7 +19,7 @@ console.log('Creating release...');
 const release = await octokit.rest.repos.createRelease({
   owner: REPOSITORY_OWNER,
   repo: REPOSITORY_NAME,
-  tag_name: `v${new Date().getFullYear()}.${new Date().getMonth() + 1}.${new Date().getDate()}-${TAG}`,
+  tag_name: `v${new Date().getFullYear()}.${new Date().getMonth() + 1}.${new Date().getDate()}-${new Date().getTime().toString().slice(-5)}`,
   target_commitish: 'main',
   draft: false,
   prerelease: false,

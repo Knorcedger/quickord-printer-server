@@ -37,4 +37,3 @@ jobs:
         run: node ./scripts/create_release.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref }}
