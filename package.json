@@ -39,6 +39,7 @@
     "signale": "^1.4.0",
     "swc": "^1.0.11",
     "transliteration": "^2.3.5",
+    "yauzl-promise": "^4.0.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
@@ -53,6 +54,7 @@
     "@types/jest": "^29.5.10",
     "@types/nconf": "^0.10.6",
     "@types/signale": "^1.4.7",
+    "@types/yauzl-promise": "^4.0.1",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
     "concurrently": "^8.2.2",

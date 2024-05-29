@@ -200,6 +200,11 @@ export const printOrder = async (
         printer.println(order.venue.title);
         printer.println(order.venue.address);
         printer.drawLine();
+
+        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          printer.setTextSize(1, 1);
+        }
+
         printer.table([
           `${date}`,
           `${time}`,
@@ -214,6 +219,8 @@ export const printOrder = async (
               : []),
           ]);
         }
+
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         printer.println(
           `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`

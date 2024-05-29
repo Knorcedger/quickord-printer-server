@@ -1,0 +1,31 @@
+name: Preflight
+
+on:
+  push:
+    branches:
+      - "main"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: '${{ github.workflow }} @ ${{ github.event.pull_request.head.label || github.head_ref || github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  create-version-file:
+    if: github.base_ref == 'main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    uses: ./.github/workflows/create_version.yaml
+    secrets: inherit
+
+  create-release:
+    if: github.base_ref == 'main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    needs: create-version-file
+    uses: ./.github/workflows/create_release.yaml
+    secrets: inherit

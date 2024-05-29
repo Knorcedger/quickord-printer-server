@@ -1,0 +1,26 @@
+name: Create version
+
+on: workflow_call
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Create new version
+        run: node ./scripts/create_version_file.js
+
+      - name: Commit build
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: Updated version file
+          default_author: github_actions

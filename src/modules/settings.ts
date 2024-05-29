@@ -16,11 +16,14 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
   required_error: 'textSize is required.',
 });
 
-export const PrinterTextOptions = z.enum(['BOLD_PRODUCTS'], {
-  description: 'The text options to use for the printer.',
-  invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
-  required_error: 'textOptions is required.',
-});
+export const PrinterTextOptions = z.enum(
+  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER'],
+  {
+    description: 'The text options to use for the printer.',
+    invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
+    required_error: 'textOptions is required.',
+  }
+);
 
 export const PrinterSettings = z.object({
   categoriesToNotPrint: z

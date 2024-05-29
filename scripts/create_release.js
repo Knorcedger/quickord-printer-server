@@ -15,11 +15,24 @@ const codeData = fs.readFileSync('builds/quickord-cashier-server.zip');
 console.log('Reading zip file "requirements.zip"...');
 const requirementData = fs.readFileSync('builds/requirements.zip');
 
+const now = new Date();
+let version = `v${now.getFullYear()}.${now.getMonth() + 1}.${now.getDate()}-${now.getTime().toString().slice(-5)}`;
+
+try {
+  const versionFile = await fs.promises.readFile('version', 'utf-8');
+
+  if (versionFile.trim()) {
+    version = versionFile.trim();
+  }
+} catch (error) {
+  console.error('Error reading version file:', error);
+}
+
 console.log('Creating release...');
 const release = await octokit.rest.repos.createRelease({
   owner: REPOSITORY_OWNER,
   repo: REPOSITORY_NAME,
-  tag_name: `v${new Date().getFullYear()}.${new Date().getMonth() + 1}.${new Date().getDate()}-${new Date().getTime().toString().slice(-5)}`,
+  tag_name: version,
   target_commitish: 'main',
   draft: false,
   prerelease: false,

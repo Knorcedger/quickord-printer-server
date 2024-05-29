@@ -1,9 +1,6 @@
 name: Create release
 
-on:
-  push:
-    branches:
-      - "main"
+on: workflow_call
 
 permissions:
   contents: write
@@ -11,6 +8,7 @@ permissions:
 jobs:
   create:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       matrix:

@@ -29,6 +29,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true /* Skip type checking all .d.ts files. */
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "autoupdate.ts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/autoupdate/autoupdate.ts"],
   "exclude": ["node_modules", "dist", "jest.config.cjs"]
 }
