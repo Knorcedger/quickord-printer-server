@@ -19,6 +19,7 @@
     "----------------------------------Typescript----------------------------------": "",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "npm run typecheck && sh ./scripts/build.sh",
+    "build:code": "rm -rf dist && npx swc ./src/ -d ./dist/ && node ./scripts/update_imports.js",
     "build:watch": "nodemon --watch ./ -e ts --exec npm run build",
     "----------------------------------Build----------------------------------": "",
     "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./compiled-out/server-bin ./src/index.ts",

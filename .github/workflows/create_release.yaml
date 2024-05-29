@@ -25,10 +25,10 @@ jobs:
           cache-dependency-path: ./package-lock.json
           node-version: 20.x
 
-      - name: Create new version
+      - name: Create new version file
         run: node ./scripts/create_version_file.js
 
-      - name: Commit build
+      - name: Commit version file
         uses: EndBug/add-and-commit@v9
         with:
           message: Updated version file

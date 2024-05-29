@@ -2,6 +2,7 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
 import process from 'node:process';
+import { CharacterSet } from 'node-thermal-printer';
 
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
@@ -10,7 +11,12 @@ import {
   scanNetworkForConnections,
 } from './modules/network.ts';
 import { setupPrinters } from './modules/printer.ts';
-import { getSettings, loadSettings } from './modules/settings.ts';
+import {
+  getSettings,
+  loadSettings,
+  PrinterTextOptions,
+  PrinterTextSize,
+} from './modules/settings.ts';
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
@@ -78,56 +84,15 @@ const main = async () => {
 
   app.route('/test-print').post(testPrint);
 
-  // app
-  //   .route('/test')
-  //   .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
-  //     await testOrderPrint('192.168.178.42', {
-  //       TakeAwayInfo: {
-  //         customerEmail: 'email',
-  //         customerName: 'name',
-  //       },
-  //       _id: 'ssss',
-  //       createdAt: new Date().toISOString(),
-  //       currency: '$',
-  //       customerComment: 'customer comment',
-  //       deliveryInfo: {
-  //         customerAddress: 'MITROPOLEOS 55 52100 KASTORIA',
-  //         customerBell: 'bell',
-  //         customerEmail: 'email',
-  //         customerFloor: 'floor',
-  //         customerName: 'name',
-  //         customerPhoneNumber: 'phone',
-  //         deliveryFee: 100,
-  //       },
-  //       number: 1,
-  //       orderType: 'DELIVERY',
-  //       paymentType: 'ONLINE',
-  //       products: [
-  //         {
-  //           _id: '1234',
-  //           categories: ['category'],
-  //           choices: [
-  //             {
-  //               quantity: 1,
-  //               title: 'choice',
-  //             },
-  //           ],
-  //           quantity: 1,
-  //           title: 'product',
-  //           total: 1000,
-  //         },
-  //       ],
-  //       tableNumber: '1',
-  //       tip: 500,
-  //       total: 1600,
-  //       venue: {
-  //         address: 'MITROPOLEOS 55 52100 KASTORIA',
-  //         title: 'KASTORIA CITY HOTEL',
-  //       },
-  //       waiterComment: 'waiter comment',
-  //     });
-  //     res.status(200).send('test');
-  //   });
+  app
+    .route('/get-data')
+    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
+      res.status(200).send({
+        charset: Object.values(CharacterSet),
+        textOptions: Object.values(PrinterTextOptions.Values),
+        textSize: Object.values(PrinterTextSize.Values),
+      });
+    });
 
   // eslint-disable-next-line no-unused-vars
   app.use(
