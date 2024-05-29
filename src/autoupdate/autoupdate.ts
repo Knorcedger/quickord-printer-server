@@ -2,7 +2,6 @@
 /* eslint-disable default-param-last */
 /* eslint-disable no-await-in-loop */
 /* eslint-disable no-restricted-syntax */
-/* eslint-disable no-console */
 
 import { createHash } from 'crypto';
 import fs from 'fs';
@@ -11,27 +10,29 @@ import { sep } from 'node:path';
 import { pipeline } from 'stream/promises';
 import yauzl from 'yauzl-promise';
 
+import logger from '../modules/logger.ts';
+
 let tempDirPath = '';
 
 async function downloadLatestCode() {
   try {
-    console.log('Downloading latest code');
+    logger.info('Downloading latest code');
     const res = await fetch(
       'https://github.com/Knorcedger/quickord-printer-server/releases/latest/download/quickord-cashier-server.zip'
     );
 
     const fileData = Buffer.from(await (await res.blob()).arrayBuffer());
 
-    console.log('Creating temp dir');
+    logger.info('Creating temp dir');
     tempDirPath = await fs.promises.mkdtemp(
       `${tmpdir()}${sep}quickord-cashier-server-update`
     );
     const zipPath = `${tempDirPath}${sep}quickord-cashier-server.zip`;
 
-    console.log('Writing zip file');
+    logger.info('Writing zip file');
     await fs.promises.writeFile(zipPath, fileData);
 
-    console.log('Extracting zip file');
+    logger.info('Extracting zip file');
     const tempCodePath = `${tempDirPath}${sep}code`;
     await fs.promises.mkdir(tempCodePath);
     const zip = await yauzl.open(zipPath);
@@ -54,14 +55,14 @@ async function downloadLatestCode() {
 
     return true;
   } catch (e) {
-    console.error(e);
+    logger.error(e);
   }
 
   return false;
 }
 
 async function cleanup() {
-  console.log('Deleting temp dir');
+  logger.info('Deleting temp dir');
   await fs.promises.rm(tempDirPath, { recursive: true });
 }
 
@@ -95,7 +96,7 @@ async function md5File(filePath: string) {
 
     return createHash('md5').update(file).digest('hex');
   } catch (e) {
-    console.error('Error reading file', e);
+    logger.error('Error reading file', e);
 
     return '';
   }
@@ -112,7 +113,7 @@ async function updateInitBat() {
     currentInitBat = await fs.promises.readFile(initBatPath, 'utf-8');
     newInitBat = await fs.promises.readFile(tempInitBatPath, 'utf-8');
   } catch (e) {
-    console.error('Error reading init.bat', e);
+    logger.error('Error reading init.bat', e);
     return;
   }
 
@@ -120,7 +121,7 @@ async function updateInitBat() {
   const newInitBatHash = newInitBat.replace(/(cd).*/g, '');
 
   if (currentInitBatHash !== newInitBatHash) {
-    console.log('Updating init.bat');
+    logger.info('Updating init.bat');
     try {
       await fs.promises.writeFile(
         initBatPath,
@@ -130,13 +131,15 @@ async function updateInitBat() {
         )
       );
     } catch (e) {
-      console.error('Error updating init.bat', e);
+      logger.error('Error updating init.bat', e);
     }
   }
 }
 
 // eslint-disable-next-line import/prefer-default-export
 export async function main() {
+  logger.init('autoupdate');
+
   try {
     const success = await downloadLatestCode();
 
@@ -146,7 +149,7 @@ export async function main() {
       try {
         currentVersion = await fs.promises.readFile('version', 'utf-8');
       } catch (e) {
-        console.error('cannot find current version file', e);
+        logger.warn('cannot find current version file', e);
       }
 
       let newVersion = '';
@@ -157,10 +160,10 @@ export async function main() {
           'utf-8'
         );
       } catch (e) {
-        console.error('cannot find new version file', e);
+        logger.warn('cannot find new version file', e);
       }
 
-      console.log(
+      logger.info(
         'Current version:',
         currentVersion,
         ' | New version:',
@@ -168,11 +171,11 @@ export async function main() {
       );
 
       if (currentVersion === newVersion && newVersion !== '') {
-        console.log('Already up to date');
+        logger.info('Already up to date');
         return;
       }
 
-      console.log('Updating code to version', newVersion);
+      logger.info('Updating code to version', newVersion);
 
       // read all the downloaded files and their md5 hashes
       await readdirRecursive(
@@ -185,7 +188,7 @@ export async function main() {
           const newFileHash = await md5File(newfile);
 
           if (oldFileHash !== newFileHash) {
-            console.log('    Updating file', oldFile);
+            logger.info('    Updating file', oldFile);
             await fs.promises.copyFile(newfile, oldFile);
           }
         }
@@ -193,7 +196,7 @@ export async function main() {
 
       await updateInitBat();
     } else {
-      console.log('Failed to download latest code');
+      logger.error('Failed to download latest code');
     }
   } finally {
     await cleanup();
