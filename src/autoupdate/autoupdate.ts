@@ -177,19 +177,16 @@ export async function main() {
       // read all the downloaded files and their md5 hashes
       await readdirRecursive(
         `${tempDirPath}${sep}code`,
-        ['init.bat', 'version'],
+        ['init.bat'],
         async (newfile) => {
-          const currentFile = newfile.replace(
-            `${tempDirPath}${sep}code${sep}`,
-            ''
-          );
+          const oldFile = newfile.replace(`${tempDirPath}${sep}code${sep}`, '');
 
-          const currentFileHash = await md5File(currentFile);
+          const oldFileHash = await md5File(oldFile);
           const newFileHash = await md5File(newfile);
 
-          if (currentFileHash !== newFileHash) {
-            console.log('    Updating file', currentFile);
-            await fs.promises.copyFile(newfile, currentFile);
+          if (oldFileHash !== newFileHash) {
+            console.log('    Updating file', oldFile);
+            await fs.promises.copyFile(newfile, oldFile);
           }
         }
       );
