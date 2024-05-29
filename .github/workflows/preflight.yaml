@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   create-version-file:
-    if: github.base_ref == 'main'
+    if: github.ref_name == 'main'
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -22,7 +22,7 @@ jobs:
     secrets: inherit
 
   create-release:
-    if: github.base_ref == 'main'
+    if: github.ref_name == 'main'
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
