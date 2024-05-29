@@ -25,6 +25,15 @@ jobs:
           cache-dependency-path: ./package-lock.json
           node-version: 20.x
 
+      - name: Create new version
+        run: node ./scripts/create_version_file.js
+
+      - name: Commit build
+        uses: EndBug/add-and-commit@v9
+        with:
+          message: Updated version file
+          default_author: github_actions
+
       - name: Install dependencies
         run: npm ci --cache .npm --prefer-offline
 
