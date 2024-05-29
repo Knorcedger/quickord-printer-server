@@ -101,6 +101,40 @@ async function md5File(filePath: string) {
   }
 }
 
+async function updateInitBat() {
+  const initBatPath = 'init.bat';
+  const tempInitBatPath = `${tempDirPath}${sep}code${sep}init.bat`;
+
+  let currentInitBat: string;
+  let newInitBat: string;
+
+  try {
+    currentInitBat = await fs.promises.readFile(initBatPath, 'utf-8');
+    newInitBat = await fs.promises.readFile(tempInitBatPath, 'utf-8');
+  } catch (e) {
+    console.error('Error reading init.bat', e);
+    return;
+  }
+
+  const currentInitBatHash = currentInitBat.replace(/(cd).*/g, '');
+  const newInitBatHash = newInitBat.replace(/(cd).*/g, '');
+
+  if (currentInitBatHash !== newInitBatHash) {
+    console.log('Updating init.bat');
+    try {
+      await fs.promises.writeFile(
+        initBatPath,
+        newInitBat.replace(
+          /(cd).*/g,
+          currentInitBat.match(/(cd).*/g)?.[0] || ''
+        )
+      );
+    } catch (e) {
+      console.error('Error updating init.bat', e);
+    }
+  }
+}
+
 // eslint-disable-next-line import/prefer-default-export
 export async function main() {
   try {
@@ -159,6 +193,8 @@ export async function main() {
           }
         }
       );
+
+      await updateInitBat();
     } else {
       console.log('Failed to download latest code');
     }
