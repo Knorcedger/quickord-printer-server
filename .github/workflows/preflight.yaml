@@ -18,6 +18,5 @@ jobs:
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
-    needs: create-version-file
     uses: ./.github/workflows/create_release.yaml
     secrets: inherit
