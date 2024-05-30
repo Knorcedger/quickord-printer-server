@@ -5,6 +5,7 @@
 
 import { createHash } from 'crypto';
 import fs from 'fs';
+import nconf from 'nconf';
 import { tmpdir } from 'node:os';
 import { sep } from 'node:path';
 import { pipeline } from 'stream/promises';
@@ -12,14 +13,14 @@ import yauzl from 'yauzl-promise';
 
 import logger from '../modules/logger.ts';
 
+nconf.argv().env().file('./config.json');
+
 let tempDirPath = '';
 
 async function downloadLatestCode() {
   try {
     logger.info('Downloading latest code');
-    const res = await fetch(
-      'https://github.com/Knorcedger/quickord-printer-server/releases/latest/download/quickord-cashier-server.zip'
-    );
+    const res = await fetch(nconf.get('CODE_UPDATE_URL'));
 
     const fileData = Buffer.from(await (await res.blob()).arrayBuffer());
 
@@ -62,6 +63,10 @@ async function downloadLatestCode() {
 }
 
 async function cleanup() {
+  if (tempDirPath === '') {
+    return;
+  }
+
   logger.info('Deleting temp dir');
   await fs.promises.rm(tempDirPath, { recursive: true });
 }
@@ -138,7 +143,7 @@ async function updateInitBat() {
 
 // eslint-disable-next-line import/prefer-default-export
 export async function main() {
-  logger.init('autoupdate');
+  await logger.init('autoupdate');
 
   try {
     const success = await downloadLatestCode();

@@ -34,6 +34,7 @@
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "nanoid": "^5.0.4",
+    "nconf": "^0.12.1",
     "network": "^0.7.0",
     "node-fetch": "^2.6.1",
     "node-thermal-printer": "^4.4.2",

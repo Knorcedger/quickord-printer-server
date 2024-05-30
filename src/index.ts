@@ -1,6 +1,7 @@
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import express, { Request, Response } from 'express';
+import nconf from 'nconf';
 import process from 'node:process';
 import { CharacterSet } from 'node-thermal-printer';
 
@@ -21,8 +22,10 @@ import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
 
+nconf.argv().env().file('./config.json');
+
 const main = async () => {
-  const SERVER_PORT = 7810;
+  const SERVER_PORT = nconf.get('PORT') || 7810;
 
   await logger.init();
 
