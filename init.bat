@@ -8,6 +8,9 @@ cd "printer server directory"
 @REM Run the auto update script
 node dist/autoupdate.js
 
+@REM run npm install
+npm install
+
 @REM Run the server
 node dist/index.js
 
