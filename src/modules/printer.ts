@@ -116,12 +116,16 @@ export const printTestPage = async (
     type: PrinterTypes.EPSON,
   });
 
+  printer.clear();
+
   changeCodePage(printer, codePage || CODE_PAGE_WPC1253);
 
   printer.alignCenter();
   printer.println(`charset: ${charset || CharacterSet.WPC1253_GREEK}`);
   printer.println(`ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω`);
+  printer.newLine();
   printer.println('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
+  printer.newLine();
   printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
   printer.setTextNormal();
   printer.println('text normal');
@@ -367,7 +371,6 @@ export const printOrder = async (
         waitForResponse: false,
       });
 
-      printer.clear();
       logger.info(
         `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
       );

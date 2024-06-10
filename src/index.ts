@@ -42,7 +42,8 @@ const main = async () => {
       origin(origin: string | undefined, callback: any) {
         if (
           !origin?.includes('quickord.com') &&
-          !origin?.includes('localhost')
+          !origin?.includes('localhost') &&
+          !origin?.includes('quickord-waiter-dev.vercel.app')
         ) {
           logger.info('cors origin:', origin);
         }
