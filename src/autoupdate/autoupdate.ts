@@ -4,8 +4,8 @@
 /* eslint-disable no-restricted-syntax */
 
 import { createHash } from 'crypto';
-import fs from 'fs';
 import nconf from 'nconf';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { sep } from 'node:path';
 import { pipeline } from 'stream/promises';
@@ -40,7 +40,7 @@ async function downloadLatestCode() {
 
     try {
       for await (const entry of zip) {
-        if (entry.filename.endsWith(sep)) {
+        if (entry.filename.endsWith('\\') || entry.filename.endsWith('/')) {
           await fs.promises.mkdir(`${tempCodePath}${sep}${entry.filename}`);
         } else {
           const readStream = await entry.openReadStream();
