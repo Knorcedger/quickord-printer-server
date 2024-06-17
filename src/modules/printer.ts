@@ -88,7 +88,7 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
   const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
     characterSet:
-      CharacterSet[settings.characterSet] || CharacterSet.ISO8859_7_GREEK,
+      CharacterSet[settings.characterSet] || CharacterSet.WPC1253_GREEK,
     interface: interfaceString || '',
     type: PrinterTypes.EPSON,
   };
@@ -159,11 +159,7 @@ export const printOrder = async (
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
 
-      if (!settings) {
-        continue;
-      }
-
-      if (!printer) {
+      if (!settings || !printer) {
         continue;
       }
 
