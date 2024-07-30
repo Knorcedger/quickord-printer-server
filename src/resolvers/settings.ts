@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
+import signale from 'signale';
 
 import logger from '../modules/logger.ts';
+import { createModem } from '../modules/modem.ts';
 import { setupPrinters } from '../modules/printer.ts';
 import {
   getSettings,
@@ -34,6 +36,17 @@ const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     saveSettings();
     setupPrinters(newSettings);
+
+    if (newSettings.modem) {
+      if (newSettings.modem.port && newSettings.modem.venueId) {
+        createModem(newSettings.modem);
+      } else {
+        signale.warn('Save settings was passed bad data for modem: ', {
+          port: newSettings.modem.port,
+          venueId: newSettings.modem.venueId,
+        });
+      }
+    }
 
     logger.info('Settings updated:', newSettings);
 

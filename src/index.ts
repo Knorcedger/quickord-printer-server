@@ -7,6 +7,7 @@ import { CharacterSet } from 'node-thermal-printer';
 
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
+import { initModem } from './modules/modem.ts';
 import {
   initNetWorkScanner,
   scanNetworkForConnections,
@@ -32,6 +33,8 @@ const main = async () => {
   await initNetWorkScanner();
 
   await loadSettings();
+
+  await initModem();
 
   await setupPrinters(getSettings());
 
@@ -87,6 +90,9 @@ const main = async () => {
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
+
+  app.route('/modem-reset').get();
+  app.route('/modem-status').get();
 
   app
     .route('/get-data')

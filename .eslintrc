@@ -43,6 +43,8 @@
     "sort-keys-fix/sort-keys-fix": "warn",
     "typescript-sort-keys/interface": "warn",
     "typescript-sort-keys/string-enum": "warn"
+    ,"no-unreachable": "warn"
+
   },
   "settings": {
     "import/resolver": {
@@ -52,5 +54,5 @@
       "typescript": {}
     }
   },
-  "ignorePatterns": ["dist/**/*", "node_modules/**/*", "scripts/**/*", "jest.config.cjs"]
+  "ignorePatterns": ["dist/**/*", "node_modules/**/*", "scripts/**/*", "jest.config.cjs", "swcRegisterESM.js"]
 }

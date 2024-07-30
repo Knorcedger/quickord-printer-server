@@ -8,6 +8,8 @@
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Usage](#usage)
+  - [Printer setup](#printer-setup)
+  - [Modem Setup](#modem-setup)
   - [How it works](#how-it-works)
   - [Troubleshooting](#troubleshooting)
 
@@ -50,7 +52,7 @@ Requirements:
     ℹ  info      API listening at port 7810
     ```
 
-    [printer setup](docs/printer-setup.md)
+    [printer setup](#printer-setup)
 11. If the server is running, you can now configure the server by going to [this website](https://waiter.quickord.com/printer-server)
 12. look at the list of network printers and test them by clicking on the `test` button.
 13. when the test prints something click on the add button.
@@ -111,6 +113,14 @@ Steps to use the server:
 Every order now has a print button that you can use to print the order. Every new order (in the chosen shift tables) will be printed automatically.
 
 After making settings changes on the website, you need to restart the server for the changes to take effect and to clear the double printing issue.
+
+---
+
+## [Printer setup](docs/printer-setup.md)
+
+---
+
+## [Modem Setup](docs/modem.md)
 
 ---
 
