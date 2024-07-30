@@ -5,3 +5,4 @@ dist
 .tsbuildinfo
 compiled-out
 builds
+data-dir

@@ -1,4 +1,5 @@
 {
   "CODE_UPDATE_URL": "https://github.com/Knorcedger/quickord-printer-server/releases/latest/download/quickord-cashier-server.zip",
-  "PORT": "7810"
+  "PORT": "7810",
+  "QUICKORD_API_URL": "https://api.quickord.com/graphql"
 }

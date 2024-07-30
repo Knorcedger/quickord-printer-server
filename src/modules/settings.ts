@@ -88,7 +88,15 @@ export const PrinterSettings = z.object({
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
 
+export const ModemSettings = z.object({
+  port: z.string({ required_error: 'the modem port is required' }),
+  venueId: z.string({ required_error: 'the modem venueId is required' }),
+});
+
+export type IModemSettings = z.infer<typeof ModemSettings>;
+
 export const Settings = z.object({
+  modem: ModemSettings.optional(),
   printers: z.array(PrinterSettings),
 });
 

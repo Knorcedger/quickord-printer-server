@@ -42,6 +42,8 @@ const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
 };
 
 export const setupPrinters = async (settings: ISettings) => {
+  printers.length = 0;
+
   settings?.printers?.forEach((printerSettings) => {
     if (!printerSettings.ip && !printerSettings.port) {
       return;
