@@ -1,8 +1,15 @@
 {
   "execMap": {
-    "ts": "node --loader @swc-node/register/esm src/index.ts"
+    "ts": "node --import=./swcRegisterESM.js src/index.ts"
   },
   "ext": ".ts,.js,.json",
-  "ignore": ["dist", "test", "settings.json", "*.log"],
-  "watch": ["./"]
+  "ignore": [
+    "dist",
+    "test",
+    "settings.json",
+    "*.log"
+  ],
+  "watch": [
+    "./"
+  ]
 }
