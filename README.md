@@ -8,6 +8,7 @@
   - [Installation](#installation)
   - [Configuration](#configuration)
   - [Usage](#usage)
+  - [Logs](#logs)
   - [Printer setup](#printer-setup)
   - [Modem Setup](#modem-setup)
   - [How it works](#how-it-works)
@@ -113,6 +114,19 @@ Steps to use the server:
 Every order now has a print button that you can use to print the order. Every new order (in the chosen shift tables) will be printed automatically.
 
 After making settings changes on the website, you need to restart the server for the changes to take effect and to clear the double printing issue.
+
+---
+
+## Logs
+
+The server logs are saved in the `app.log` file. The autoupdate logs are saved in the `autoupdate.log` file. These logs are saved in the same folder as the server's `init.bat`. The logs keep the last 3 logs and rotate them. When an issue occurs, you can check the logs to troubleshoot the issue.
+
+The required logs for troubleshooting are:
+
+- `app.log`: This log contains the server logs. You can check this log to see if the server is running correctly.
+- `autoupdate.log`: This log contains the autoupdate logs. You can check this log to see if the autoupdate process is working correctly.
+
+Zip all the log files (`app.log`, `app.1.log`, `app.2.log`, `autoupdate.log` ) and send them to the support team for further troubleshooting.
 
 ---
 
