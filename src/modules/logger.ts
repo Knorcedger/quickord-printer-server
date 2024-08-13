@@ -1,4 +1,6 @@
 /* eslint-disable no-underscore-dangle */
+import AdmZip from 'adm-zip';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import process from 'node:process';
 import signale from 'signale';
@@ -61,7 +63,29 @@ const init = async (filename: string = 'app') => {
   );
 };
 
+const possibleFiles = [
+  'app.log',
+  'app.1.log',
+  'app.2.log',
+  'autoupdate.log',
+  'autoupdate.1.log',
+  'autoupdate.2.log',
+];
+
+const createZip = () => {
+  const zip = new AdmZip();
+
+  possibleFiles.forEach((f) => {
+    if (existsSync(`./${f}`)) {
+      zip.addLocalFile(`./${f}`);
+    }
+  });
+
+  return zip.toBuffer();
+};
+
 export default {
+  createZip,
   error,
   info,
   init,
