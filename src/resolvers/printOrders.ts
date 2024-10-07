@@ -72,18 +72,33 @@ export const DeliveryInfo = z.object({
     invalid_type_error: 'customer bell must be a string.',
     required_error: 'customerBell is required.',
   }),
-  customerEmail: z.string({
-    invalid_type_error: 'customerEmail must be a string.',
-    required_error: 'customerEmail is required.',
-  }),
+  customerEmail: z
+    .string({
+      invalid_type_error: 'customerEmail must be a string.',
+    })
+    .optional(),
+  customerFirstname: z
+    .string({
+      invalid_type_error: 'customerName must be a string.',
+      required_error: 'customerName is required.',
+    })
+    .optional(),
   customerFloor: z.string({
     invalid_type_error: 'customerFloor must be a string.',
     required_error: 'customerFloor is required.',
   }),
-  customerName: z.string({
-    invalid_type_error: 'customerName must be a string.',
-    required_error: 'customerName is required.',
-  }),
+  customerLastname: z
+    .string({
+      invalid_type_error: 'customerName must be a string.',
+      required_error: 'customerName is required.',
+    })
+    .optional(),
+  customerName: z
+    .string({
+      invalid_type_error: 'customerName must be a string.',
+      required_error: 'customerName is required.',
+    })
+    .optional(),
   customerPhoneNumber: z.string({
     invalid_type_error: 'customerPhoneNumber must be a string.',
     required_error: 'customerPhoneNumber is required.',
@@ -102,10 +117,11 @@ export const TakeAwayInfo = z.object({
       invalid_type_error: 'customerEmail must be a string.',
     })
     .optional(),
-  customerName: z.string({
-    invalid_type_error: 'customerName must be a string.',
-    required_error: 'customerName is required.',
-  }),
+  customerName: z
+    .string({
+      invalid_type_error: 'customerName must be a string.',
+    })
+    .optional(),
 });
 
 export const Order = z.object({
