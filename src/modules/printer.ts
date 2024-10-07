@@ -95,7 +95,9 @@ export const setupPrinter = (settings: IPrinterSettings) => {
     type: PrinterTypes.EPSON,
   };
 
-  logger.info(`Setting up printer ${settings.name} with config:`, config);
+  logger.info(`Setting up printer ${settings.name} with \n
+  config: ${JSON.stringify(config, null, 2)}\n
+  settings: ${JSON.stringify(settings, null, 2)}\n`);
 
   return new ThermalPrinter(config);
 };
@@ -232,9 +234,9 @@ export const printOrder = async (
         );
         printer.drawLine();
 
-        if (order.orderType === 'DELIVERY' && order.deliveryInfo) {
+        if (order.deliveryInfo) {
           printer.println(
-            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerName}`
+            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerFirstname} ${order.deliveryInfo.customerLastname}`
           );
           printer.println(
             `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
@@ -249,11 +251,9 @@ export const printOrder = async (
             `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
           );
           printer.drawLine();
-        } else if (
-          (order.orderType === 'TAKE_AWAY_INSIDE' ||
-            order.orderType === 'TAKE_AWAY_PACKAGE') &&
-          order.TakeAwayInfo
-        ) {
+        }
+
+        if (order.TakeAwayInfo) {
           let drawLine = false;
 
           if (order.TakeAwayInfo.customerName) {
