@@ -224,7 +224,11 @@ export const printOrder = async (
           ]);
         }
 
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
+          printer.setTextSize(1, 1);
+        } else {
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+        }
 
         printer.println(
           `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
@@ -232,6 +236,9 @@ export const printOrder = async (
         printer.println(
           `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
         );
+
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+
         printer.drawLine();
 
         if (order.deliveryInfo) {
@@ -256,7 +263,12 @@ export const printOrder = async (
         if (order.TakeAwayInfo) {
           let drawLine = false;
 
-          if (order.TakeAwayInfo.customerName) {
+          const customerName = order.TakeAwayInfo.customerName?.trim();
+
+          if (
+            (customerName && customerName !== 'null') ||
+            customerName !== 'undefined'
+          ) {
             printer.println(
               `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
             );

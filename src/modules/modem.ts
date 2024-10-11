@@ -104,7 +104,7 @@ export const createModem = async (settings: IModemSettings) => {
 };
 
 export const initModem = async () => {
-  if (getSettings().modem) {
+  if (getSettings().modem?.port) {
     signale.info('Initializing modem');
     await createModem(getSettings().modem!);
   }

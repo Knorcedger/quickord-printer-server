@@ -58,16 +58,16 @@ export default {
         en: 'DELIVERY',
       },
       DINE_IN: {
-        el: 'ΚΑΤΑΝΑΛΩΣΗ ΕΝΤΟΣ',
+        el: 'ΤΡΑΠΕΖΙ',
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {
-        el: 'ΠΑΡΑΛΑΒΗ',
-        en: 'TAKE AWAY',
+        el: 'ΚΑΤΑΝΑΛΩΣΗ ΕΝΤΟΣ',
+        en: 'TAKE AWAY INSIDE',
       },
       TAKE_AWAY_PACKAGE: {
-        el: 'ΠΑΡΑΛΑΒΗ',
-        en: 'TAKE AWAY',
+        el: 'ΠΑΚΕΤΟ',
+        en: 'TAKE AWAY PACKAGE',
       },
     },
     orderWaiter: {

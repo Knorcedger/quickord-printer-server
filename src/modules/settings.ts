@@ -17,7 +17,7 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 });
 
 export const PrinterTextOptions = z.enum(
-  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER'],
+  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
   {
     description: 'The text options to use for the printer.',
     invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
@@ -102,7 +102,7 @@ export const Settings = z.object({
 
 export type ISettings = z.infer<typeof Settings>;
 
-let settings: ISettings = { printers: [] };
+let settings: ISettings = { modem: { port: '', venueId: '' }, printers: [] };
 
 export const loadSettings = async () => {
   try {
@@ -137,7 +137,7 @@ export const saveSettings = async () => {
 };
 
 export const getSettings = () => {
-  return settings;
+  return { ...settings };
 };
 
 export const updateSettings = (newSettings: ISettings) => {
