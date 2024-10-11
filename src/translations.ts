@@ -62,12 +62,12 @@ export default {
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {
-        el: 'ΠΑΡΑΛΑΒΗ',
-        en: 'TAKE AWAY',
+        el: 'ΠΑΡΑΛΑΒΗ ΕΝΤΟΣ',
+        en: 'TAKE AWAY INSIDE',
       },
       TAKE_AWAY_PACKAGE: {
-        el: 'ΠΑΡΑΛΑΒΗ',
-        en: 'TAKE AWAY',
+        el: 'ΠΑΚΕΤΟ',
+        en: 'TAKE AWAY PACKAGE',
       },
     },
     orderWaiter: {

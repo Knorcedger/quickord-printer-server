@@ -17,7 +17,7 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 });
 
 export const PrinterTextOptions = z.enum(
-  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER'],
+  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
   {
     description: 'The text options to use for the printer.',
     invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
