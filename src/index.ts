@@ -91,8 +91,20 @@ const main = async () => {
 
   app.route('/test-print').post(testPrint);
 
-  app.route('/modem-reset').get();
-  app.route('/modem-status').get();
+  // app.route('/modem-reset').get();
+  // app.route('/modem-status').get();
+
+  app
+    .route('/logs')
+    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
+      try {
+        const zip = logger.createZip();
+
+        res.status(200).setHeader('Content-Type', 'application/zip').send(zip);
+      } catch (error) {
+        res.status(500).send({ error });
+      }
+    });
 
   app
     .route('/get-data')
