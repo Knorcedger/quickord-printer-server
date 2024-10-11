@@ -102,7 +102,7 @@ export const Settings = z.object({
 
 export type ISettings = z.infer<typeof Settings>;
 
-let settings: ISettings = { printers: [] };
+let settings: ISettings = { modem: { port: '', venueId: '' }, printers: [] };
 
 export const loadSettings = async () => {
   try {
@@ -137,7 +137,7 @@ export const saveSettings = async () => {
 };
 
 export const getSettings = () => {
-  return settings;
+  return { ...settings };
 };
 
 export const updateSettings = (newSettings: ISettings) => {
