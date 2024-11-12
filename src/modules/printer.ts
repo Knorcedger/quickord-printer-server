@@ -1,3 +1,4 @@
+/* eslint-disable no-plusplus */
 /* eslint-disable no-await-in-loop */
 /* eslint-disable no-continue */
 import {
@@ -8,12 +9,12 @@ import {
 import { z } from 'zod';
 
 import { Order } from '../resolvers/printOrders.ts';
-import { convertToDecimal, leftPad } from './common.ts';
+import { convertToDecimal, leftPad, tr } from './common.ts';
 import logger from './logger.ts';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
 
-const CODE_PAGE_WPC1253 = 17;
+const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
@@ -90,7 +91,7 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
   const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
     characterSet:
-      CharacterSet[settings.characterSet] || CharacterSet.WPC1253_GREEK,
+      CharacterSet[settings.characterSet] || CharacterSet.PC869_GREEK,
     interface: interfaceString || '',
     type: PrinterTypes.EPSON,
   };
@@ -122,10 +123,10 @@ export const printTestPage = async (
 
   printer.clear();
 
-  changeCodePage(printer, codePage || CODE_PAGE_WPC1253);
+  changeCodePage(printer, codePage || DEFAULT_CODE_PAGE);
 
   printer.alignCenter();
-  printer.println(`charset: ${charset || CharacterSet.WPC1253_GREEK}`);
+  printer.println(`charset: ${charset || CharacterSet.PC869_GREEK}`);
   printer.println(`ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψω`);
   printer.newLine();
   printer.println('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
@@ -190,7 +191,7 @@ export const printOrder = async (
 
       printer.clear();
 
-      changeCodePage(printer, settings?.codePage || CODE_PAGE_WPC1253);
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
 
       for (let copies = 0; copies < settings.copies; copies += 1) {
         changeTextSize(printer, settings?.textSize || 'NORMAL');
@@ -198,11 +199,16 @@ export const printOrder = async (
         printer.drawLine();
         printer.newLine();
         printer.alignCenter();
-        printer.println(`${translations.printOrder.orderForm[lang]}`);
+        printer.println(
+          tr(
+            `${translations.printOrder.orderForm[lang]}`,
+            settings.transliterate
+          )
+        );
         printer.alignLeft();
         printer.newLine();
-        printer.println(order.venue.title);
-        printer.println(order.venue.address);
+        printer.println(tr(order.venue.title, settings.transliterate));
+        printer.println(tr(order.venue.address, settings.transliterate));
         printer.drawLine();
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
@@ -212,14 +218,25 @@ export const printOrder = async (
         printer.table([
           `${date}`,
           `${time}`,
-          `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+          tr(
+            `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+            settings.transliterate
+          ),
         ]);
 
         if (order?.tableNumber) {
           printer.table([
-            `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+            tr(
+              `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+              settings.transliterate
+            ),
             ...(order.waiterName
-              ? [`${translations.printOrder.waiter[lang]}:${order.waiterName}`]
+              ? [
+                  tr(
+                    `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
+                    settings.transliterate
+                  ),
+                ]
               : []),
           ]);
         }
@@ -231,10 +248,16 @@ export const printOrder = async (
         }
 
         printer.println(
-          `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`
+          tr(
+            `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            settings.transliterate
+          )
         );
         printer.println(
-          `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`
+          tr(
+            `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`,
+            settings.transliterate
+          )
         );
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
@@ -243,19 +266,34 @@ export const printOrder = async (
 
         if (order.deliveryInfo) {
           printer.println(
-            `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerFirstname} ${order.deliveryInfo.customerLastname}`
+            tr(
+              `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerFirstname} ${order.deliveryInfo.customerLastname}`,
+              settings.transliterate
+            )
           );
           printer.println(
-            `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`
+            tr(
+              `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`,
+              settings.transliterate
+            )
           );
           printer.println(
-            `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`
+            tr(
+              `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`,
+              settings.transliterate
+            )
           );
           printer.println(
-            `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`
+            tr(
+              `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`,
+              settings.transliterate
+            )
           );
           printer.println(
-            `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`
+            tr(
+              `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`,
+              settings.transliterate
+            )
           );
           printer.drawLine();
         }
@@ -270,14 +308,20 @@ export const printOrder = async (
             customerName !== 'undefined'
           ) {
             printer.println(
-              `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`
+              tr(
+                `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
+                settings.transliterate
+              )
             );
             drawLine = true;
           }
 
           if (order.TakeAwayInfo.customerEmail) {
             printer.println(
-              `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`
+              tr(
+                `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`,
+                settings.transliterate
+              )
             );
             drawLine = true;
           }
@@ -305,43 +349,60 @@ export const printOrder = async (
           printer.newLine();
           const leftAmount = `${product.quantity}x `.length;
           printer.println(
-            `${product.quantity}x ${product.title}  ${
-              product.total
-                ? `${convertToDecimal(product.total).toFixed(2)} €`
-                : ''
-            }`
+            tr(
+              `${product.quantity}x ${product.title}  ${
+                product.total
+                  ? `${convertToDecimal(product.total).toFixed(2)} €`
+                  : ''
+              }`,
+              settings.transliterate
+            )
           );
           product.choices?.forEach((choice) => {
             total += (choice.price || 0) * (choice.quantity || 1);
             printer.println(
-              `${leftPad(
-                ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
-                leftAmount,
-                ' '
-              )}  ${
-                choice.price
-                  ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
-                  : ''
-              }`
+              tr(
+                `${leftPad(
+                  ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
+                  leftAmount,
+                  ' '
+                )}  ${
+                  choice.price
+                    ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
+                    : ''
+                }`,
+                settings.transliterate
+              )
             );
           });
 
           printer.alignRight();
-          printer.println(`${convertToDecimal(total).toFixed(2)} €`);
+          printer.println(
+            tr(
+              `${convertToDecimal(total).toFixed(2)} €`,
+              settings.transliterate
+            )
+          );
           printer.alignLeft();
         });
 
         if (order.waiterComment) {
           printer.newLine();
           printer.println(
-            `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`
+            tr(
+              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`,
+              settings.transliterate
+            )
           );
         }
 
         if (order.customerComment) {
           printer.newLine();
           printer.println(
-            `${translations.printOrder.customerComments[lang]}:${order.customerComment}`
+            tr(
+              `${translations.printOrder.customerComments[lang]}:${order.customerComment}`,
+              settings.transliterate
+            )
           );
         }
 
@@ -352,38 +413,59 @@ export const printOrder = async (
         if (order.tip) {
           printer.newLine();
           printer.println(
-            `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`
+            tr(
+              `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`,
+              settings.transliterate
+            )
           );
         }
 
         if (order.deliveryInfo?.deliveryFee) {
           printer.newLine();
           printer.println(
-            `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
+            tr(
+              `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`,
+              settings.transliterate
+            )
           );
         }
 
         printer.newLine();
         printer.alignRight();
         printer.println(
-          `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`
+          tr(
+            `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            settings.transliterate
+          )
         );
         printer.newLine();
-        printer.println(`${translations.printOrder.poweredBy[lang]}`);
+        printer.println(
+          tr(
+            `${translations.printOrder.poweredBy[lang]}`,
+            settings.transliterate
+          )
+        );
         printer.newLine();
         printer.newLine();
         printer.alignCenter();
-        printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
+        printer.println(
+          tr(
+            `${translations.printOrder.notReceiptNotice[lang]}`,
+            settings.transliterate
+          )
+        );
         printer.cut();
       }
 
-      await printer.execute({
-        waitForResponse: false,
-      });
-
-      logger.info(
-        `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
-      );
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          logger.info(
+            `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
+          );
+        });
     } catch (error) {
       logger.error('Print failed:', error);
     }

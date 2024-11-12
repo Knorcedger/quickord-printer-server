@@ -84,6 +84,7 @@ export const PrinterSettings = z.object({
     .optional()
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
+  transliterate: z.boolean().default(false),
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
@@ -102,7 +103,10 @@ export const Settings = z.object({
 
 export type ISettings = z.infer<typeof Settings>;
 
-let settings: ISettings = { modem: { port: '', venueId: '' }, printers: [] };
+let settings: ISettings = {
+  modem: { port: '', venueId: '' },
+  printers: [],
+};
 
 export const loadSettings = async () => {
   try {
@@ -141,5 +145,5 @@ export const getSettings = () => {
 };
 
 export const updateSettings = (newSettings: ISettings) => {
-  settings = newSettings;
+  settings = { ...newSettings };
 };
