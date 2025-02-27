@@ -30,7 +30,7 @@ const main = async () => {
 
   await logger.init();
 
-  await initNetWorkScanner();
+ /// await initNetWorkScanner();
 
   await loadSettings();
 

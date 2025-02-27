@@ -3,7 +3,7 @@
 @REM The server should be built before running this script
 
 @REM Change to the server directory
-cd "printer server directory"
+cd "C:\Quickord"
 
 @REM Run the auto update script
 node dist/autoupdate/autoupdate.js

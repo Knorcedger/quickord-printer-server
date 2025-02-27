@@ -110,11 +110,13 @@ export const printTestPage = async (
   codePage?: number
 ): Promise<string> => {
   let interfaceString = port;
-
-  if (ip) {
+  let device = `usb printer: ${port}`
+  if (ip !== "") {
     interfaceString = `tcp://${ip}`;
+    device = `ip printer: ${ip}`
   }
 
+  console.log(interfaceString)
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
@@ -143,8 +145,8 @@ export const printTestPage = async (
   printer.cut();
 
   try {
-    await printer.execute();
-    logger.info(`Printed test page to ${ip}`);
+    await printer. execute();
+    logger.info(`Printed test page to ${device}`);
 
     return 'success';
   } catch (error) {
