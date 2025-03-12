@@ -9,6 +9,10 @@ export const Product = z.object({
     invalid_type_error: 'product _id must be a string.',
     required_error: 'product _id is required.',
   }),
+  comments: z.string({
+    invalid_type_error: 'comments must be a string.',
+    required_error: 'comments is required.',
+  }),
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
@@ -208,6 +212,7 @@ const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('orders to print:', orders);
 
     printerPrintOrders(orders);
+    console.log(orders[0]?.products)
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {

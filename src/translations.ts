@@ -1,8 +1,8 @@
 export default {
   printOrder: {
     customerComments: {
-      el: 'ΣΧΟΛΙΑ',
-      en: 'COMMENTS',
+      el: 'ΣΧΟΛΙΑ ΠΕΛΑΤΗ',
+      en: 'CUSTOMER COMMENTS',
     },
     customerEmail: {
       el: 'EMAIL',
@@ -138,9 +138,13 @@ export default {
       el: 'ΣΕΡΒ',
       en: 'WTR',
     },
+    productComments: {
+      el: 'ΣΧΟΛΙΑ ΠΡΟΙΟΝΤΟΣ',
+      en: 'PRODUCT COMMENTS',
+    },
     waiterComments: {
       el: 'ΣΧΟΛΙΑ ΣΕΡΒ',
-      en: 'WAITER COM',
+      en: 'WAITER COMMENTS',
     },
   },
 };

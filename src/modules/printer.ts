@@ -354,12 +354,14 @@ export const printOrder = async (
             tr(
               `${product.quantity}x ${product.title}  ${
                 product.total
-                  ? `${convertToDecimal(product.total).toFixed(2)} €`
+                  ? `${convertToDecimal(product.total).toFixed(2)}€`
                   : ''
-              }`,
+              }
+            `,
               settings.transliterate
             )
           );
+
           product.choices?.forEach((choice) => {
             total += (choice.price || 0) * (choice.quantity || 1);
             printer.println(
@@ -377,6 +379,14 @@ export const printOrder = async (
               )
             );
           });
+          if (product.comments){
+          printer.println(
+            tr(
+              ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
+              settings.transliterate
+            )
+          );
+        }
 
           printer.alignRight();
           printer.println(
@@ -392,7 +402,7 @@ export const printOrder = async (
           printer.newLine();
           printer.println(
             tr(
-              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment}`,
+              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment.toUpperCase()}`,
               settings.transliterate
             )
           );
