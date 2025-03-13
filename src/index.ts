@@ -26,17 +26,15 @@ import testPrint from './resolvers/testPrint.ts';
 nconf.argv().env().file('./config.json');
 
 const main = async () => {
-  console.log('hello world');
-
   const SERVER_PORT = nconf.get('PORT') || 7810;
 
   await logger.init();
 
-  /// await initNetWorkScanner();
+  await initNetWorkScanner();
 
   await loadSettings();
 
-  // await initModem(); need to see
+  await initModem();
 
   await setupPrinters(getSettings());
 
@@ -62,13 +60,13 @@ const main = async () => {
   app.route('/').get((req: Request<{}, any, any>, res: Response<{}, any>) => {
     res.send(homepage());
   });
-  /* need to see
+
   app
     .route('/settings')
     .post(settings)
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send(getSettings());
-    });*/
+    });
 
   app
     .route('/status')
