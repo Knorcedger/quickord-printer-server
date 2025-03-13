@@ -30,7 +30,7 @@ const main = async () => {
 
   await logger.init();
 
- /// await initNetWorkScanner();
+  //await initNetWorkScanner();
 
   await loadSettings();
 
@@ -39,7 +39,6 @@ const main = async () => {
   await setupPrinters(getSettings());
 
   const app = express();
-
   app.use(
     cors({
       origin(origin: string | undefined, callback: any) {
@@ -90,9 +89,6 @@ const main = async () => {
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
-
-  // app.route('/modem-reset').get();
-  // app.route('/modem-status').get();
 
   app
     .route('/logs')
