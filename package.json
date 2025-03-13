@@ -20,6 +20,8 @@
     "build": "npm run typecheck && sh ./scripts/build.sh",
     "build:code": "rm -rf dist && npx swc ./src/ -d ./dist/ && node ./scripts/update_imports.js",
     "build:watch": "nodemon --watch ./ -e ts --exec npm run build",
+    "build:bundle" : "bun build ./src/index.ts --target=bun --outfile=dist/index.js",
+    "build:exe" : "bun build ./src/index.ts --target=bun --outfile=dist/index.js && bun build --compile --target=bun-windows-x64 ./dist/index.js --outfile ./dist/printerServer.exe",
     "----------------------------------Build----------------------------------": "",
     "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./compiled-out/server-bin ./src/index.ts",
     "deno:compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --output ./compiled-out/server-bin.exe ./src/index.ts"
