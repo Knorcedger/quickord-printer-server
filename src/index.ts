@@ -8,10 +8,7 @@ import { CharacterSet } from 'node-thermal-printer';
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
 import { initModem } from './modules/modem.ts';
-import {
-  initNetWorkScanner,
-  scanNetworkForConnections,
-} from './modules/network.ts';
+import scanNetworkForConnections from "./modules/network.ts"
 import { setupPrinters } from './modules/printer.ts';
 import {
   getSettings,
@@ -30,7 +27,7 @@ const main = async () => {
 
   await logger.init();
 
-  //await initNetWorkScanner();
+  await scanNetworkForConnections();
 
   await loadSettings();
 

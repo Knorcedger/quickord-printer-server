@@ -1,109 +1,50 @@
-/* eslint-disable consistent-return */
-import network from 'network';
-import { exec, execSync } from 'node:child_process';
-import process from 'node:process';
+const net = require("net");
+const ping = require("ping");
 
-import logger from './logger.ts';
+// Replace with your subnet (e.g., 192.168.1.x)
+const subnet = "192.168.1";
+const ports = [9100, 515, 631]; // List of ports to check
 
-let IS_NMAP_INSTALLED = false;
+function checkPort(ip, port, callback) {
+    const socket = new net.Socket();
 
-export const initNetWorkScanner = async () => {
-  const OS = process.platform;
-
-  const isNmapInstalled =
-    OS === 'linux'
-      ? execSync('nmap --version').toString()
-      : execSync('nmap -V').toString();
-
-  if (isNmapInstalled.toLowerCase().includes('nmap version ')) {
-    logger.info('nmap is already installed');
-    IS_NMAP_INSTALLED = true;
-    return;
-  }
-
-  if (OS !== 'win32') {
-    logger.error(
-      'nmap is not installed, OS is not win32 please install nmap manually.'
-    );
-    return;
-  }
-
-  logger.error('nmap is not installed, please install nmap manually.');
-};
-
-const execPromise = (command: string) => {
-  return new Promise((resolve, reject) => {
-    exec(command, (err, stdout) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(stdout);
+    socket.setTimeout(2000);
+    socket.connect(port, ip, () => {
+        console.log(`✅ Port ${port} is open on ${ip}`);
+        socket.destroy();
+        callback(ip, port, true);
     });
-  });
-};
 
-export const scanNetworkForConnections = async (): Promise<
-  Array<Array<string>>
-> => {
-  if (!IS_NMAP_INSTALLED) {
-    logger.error('nmap is not installed, cannot scan network.');
-    return [];
-  }
-
-  return new Promise((resolve, reject) => {
-    network.get_gateway_ip(async (err: any, ip: string) => {
-      if (err) {
-        logger.error('Error getting gateway ip:', err);
-        reject(err);
-        return;
-      }
-
-      try {
-        logger.info('Scanning network');
-        let IPs = '';
-
-        if (process.platform === 'win32') {
-          IPs = (
-            (await execPromise(`nmap -sn ${ip}/24`)) as any
-          ).toString() as string;
-        } else if (process.platform === 'linux') {
-          IPs = (
-            (await execPromise(`nmap -sn ${ip}/24`)) as any
-          ).toString() as string;
-        }
-        logger.info('Network scan info received:', IPs);
-
-        const connections: Array<Array<string>> = [];
-
-        IPs.split('\n').forEach((line) => {
-          if (line.includes('Nmap scan report for')) {
-            const info = line.split('Nmap scan report for ')[1] || '';
-            let connectionName = info.split(' ')[0];
-
-            let connectionIp = info
-              .split(' ')[1]
-              ?.replace('(', '')
-              .replace(')', '');
-
-            if (!connectionIp) {
-              connectionIp = connectionName;
-              connectionName = '';
-            }
-
-            connections.push([
-              connectionName?.replace('\r', '') || 'Unknown',
-              connectionIp?.replace('\r', '') || '',
-            ]);
-          }
-        });
-
-        resolve(connections);
-      } catch (error) {
-        logger.error('Error scanning network:', error);
-        reject(error);
-      }
+    socket.on("error", () => {
+        socket.destroy();
+        callback(ip, port, false);
     });
-  }) as Promise<Array<Array<string>>>;
-};
+
+    socket.on("timeout", () => {
+        socket.destroy();
+        callback(ip, port, false);
+    });
+}
+
+export default async function scanNetworkForConnections() {
+    console.log(`🔍 Scanning ${subnet}.0/24 for devices...`);
+    
+    for (let i = 1; i < 255; i++) {
+        let ip = `${subnet}.${i}`;
+
+        ping.promise.probe(ip, { timeout: 1 })
+            .then((res) => {
+                if (res.alive) {
+                    // console.log(`🎯 Found device: ${ip}`);
+                    
+                    ports.forEach((port) => {
+                        checkPort(ip, port, (host, port, isOpen) => {
+                            if (isOpen) {
+                                console.log(`🖨️ Printer (or device) found at ${host}:${port}`);
+                            }
+                        });
+                    });
+                }
+            });
+    }
+}
