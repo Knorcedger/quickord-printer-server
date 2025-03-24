@@ -26,6 +26,10 @@ export const PrinterTextOptions = z.enum(
 );
 
 export const PrinterSettings = z.object({
+  id: z .string({
+    invalid_type_error: 'id must be a string.',
+  })
+  .optional(),
   categoriesToNotPrint: z
     .array(z.string(), {
       description: 'The product categories to not print on the receipt.',

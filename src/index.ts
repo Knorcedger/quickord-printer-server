@@ -27,7 +27,7 @@ const main = async () => {
 
   await logger.init();
 
-  await scanNetworkForConnections();
+ // await scanNetworkForConnections();
 
   await loadSettings();
 
