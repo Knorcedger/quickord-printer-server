@@ -64,7 +64,7 @@ Requirements:
 
 The following are the printer settings that can be configured:
 
-- `categoriesToNotPrint: Array<string>`: The categories (`_ids`) that should not be printed.
+- `categoriesToPrint: Array<string>`: The categories (`_ids`) that should be printed.
 - `characterSet: CharacterSetEnum`: The character set to use for the printer. This is taken from the `node-thermal-printer` package.
 - `codePage: number`: The code page to use for the printer. This is used in conjunction with `characterSet` to setup the encoding for the printing. This can be found in the printer's manual or the selft test page.
 - `copies: number`: The number of copies to print.
@@ -80,7 +80,7 @@ The printers are configured by sending a POST to `/settings` with the following 
 ```json
 [
   {
-    "categoriesToNotPrint": [],
+    "categoriesToPrint": [],
     "characterSet": "WPC1253_GREEK",
     "codePage": 90,
     "copies": 1,

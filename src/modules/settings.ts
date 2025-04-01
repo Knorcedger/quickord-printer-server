@@ -30,14 +30,20 @@ export const PrinterSettings = z.object({
     invalid_type_error: 'id must be a string.',
   })
   .optional(),
-  categoriesToNotPrint: z
+  categoriesToPrint: z
     .array(z.string(), {
-      description: 'The product categories to not print on the receipt.',
-      invalid_type_error: 'categoriesToNotPrint must be an array of strings.',
-      required_error: 'categoriesToNotPrint is required.',
+      description: 'The product categories to print on the receipt.',
+      invalid_type_error: 'categoriesToPrint must be an array of strings.',
+      required_error: 'categoriesToPrint is required.',
     })
     .optional()
     .default([]),
+    categoriesToNotPrint: z
+    .array(z.string(), {
+      description: 'The product categories to not print on the receipt.',
+      invalid_type_error: 'categoriesToNotPrint must be an array of strings.',
+    })
+    .optional(),
   characterSet: CharacterSetEnum,
   codePage: z
     .number({
@@ -112,6 +118,28 @@ let settings: ISettings = {
   printers: [],
 };
 
+const migrateToV2 = (settings: ISettings): [ISettings, boolean] => {
+  let updated = false;
+  //i want to add id to printers like "1" "2" "3" etc when they dont have and also make categoriesToNotPrint categoriesToPrint
+  settings.printers = settings.printers.map((printer, index) => {
+    if (!printer.id) {
+      console.log('updated printer id', index + 1);
+      updated = true;
+      printer.id = (index + 1).toString();
+    }
+
+    if (printer.categoriesToNotPrint) {
+      updated = true;
+      console.log('updated printer categories');
+      printer.categoriesToPrint = printer.categoriesToNotPrint;
+      delete printer.categoriesToNotPrint;
+    }
+
+    return printer;
+  });
+  return [settings, updated];
+}
+
 export const loadSettings = async () => {
   try {
     if (!fs.existsSync('./settings.json')) {
@@ -121,7 +149,14 @@ export const loadSettings = async () => {
     }
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
-
+ /*   const updated = migrateToV2(settings);
+    if (updated) {
+      settings = updated[0];
+      fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
+      saveSettings();
+    }else{
+      console.log("already v2")
+    }*/
     logger.info('Settings loaded:', settings);
 
     settings.printers = settings.printers?.map((printer) => {

@@ -172,7 +172,7 @@ export const printOrder = async (
 
       const productsToPrint = order.products.filter((product) =>
         product.categories.some(
-          (category) => !settings?.categoriesToNotPrint?.includes(category)
+          (category) => !settings?.categoriesToPrint?.includes(category)
         )
       );
 
