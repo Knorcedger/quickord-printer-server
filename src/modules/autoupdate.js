@@ -6,7 +6,8 @@ import { sep as a } from "node:path";
 import { pipeline as o } from "node:stream/promises";
 import n from "yauzl-promise";
 import s from "../modules/logger.js";
-
+import fs from 'fs/promises';
+import path from 'path';
 e.argv().env().file("./config.json");
 
 let f = "";
@@ -16,6 +17,11 @@ async function c() {
         s.info("Downloading latest code");
         let i = await fetch(e.get("CODE_UPDATE_URL"));
         let c = Buffer.from(await (await i.blob()).arrayBuffer());
+         //curl -s https://api.github.com/repos/Knorcedger/quickord-printer-server/releases | jq -r '.[] | select(.prerelease) | .assets[] | .browser_download_url'
+      // const filePath = path.join(process.cwd(), 'quickord-cashier-server2.zip'); // Adjust path if needed
+   
+     //  let c = await fs.readFile(filePath);
+       console.log("File loaded successfully:", c.length, "bytes");
 
         s.info("Creating temp dir");
         f = await t.promises.mkdtemp(`${r()}${a}quickord-cashier-server-update`);

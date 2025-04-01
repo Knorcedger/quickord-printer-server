@@ -1,5 +1,6 @@
 {
-  "CODE_UPDATE_URL": "https://github.com/Knorcedger/quickord-printer-server/releases/latest/download/quickord-cashier-server.zip",
+  "CODE_UPDATE_URL": "https://github.com/Knorcedger/quickord-printer-server/releases/download/v2025.4.1-93367/quickord-cashier-server.zip",
+  //curl -s https://api.github.com/repos/Knorcedger/quickord-printer-server/releases | jq -r '.[] | select(.prerelease) | .assets[] | .browser_download_url'
   "PORT": "7810",
   "QUICKORD_API_URL": "https://api.quickord.com/graphql"
 }
