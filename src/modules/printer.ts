@@ -396,6 +396,7 @@ export const printOrder = async (
             )
           );
           printer.alignLeft();
+          printer.drawLine();
         });
 
         if (order.waiterComment) {
@@ -418,7 +419,6 @@ export const printOrder = async (
           );
         }
 
-        printer.drawLine();
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
