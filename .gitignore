@@ -1,6 +1,7 @@
 node_modules
 *.log
 settings.json
+settings2.json
 dist
 .tsbuildinfo
 compiled-out
