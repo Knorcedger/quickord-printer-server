@@ -14,6 +14,8 @@ mkdir ./builds || { echo "Failed to create builds directory"; exit 1; }
 mv ./dist/src/* ./dist/ || { echo "Failed to move dist files"; exit 1; }
 
 # Create the zip archive
-zip ./builds/quickord-cashier-server.zip ./dist/* config.json package.json package-lock.json init.bat version || { echo "Failed to create zip"; exit 1; }
+zip -r ./builds/quickord-cashier-server.zip ./dist config.json package.json package-lock.json init.bat version \
+|| { echo "Failed to create zip"; exit 1; }
+
 
 echo "Build successful"
