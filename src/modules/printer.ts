@@ -197,7 +197,6 @@ export const printOrder = async (
 
       for (let copies = 0; copies < settings.copies; copies += 1) {
         changeTextSize(printer, settings?.textSize || 'NORMAL');
-
         printer.drawLine();
         printer.newLine();
         printer.alignCenter();
@@ -396,7 +395,12 @@ export const printOrder = async (
             )
           );
           printer.alignLeft();
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
           printer.drawLine();
+          if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+            printer.setTextSize(1, 1);
+          }
+  
         });
 
         if (order.waiterComment) {
