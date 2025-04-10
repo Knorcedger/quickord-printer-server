@@ -9,7 +9,7 @@ import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
 import { initModem } from './modules/modem.ts';
 import scanNetworkForConnections from "./modules/network.ts"
-import { setupPrinters } from './modules/printer.ts';
+import { setupPrinters,paymentReceipt } from './modules/printer.ts';
 import {
   getSettings,
   loadSettings,
@@ -19,7 +19,6 @@ import {
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
-
 nconf.argv().env().file('./config.json');
 
 const main = async () => {
@@ -84,6 +83,7 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(printOrders);
+  app.route('/print-payment-receipt').post(paymentReceipt);
 
   app.route('/test-print').post(testPrint);
 
@@ -138,7 +138,8 @@ const main = async () => {
       'API listening at port',
       (server?.address?.() as { port: number })?.port
     );
-  });
+  }
+);
 };
 
 const skipErrorNames: string[] = [];

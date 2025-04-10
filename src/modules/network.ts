@@ -1,5 +1,5 @@
-const net = require("net");
-const ping = require("ping");
+import net from "net";
+import ping from "ping";
 
 const subnet = "192.168.1";
 const ports = [9100, 515, 631];
