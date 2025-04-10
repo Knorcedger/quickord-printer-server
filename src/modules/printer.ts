@@ -7,7 +7,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import { z } from 'zod';
-
+import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders.ts';
 import { convertToDecimal, leftPad, tr } from './common.ts';
 import logger from './logger.ts';
@@ -157,6 +157,135 @@ export const printTestPage = async (
   }
 };
 
+const PaymentMethod = Object.freeze({
+  ACC_FOREIGN: { description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής', value: '2' },
+  ACC_NATIVE:  { description: 'Επαγ. Λογαριασμός Πληρωμών Ημεδαπής', value: '1' },
+  CASH:        { description: 'ΜΕΤΡΗΤΑ', value: '3' },
+  CHECK:       { description: 'ΕΠΙΤΑΓΗ', value: '4' },
+  CREDIT:      { description: 'ΕΠΙ ΠΙΣΤΩΣΕΙ', value: '5' },
+  IRIS:        { description: 'IRIS', value: '8' },
+  POS:         { description: 'POS / e-POS', value: '7' },
+  WEB_BANK:    { description: 'Web-banking', value: '6' },
+});
+
+const PaymentMethodDescriptions = Object.freeze(
+  Object.fromEntries(
+    Object.values(PaymentMethod).map(({ description, value }) => [value, description])
+  )
+);
+
+export const paymentReceipt = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+  try {
+    printPaymentReceipt(req.body.aadeInvoice,req.body.lang || 'el');
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
+
+const drawLine2 = (printer: ThermalPrinter) => {
+  printer.println('------------------------------------------');
+}
+
+ const printPaymentReceipt = async (
+  aadeInvoice: Object,
+  lang: SupportedLanguages = 'el',
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+
+      if (!settings || !printer) {
+        continue;
+      }
+      
+      printer.alignCenter();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.bold(true);
+      printer.println("**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ****");
+      printer.println(aadeInvoice?.issuer.name)
+      printer.bold(false);
+      printer.println(aadeInvoice?.issuer.activity)
+      printer.println(`${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}`)
+      printer.println(`ΤΚ: ${aadeInvoice?.issuer.address.postal_code}`)
+      printer.println(`ΑΦΜ: ${aadeInvoice?.issuer.vat_number} ΔΟΥ: ${aadeInvoice?.issuer.tax_office}`)
+      printer.println(`ΤΗΛ: ${aadeInvoice?.issuer.phone}`)
+      drawLine2(printer)
+      printer.println(`ΗΜΕΡΟΜΗΝΙΑ: ${aadeInvoice?.issue_date}`);
+      printer.println(`ΑΡ ΣΕΙΡΑΣ: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`);
+      printer.println(`ΚΩΔΙΚΟΣ ΣΕΙΡΑΣ:${aadeInvoice?.header.code}`);
+      let sumAmount = 0;
+      let sumQuantity = 0;
+      aadeInvoice?.details.forEach((detail: any) => {
+        sumAmount+= detail.net_value * detail.quantity;
+        sumQuantity+= detail.quantity;
+        printer.newLine();
+        drawLine2(printer)
+        printer.newLine();
+        printer.table([
+          `     ${detail.name}`,
+          `${detail.quantity}x ${detail.net_value}€`,
+        ]);
+      })
+      printer.newLine();
+      printer.println(`TEMAXIA: ${sumQuantity}`);
+      drawLine2(printer)
+      printer.alignRight();
+      printer.println(`ΣΥΝΟΛΟ: ${sumAmount}€`);
+      printer.alignCenter();
+      drawLine2(printer)
+      printer.println(`ΠΛΗΡΩΜΕΣ:`);
+      aadeInvoice?.payment_methods.forEach((detail: any) => {
+        printer.newLine();
+        const methodDescription = PaymentMethodDescriptions[detail.code] || 'Άγνωστη Μέθοδος';
+        printer.println(`${methodDescription}     ΠΟΣΟ: ${detail.amount}€`);
+      })
+      drawLine2(printer)
+      printer.newLine();
+      printer.println(`MARK: ${aadeInvoice?.mark}`);
+      printer.println(`ΠΑΡΟΧΟΣ:`);
+      printer.println(`${aadeInvoice?.url}`);
+      printer.println(`ΑΝΑΓΝΩΡΙΣΤΙΚΟ:`);
+      printer.println(`${aadeInvoice?.uid}`);
+      printer.println(`ΥΠΟΓΡΑΦΗ:`);
+      printer.println(`${aadeInvoice?.authentication_code}`);
+      printer.printQR(aadeInvoice?.qr, {
+        cellSize: 3,
+        model: 3,
+        correction: 'Q',
+      });
+      printer.newLine();
+      printer.newLine();
+      printer.newLine();
+      printer.println(
+        tr(
+          `${translations.printOrder.poweredBy[lang]}`,
+          settings.transliterate
+        )
+      );
+      printer.newLine();
+      printer.bold(true);
+      printer.println("**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ - ΛΗΞΗ ****");
+      printer.bold(false);
+      printer.newLine();
+      printer.alignCenter();
+      printer.cut();
+      printer
+      .execute({
+        waitForResponse: false,
+      })
+      .then(() => {
+        logger.info(
+         "Printed payment"
+        );
+      });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
 export const printOrder = async (
   order: z.infer<typeof Order>,
   lang: SupportedLanguages = 'el'
