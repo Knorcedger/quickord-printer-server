@@ -1,0 +1,7 @@
+name = "printerServer"
+main = "index.js"
+target = "node16"
+output = "dist"
+
+[assets]
+include = ["node_modules/@serialport/binding*/**/*"]
