@@ -397,7 +397,7 @@ export const printOrder = async (
           printer.alignLeft();
           changeTextSize(printer, settings?.textSize || 'NORMAL');
           printer.drawLine();
-          if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          if (settings.textOptions.includes("BOLD_PRODUCTS")) {
             printer.setTextSize(1, 1);
           }
   
