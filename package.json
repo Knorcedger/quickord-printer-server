@@ -23,9 +23,9 @@
     "build:bundle": "bun build ./src/index.ts --target=bun --outfile=dist/index.js",
     "build:bundlees": "esbuild ./dist/src/index.js --bundle --platform=node --target=node23.11.0 --outfile=./dist/bundle.cjs --external:serialport --external:@serialport/bindings* --external:*.node",
     "build:exe": "bun build ./src/index.ts --target=bun --outfile=dist/index.js && bun build --compile --target=bun-windows-x64 ./dist/index.js --outfile ./dist/printerServer.exe",
-    "build:exenexe" : "npm run build:bundlees && nexe ./dist/bundle.cjs --build --verbose -o ./builds/printerServer.exe",
-    "build:updater": "bun build ./autoupdate/autoupdate --target=bun --outfile=dist/index.js && bun build --compile --target=bun-windows-x64 ./dist/index.js --outfile ./dist/printerUpdater.exe",
-    
+    "build:exenexe" : "npm run build:bundlees && nexe ./dist/bundle.cjs --build --external:serialport --external:@serialport/bindings* --external:*.node --output builds/printerServer.exe",
+    "build:updater": "bun build ./autoupdate/autoupdate --target=bun --outfile=dist/index.js && bun build --compile --target=bun-windows-x64 ./dist/index.js --outfile ./dist/printerUpdater.exe ",
+    "copy-bindings": "cp -r node_modules/@serialport* builds/node_modules/@serialport ",
     "----------------------------------Build----------------------------------": "",
     "deno:compile:linux": "deno compile --target x86_64-unknown-linux-gnu --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --no-terminal --output ./compiled-out/server-bin ./src/index.ts",
     "deno:compile:windows": "deno compile --target x86_64-pc-windows-msvc --allow-read --allow-write --allow-net --allow-env --allow-sys --allow-run --output ./compiled-out/server-bin.exe ./src/index.ts"
@@ -79,6 +79,6 @@
     "typescript": "^5.4.5"
   },
   "engines": {
-    "node": "^23.6.1"
+    "node": "^23.11.0"
   }
 }
