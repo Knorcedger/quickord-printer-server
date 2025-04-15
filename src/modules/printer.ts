@@ -110,13 +110,13 @@ export const printTestPage = async (
   codePage?: number
 ): Promise<string> => {
   let interfaceString = port;
-  let device = `usb printer: ${port}`
-  if (ip !== "") {
+  let device = `usb printer: ${port}`;
+  if (ip !== '') {
     interfaceString = `tcp://${ip}`;
-    device = `ip printer: ${ip}`
+    device = `ip printer: ${ip}`;
   }
 
-  console.log(interfaceString)
+  console.log(interfaceString);
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
@@ -145,7 +145,7 @@ export const printTestPage = async (
   printer.cut();
 
   try {
-    await printer. execute();
+    await printer.execute();
     logger.info(`Printed test page to ${device}`);
 
     return 'success';
@@ -158,25 +158,37 @@ export const printTestPage = async (
 };
 
 const PaymentMethod = Object.freeze({
-  ACC_FOREIGN: { description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής', value: '2' },
-  ACC_NATIVE:  { description: 'Επαγ. Λογαριασμός Πληρωμών Ημεδαπής', value: '1' },
-  CASH:        { description: 'ΜΕΤΡΗΤΑ', value: '3' },
-  CHECK:       { description: 'ΕΠΙΤΑΓΗ', value: '4' },
-  CREDIT:      { description: 'ΕΠΙ ΠΙΣΤΩΣΕΙ', value: '5' },
-  IRIS:        { description: 'IRIS', value: '8' },
-  POS:         { description: 'POS / e-POS', value: '7' },
-  WEB_BANK:    { description: 'Web-banking', value: '6' },
+  ACC_FOREIGN: {
+    description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής',
+    value: '2',
+  },
+  ACC_NATIVE: {
+    description: 'Επαγ. Λογαριασμός Πληρωμών Ημεδαπής',
+    value: '1',
+  },
+  CASH: { description: 'ΜΕΤΡΗΤΑ', value: '3' },
+  CHECK: { description: 'ΕΠΙΤΑΓΗ', value: '4' },
+  CREDIT: { description: 'ΕΠΙ ΠΙΣΤΩΣΕΙ', value: '5' },
+  IRIS: { description: 'IRIS', value: '8' },
+  POS: { description: 'POS / e-POS', value: '7' },
+  WEB_BANK: { description: 'Web-banking', value: '6' },
 });
 
 const PaymentMethodDescriptions = Object.freeze(
   Object.fromEntries(
-    Object.values(PaymentMethod).map(({ description, value }) => [value, description])
+    Object.values(PaymentMethod).map(({ description, value }) => [
+      value,
+      description,
+    ])
   )
 );
 
-export const paymentReceipt = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+export const paymentReceipt = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
   try {
-    printPaymentReceipt(req.body.aadeInvoice,req.body.lang || 'el');
+    printPaymentReceipt(req.body.aadeInvoice, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -186,11 +198,11 @@ export const paymentReceipt = (req: Request<{}, any, any>, res: Response<{}, any
 
 const drawLine2 = (printer: ThermalPrinter) => {
   printer.println('------------------------------------------');
-}
+};
 
- const printPaymentReceipt = async (
+const printPaymentReceipt = async (
   aadeInvoice: Object,
-  lang: SupportedLanguages = 'el',
+  lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
     try {
@@ -200,49 +212,56 @@ const drawLine2 = (printer: ThermalPrinter) => {
       if (!settings || !printer) {
         continue;
       }
-      
+
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(true);
-      printer.println("**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ****");
-      printer.println(aadeInvoice?.issuer.name)
+      printer.println('**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ****');
+      printer.println(aadeInvoice?.issuer.name);
       printer.bold(false);
-      printer.println(aadeInvoice?.issuer.activity)
-      printer.println(`${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}`)
-      printer.println(`ΤΚ: ${aadeInvoice?.issuer.address.postal_code}`)
-      printer.println(`ΑΦΜ: ${aadeInvoice?.issuer.vat_number} ΔΟΥ: ${aadeInvoice?.issuer.tax_office}`)
-      printer.println(`ΤΗΛ: ${aadeInvoice?.issuer.phone}`)
-      drawLine2(printer)
+      printer.println(aadeInvoice?.issuer.activity);
+      printer.println(
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}`
+      );
+      printer.println(`ΤΚ: ${aadeInvoice?.issuer.address.postal_code}`);
+      printer.println(
+        `ΑΦΜ: ${aadeInvoice?.issuer.vat_number} ΔΟΥ: ${aadeInvoice?.issuer.tax_office}`
+      );
+      printer.println(`ΤΗΛ: ${aadeInvoice?.issuer.phone}`);
+      drawLine2(printer);
       printer.println(`ΗΜΕΡΟΜΗΝΙΑ: ${aadeInvoice?.issue_date}`);
-      printer.println(`ΑΡ ΣΕΙΡΑΣ: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`);
+      printer.println(
+        `ΑΡ ΣΕΙΡΑΣ: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+      );
       printer.println(`ΚΩΔΙΚΟΣ ΣΕΙΡΑΣ:${aadeInvoice?.header.code}`);
       let sumAmount = 0;
       let sumQuantity = 0;
       aadeInvoice?.details.forEach((detail: any) => {
-        sumAmount+= detail.net_value * detail.quantity;
-        sumQuantity+= detail.quantity;
+        sumAmount += detail.net_value * detail.quantity;
+        sumQuantity += detail.quantity;
         printer.newLine();
-        drawLine2(printer)
+        drawLine2(printer);
         printer.newLine();
         printer.table([
           `     ${detail.name}`,
           `${detail.quantity}x ${detail.net_value}€`,
         ]);
-      })
+      });
       printer.newLine();
       printer.println(`TEMAXIA: ${sumQuantity}`);
-      drawLine2(printer)
+      drawLine2(printer);
       printer.alignRight();
       printer.println(`ΣΥΝΟΛΟ: ${sumAmount}€`);
       printer.alignCenter();
-      drawLine2(printer)
+      drawLine2(printer);
       printer.println(`ΠΛΗΡΩΜΕΣ:`);
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
-        const methodDescription = PaymentMethodDescriptions[detail.code] || 'Άγνωστη Μέθοδος';
+        const methodDescription =
+          PaymentMethodDescriptions[detail.code] || 'Άγνωστη Μέθοδος';
         printer.println(`${methodDescription}     ΠΟΣΟ: ${detail.amount}€`);
-      })
-      drawLine2(printer)
+      });
+      drawLine2(printer);
       printer.newLine();
       printer.println(`MARK: ${aadeInvoice?.mark}`);
       printer.println(`ΠΑΡΟΧΟΣ:`);
@@ -259,27 +278,22 @@ const drawLine2 = (printer: ThermalPrinter) => {
         correction: 'Q',
       });
       printer.println(
-        tr(
-          `${translations.printOrder.poweredBy[lang]}`,
-          settings.transliterate
-        )
+        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
       printer.bold(true);
-      printer.println("**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ - ΛΗΞΗ ****");
+      printer.println('**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ - ΛΗΞΗ ****');
       printer.bold(false);
       printer.newLine();
       printer.alignCenter();
       printer.cut();
       printer
-      .execute({
-        waitForResponse: false,
-      })
-      .then(() => {
-        logger.info(
-         "Printed payment"
-        );
-      });
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          logger.info('Printed payment');
+        });
     } catch (error) {
       logger.error('Print failed:', error);
     }
@@ -472,7 +486,8 @@ export const printOrder = async (
             }
           });
         }
-       
+        const vatBreakdown: { vat: number; total: number; netValue: number }[] =
+          [];
         productsToPrint.forEach((product) => {
           let total = product.total;
           printer.newLine();
@@ -490,7 +505,7 @@ export const printOrder = async (
           );
 
           product.choices?.forEach((choice) => {
-            console.log(product.choices , product.quantity)
+            console.log(product.choices, product.quantity);
             total += (choice.price || 0) * (product.quantity || 1);
             printer.println(
               tr(
@@ -507,42 +522,106 @@ export const printOrder = async (
               )
             );
           });
-          if (product.comments){
-          printer.println(
-            tr(
-              ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
-              settings.transliterate
-            )
-          );
-        }
-          if(product.vat){
+          if (product.comments) {
+            printer.println(
+              tr(
+                ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
+                settings.transliterate
+              )
+            );
+          }
+          if (product.vat) {
             printer.println(
               tr(
                 `${translations.printOrder.vat[lang]}:${product.vat}%`,
                 settings.transliterate
               )
             );
+            const vatRate = product.vat;
+            const existingVat = vatBreakdown.find(
+              (item) => item.vat === vatRate
+            );
+
+            // Function to round and ensure it is a float with two decimal precision
+            function roundToTwoDecimalPlaces(num) {
+              return parseFloat(num.toFixed(2)); // `.toFixed(2)` gives a string, then we parse it back to float
+            }
+            if (product.vat) {
+              const vatRate = product.vat;
+
+              let choicesTotal = 0;
+              if (product.choices) {
+                product.choices.forEach((choice) => {
+                  choicesTotal += (choice.price || 0) * (product.quantity || 1);
+                });
+              }
+
+              const rawTotal = product.total * product.quantity + choicesTotal;
+              const rawNet = rawTotal / (1 + vatRate / 100);
+
+              const fullTotal = roundToTwoDecimalPlaces(
+                convertToDecimal(rawTotal)
+              );
+              const netValue = roundToTwoDecimalPlaces(
+                convertToDecimal(rawNet)
+              );
+
+              const existingVat = vatBreakdown.find(
+                (item) => item.vat === vatRate
+              );
+
+              if (existingVat) {
+                existingVat.total += fullTotal;
+                existingVat.netValue += netValue;
+              } else {
+                vatBreakdown.push({
+                  vat: vatRate,
+                  total: fullTotal,
+                  netValue: netValue,
+                });
+              }
+            }
           }
           printer.alignRight();
           printer.println(
             tr(
-              `${convertToDecimal(total + ((product.quantity-1) * product.total)).toFixed(2)} €`,
+              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
               settings.transliterate
             )
           );
           printer.alignLeft();
           printer.drawLine();
         });
-        syn = [{
-          vat: '13%',
-          total: `${convertToDecimal(order.total).toFixed(2)} €`,
-        }]
+
+        console.log('vatBreakdown', vatBreakdown);
+
+        // Print section headers
+        printer.alignCenter();
         printer.println(
           tr(
             `${translations.printOrder.analysisVat[lang]}`,
             settings.transliterate
           )
-        )
+        );
+        printer.alignLeft();
+        printer.println(
+          `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
+        );
+
+        // Print each VAT item in a formatted row
+        vatBreakdown.forEach((item) => {
+          const vat = `${item.vat.toString()}%`.padEnd(10);
+
+          // Use .toFixed(2) directly to round to 2 decimal places
+          const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
+          const total = item.total.toFixed(2).padStart(18); // total comes second
+
+          printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
+        });
+
+        // Optionally print a footer or separator if needed
+        printer.println('');
+
         if (order.waiterComment) {
           printer.newLine();
           printer.println(
@@ -562,7 +641,6 @@ export const printOrder = async (
             )
           );
         }
-
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
@@ -588,12 +666,28 @@ export const printOrder = async (
 
         printer.newLine();
         printer.alignRight();
+        // Calculate total without VAT (net values)
+        const totalNetValue = vatBreakdown.reduce(
+          (sum, item) => sum + item.netValue,
+          0
+        );
+        console.log('totalNetValue', totalNetValue);
+        // Print total without VAT
         printer.println(
           tr(
-            `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
             settings.transliterate
           )
         );
+        // Print total (with VAT)
+        printer.println(
+          tr(
+            `
+            ${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            settings.transliterate
+          )
+        );
+
         printer.newLine();
         printer.println(
           tr(

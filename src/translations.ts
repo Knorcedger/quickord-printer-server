@@ -20,6 +20,14 @@ export default {
       el: 'ΑΝΑΛΥΣΗ ΦΠΑ ΚΑΤΑ ΣΥΝΤΕΛΕΣΤΗ',
       en: 'ANALYSIS VAT BY RATE',
     },
+    percentage: {
+      el: 'ΠΟΣΟΣΤΟ',
+      en: 'PERCENTAGE',
+    },
+    netWorth: {
+      el: 'ΚΑΘΑΡΗ ΑΞΙΑ',
+      en: 'NET WORTH',
+    },
     deliveryAddress: {
       el: 'ΔΙΕΥΘΥΝΣΗ',
       en: 'ADDRESS',
@@ -141,6 +149,10 @@ export default {
     total: {
       el: 'ΣΥΝΟΛΟ',
       en: 'TOTAL',
+    },
+    netWithoutVat: {
+      el: 'ΚΑΘΑΡΗ ΧΩΡΙΣ ΦΠΑ',
+      en: 'NET WITHOUT VAT',
     },
     waiter: {
       el: 'ΣΕΡΒ',
