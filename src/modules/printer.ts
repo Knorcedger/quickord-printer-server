@@ -455,8 +455,9 @@ export const printOrder = async (
           }
         });
 
+        if(vatBreakdown.length > 0) {
         console.log('vatBreakdown', vatBreakdown);
-
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
         // Print section headers
         printer.alignCenter();
         printer.println(
@@ -483,6 +484,7 @@ export const printOrder = async (
 
         // Optionally print a footer or separator if needed
         printer.println('');
+      }
 
         if (order.waiterComment) {
           printer.newLine();
