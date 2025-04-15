@@ -16,6 +16,12 @@ export const Product = z.object({
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
+  vat: z
+    .number({
+      invalid_type_error: 'vat must be a number.',
+      required_error: 'vat is required.',
+    })
+    .optional(),
   choices: z
     .array(
       z.object({
@@ -212,7 +218,7 @@ const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('orders to print:', orders);
 
     printerPrintOrders(orders);
-    console.log(orders[0]?.products)
+    console.log(orders[0]?.products);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {

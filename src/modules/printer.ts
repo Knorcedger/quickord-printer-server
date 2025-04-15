@@ -110,13 +110,13 @@ export const printTestPage = async (
   codePage?: number
 ): Promise<string> => {
   let interfaceString = port;
-  let device = `usb printer: ${port}`
-  if (ip !== "") {
+  let device = `usb printer: ${port}`;
+  if (ip !== '') {
     interfaceString = `tcp://${ip}`;
-    device = `ip printer: ${ip}`
+    device = `ip printer: ${ip}`;
   }
 
-  console.log(interfaceString)
+  console.log(interfaceString);
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
@@ -145,7 +145,7 @@ export const printTestPage = async (
   printer.cut();
 
   try {
-    await printer. execute();
+    await printer.execute();
     logger.info(`Printed test page to ${device}`);
 
     return 'success';
@@ -343,7 +343,8 @@ export const printOrder = async (
             }
           });
         }
-
+        const vatBreakdown: { vat: number; total: number; netValue: number }[] =
+          [];
         productsToPrint.forEach((product) => {
           let total = product.total;
 
@@ -362,7 +363,8 @@ export const printOrder = async (
           );
 
           product.choices?.forEach((choice) => {
-            total += (choice.price || 0) * (choice.quantity || 1);
+            console.log(product.choices, product.quantity);
+            total += (choice.price || 0) * (product.quantity || 1);
             printer.println(
               tr(
                 `${leftPad(
@@ -378,30 +380,109 @@ export const printOrder = async (
               )
             );
           });
-          if (product.comments){
-          printer.println(
-            tr(
-              ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
-              settings.transliterate
-            )
-          );
-        }
+          if (product.comments) {
+            printer.println(
+              tr(
+                ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
+                settings.transliterate
+              )
+            );
+          }
+          if (product.vat) {
+            printer.println(
+              tr(
+                `${translations.printOrder.vat[lang]}:${product.vat}%`,
+                settings.transliterate
+              )
+            );
+            const vatRate = product.vat;
+            const existingVat = vatBreakdown.find(
+              (item) => item.vat === vatRate
+            );
 
+            // Function to round and ensure it is a float with two decimal precision
+            function roundToTwoDecimalPlaces(num) {
+              return parseFloat(num.toFixed(2)); // `.toFixed(2)` gives a string, then we parse it back to float
+            }
+            if (product.vat) {
+              const vatRate = product.vat;
+
+              let choicesTotal = 0;
+              if (product.choices) {
+                product.choices.forEach((choice) => {
+                  choicesTotal += (choice.price || 0) * (product.quantity || 1);
+                });
+              }
+
+              const rawTotal = product.total * product.quantity + choicesTotal;
+              const rawNet = rawTotal / (1 + vatRate / 100);
+
+              const fullTotal = roundToTwoDecimalPlaces(
+                convertToDecimal(rawTotal)
+              );
+              const netValue = roundToTwoDecimalPlaces(
+                convertToDecimal(rawNet)
+              );
+
+              const existingVat = vatBreakdown.find(
+                (item) => item.vat === vatRate
+              );
+
+              if (existingVat) {
+                existingVat.total += fullTotal;
+                existingVat.netValue += netValue;
+              } else {
+                vatBreakdown.push({
+                  vat: vatRate,
+                  total: fullTotal,
+                  netValue: netValue,
+                });
+              }
+            }
+          }
           printer.alignRight();
           printer.println(
             tr(
-              `${convertToDecimal(total).toFixed(2)} €`,
+              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
               settings.transliterate
             )
           );
           printer.alignLeft();
           changeTextSize(printer, settings?.textSize || 'NORMAL');
           printer.drawLine();
-          if (settings.textOptions.includes("BOLD_PRODUCTS")) {
+          if (settings.textOptions.includes('BOLD_PRODUCTS')) {
             printer.setTextSize(1, 1);
           }
-  
         });
+
+        console.log('vatBreakdown', vatBreakdown);
+
+        // Print section headers
+        printer.alignCenter();
+        printer.println(
+          tr(
+            `${translations.printOrder.analysisVat[lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.alignLeft();
+        printer.println(
+          `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
+        );
+
+        // Print each VAT item in a formatted row
+        vatBreakdown.forEach((item) => {
+          const vat = `${item.vat.toString()}%`.padEnd(10);
+
+          // Use .toFixed(2) directly to round to 2 decimal places
+          const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
+          const total = item.total.toFixed(2).padStart(18); // total comes second
+
+          printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
+        });
+
+        // Optionally print a footer or separator if needed
+        printer.println('');
 
         if (order.waiterComment) {
           printer.newLine();
@@ -422,8 +503,6 @@ export const printOrder = async (
             )
           );
         }
-
-     
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
@@ -449,12 +528,28 @@ export const printOrder = async (
 
         printer.newLine();
         printer.alignRight();
+        // Calculate total without VAT (net values)
+        const totalNetValue = vatBreakdown.reduce(
+          (sum, item) => sum + item.netValue,
+          0
+        );
+        console.log('totalNetValue', totalNetValue);
+        // Print total without VAT
         printer.println(
           tr(
-            `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
             settings.transliterate
           )
         );
+        // Print total (with VAT)
+        printer.println(
+          tr(
+            `
+            ${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            settings.transliterate
+          )
+        );
+
         printer.newLine();
         printer.println(
           tr(
