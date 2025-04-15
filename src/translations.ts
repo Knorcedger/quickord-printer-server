@@ -12,6 +12,14 @@ export default {
       el: 'ΟΝΟΜΑ',
       en: 'NAME',
     },
+    vat: {
+      el: 'ΦΠΑ',
+      en: 'VAT',
+    },
+    analysisVat: {
+      el: 'ΑΝΑΛΥΣΗ ΦΠΑ ΚΑΤΑ ΣΥΝΤΕΛΕΣΤΗ',
+      en: 'ANALYSIS VAT BY RATE',
+    },
     deliveryAddress: {
       el: 'ΔΙΕΥΘΥΝΣΗ',
       en: 'ADDRESS',

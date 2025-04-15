@@ -472,10 +472,9 @@ export const printOrder = async (
             }
           });
         }
-
+       
         productsToPrint.forEach((product) => {
           let total = product.total;
-
           printer.newLine();
           const leftAmount = `${product.quantity}x `.length;
           printer.println(
@@ -491,16 +490,17 @@ export const printOrder = async (
           );
 
           product.choices?.forEach((choice) => {
-            total += (choice.price || 0) * (choice.quantity || 1);
+            console.log(product.choices , product.quantity)
+            total += (choice.price || 0) * (product.quantity || 1);
             printer.println(
               tr(
                 `${leftPad(
-                  ` - ${Number(choice.quantity) > 1 ? `${choice.quantity}x` : ''} ${choice.title}`,
+                  ` - ${Number(choice.quantity) > 1 ? `${product.quantity}x` : ''} ${choice.title}`,
                   leftAmount,
                   ' '
                 )}  ${
                   choice.price
-                    ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
+                    ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
                     : ''
                 }`,
                 settings.transliterate
@@ -515,18 +515,34 @@ export const printOrder = async (
             )
           );
         }
-
+          if(product.vat){
+            printer.println(
+              tr(
+                `${translations.printOrder.vat[lang]}:${product.vat}%`,
+                settings.transliterate
+              )
+            );
+          }
           printer.alignRight();
           printer.println(
             tr(
-              `${convertToDecimal(total).toFixed(2)} €`,
+              `${convertToDecimal(total + ((product.quantity-1) * product.total)).toFixed(2)} €`,
               settings.transliterate
             )
           );
           printer.alignLeft();
           printer.drawLine();
         });
-
+        syn = [{
+          vat: '13%',
+          total: `${convertToDecimal(order.total).toFixed(2)} €`,
+        }]
+        printer.println(
+          tr(
+            `${translations.printOrder.analysisVat[lang]}`,
+            settings.transliterate
+          )
+        )
         if (order.waiterComment) {
           printer.newLine();
           printer.println(
