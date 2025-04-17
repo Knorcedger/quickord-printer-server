@@ -20,12 +20,13 @@ import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
 nconf.argv().env().file('./config.json');
+import autoUpdate from './autoupdate/autoupdate.ts';
 
 const main = async () => {
   const SERVER_PORT = nconf.get('PORT') || 7810;
 
   await logger.init();
-
+  await autoUpdate();
  // await scanNetworkForConnections();
 
   await loadSettings();
