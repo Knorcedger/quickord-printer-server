@@ -3,7 +3,7 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable no-restricted-syntax */
 
-import { createHash } from 'crypto';
+
 import nconf from 'nconf';
 import fs, { createWriteStream } from 'node:fs';
 import fsp from 'fs/promises';
@@ -13,12 +13,25 @@ import { pipeline } from 'stream/promises';
 
 import { readFile } from 'fs/promises';
 
-import logger from '../modules/logger.ts';
-
+import { spawn } from 'child_process'
 nconf.argv().env().file('./config.json');
+import path from 'path';
 
-let tempDirPath = '';
+
 import JSZip from 'jszip';
+import { exit } from 'node:process';
+let path2 = '';
+let args = ['--update', 'test'];
+let destDir ='../';
+/*
+    tempDirPath = await fs.promises.mkdtemp(
+      `${tmpdir()}${sep}quickord-cashier-server-update`
+    );*/
+
+const ZIPPATH = '../quickord-cashier-server.zip';
+const tempDirPath =  `${tmpdir()}${sep}quickord-cashier-server-update`
+let srcDir = '';
+
 async function extractZip(zipBuffer, tempCodePath) {
   const zip = await JSZip.loadAsync(zipBuffer);
 
@@ -35,203 +48,172 @@ async function extractZip(zipBuffer, tempCodePath) {
     }
   }
 }
+async function copyOnlyFiles() {
+  console.log(`Copying files from ${srcDir} to ${destDir}`);
+
+  async function walk(currentDir) {
+    let entries;
+    try {
+      entries = await fsp.readdir(currentDir, { withFileTypes: true });
+    } catch (err) {
+      console.error(`Error reading directory ${currentDir}:`, err);
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullSrcPath = path.join(currentDir, entry.name);
+      const relativePath = path.relative(srcDir, fullSrcPath);
+      const destPath = path.join(destDir, relativePath);
+
+      try {
+        if (entry.isDirectory()) {
+          await fsp.mkdir(destPath, { recursive: true });
+          await walk(fullSrcPath);
+        } else if (entry.isFile()) {
+          await fsp.copyFile(fullSrcPath, destPath);
+          console.log(`Copied ${relativePath}`);
+        }
+      } catch (err) {
+        console.error(`Error processing ${fullSrcPath}:`, err);
+      }
+    }
+  }
+
+  try {
+    await walk(srcDir);
+    console.log('✅ Copy completed.');
+  } catch (err) {
+    console.error('❌ Failed to copy files:', err);
+  }
+}
+
+
+
 async function downloadLatestCode() {
+  console.log("you can start")
+ 
+const cwd = process.cwd();
+const parentDir = path.resolve(cwd, '..');
+
+console.log(`Parent directory: ${parentDir}`);
 
   try {
     
-    logger.info('Downloading latest code');
+   // logger.info('Downloading latest code');
   //  const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-   const filePath = '../quickord-cashier-server.zip';
 
    // const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-    const fileData = await readFile(filePath);//Buffer.from(await (await res.blob()).arrayBuffer());
+    const fileData = await readFile(ZIPPATH);//Buffer.from(await (await res.blob()).arrayBuffer());
 
-    logger.info('Creating temp dir');
-    tempDirPath = await fs.promises.mkdtemp(
-      `${tmpdir()}${sep}quickord-cashier-server-update`
-    );
-    
-    const zipPath = `${tempDirPath}${sep}quickord-cashier-server.zip`;
-    logger.info('Writing zip file');
+    //logger.info('Creating temp dir');
+    srcDir = ( await fs.promises.mkdtemp(
+      tempDirPath
+      // `${tmpdir()}${sep}quickord-cashier-server-update`
+    ));
+ //   
+    const zipPath = `${srcDir}${sep}quickord-cashier-server.zip`;
+ //   //logger.info('Writing zip file');
     await fs.promises.writeFile(zipPath, fileData);
-
-    logger.info('Extracting zip file');
-    const tempCodePath = `${tempDirPath}${sep}code`;
+//
+ //  // logger.info('Extracting zip file');
+    const tempCodePath = `${srcDir}${sep}code`;
     await fs.promises.mkdir(tempCodePath);
-   
- 
-     /*
-    try {
-      for await (const entry of zip) {
-        if (entry.filename.endsWith('\\') || entry.filename.endsWith('/')) {
-          await fs.promises.mkdir(`${tempCodePath}${sep}${entry.filename}`);
-        } else {
-          const readStream = await entry.openReadStream();
-          const writeStream = fs.createWriteStream(
-            `${tempCodePath}${sep}${entry.filename}`
-          );
-          await pipeline(readStream, writeStream);
-        }
-      }
-    } finally {
-      await zip.close();
-    }*/
-
-
+ //  
+//
     const zipBuffer = await fsp.readFile(zipPath);
     await extractZip(zipBuffer, tempCodePath);
-                
+    const updateArg = tempCodePath
+    console.log(updateArg)
+    args[1] = tempCodePath
+    args[2] = '--parent'
+    args[3] = parentDir
+    path2 = tempCodePath + '/builds/printerServer.exe'
+    try {
+      const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...args], {
+        detached: true,
+        stdio: 'ignore' // use 'inherit' for debugging if needed
+      });
+
+      child.on('error', (err) => {
+        console.error('Failed to spawn process:', err);
+      });
+
+      child.unref(); // Important for detached mode
+
+      console.log('Spawned successfully, exiting current app.');
+      process.exit();
+
+    } catch (err) {
+      console.error('Exception during spawn:', err);
+    }
+
     return true;
-  } catch (e) {
-    logger.error(e);
+
+  }catch (e) {
+    console.log(e)
+  //  logger.error(e);
   }
 
   return false;
 }
 
-async function cleanup() {
-  if (tempDirPath === '') {
-    return;
-  }
+async function cleanup(dir) {
+  console.log(`Cleaning up: ${dir}`);
+  const entries = await fsp.readdir(dir, { withFileTypes: true });
 
-  logger.info('Deleting temp dir');
-  await fs.promises.rm(tempDirPath, { recursive: true });
-}
-
-async function readdirRecursive(
-  dir: string,
-  ignore: Array<string> = [],
-  // eslint-disable-next-line no-unused-vars
-  fileCallback?: (file: string) => Promise<void>
-) {
-  const files = await fs.promises.readdir(dir);
-
-  for (const file of files) {
-    const filePath = `${dir}${sep}${file}`;
-    const stats = await fs.promises.lstat(filePath);
-
-    if (stats.isDirectory()) {
-      await readdirRecursive(filePath, ignore, fileCallback);
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await cleanup(fullPath);
     } else {
-      if (ignore.includes(file.split(sep).pop() || '')) {
-        continue;
-      }
-
-      await fileCallback?.(filePath);
+      await fsp.unlink(fullPath);
     }
   }
+
+  await fsp.rmdir(dir); // <-- this must be dir, NOT srcDir
 }
 
-async function md5File(filePath: string) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+export default async function autoUpdate(path: string[]) {
+  console.log('AutoUpdate path:', path);
+ if(path.length === 0) {
+   await downloadLatestCode()
+ }else if (path[0] === '--update') {
+  srcDir =  path[1]?.toString() || '';
+  destDir = path[3]?.toString() || '';
+  console.log(`srcDir: ${srcDir}`);
+  console.log(`destDir: ${destDir}`);
+  await copyOnlyFiles()
+  path[0] = '--remove'
+  path2 =  path[3] +  '/builds/printerServer.exe'|| ''
+
   try {
-    const file = await fs.promises.readFile(filePath);
+    const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...path], {
+      detached: true,
+      stdio: 'ignore' // use 'inherit' for debugging if needed
+    });
 
-    return createHash('md5').update(file).digest('hex');
-  } catch (e) {
-    logger.error('Error reading file', e);
+    child.on('error', (err) => {
+      console.error('Failed to spawn process:', err);
+    });
 
-    return '';
+    child.unref(); // Important for detached mode
+
+    console.log('Spawned successfully, exiting current app.');
+    process.exit();
+
+  } catch (err) {
+    console.error('Exception during spawn:', err);
   }
+  //
+ }else if (path[0] === '--remove') {
+
+  srcDir =  path[1]?.toString() || '';
+  console.log(`srcDir: ${srcDir}`);
+  await cleanup(srcDir)
+ }
 }
 
-async function updateNewExe() {
-  const initBatPath = './printerServer.exe';
-  const tempInitBatPath = `${tempDirPath}${sep}code${sep}builds${sep}printerServer.exe`;
-
-  let currentInitBat: string;
-  let newInitBat: string;
-
-  try {
-    currentInitBat = await fs.promises.readFile(initBatPath, 'utf-8');
-    newInitBat = await fs.promises.readFile(tempInitBatPath, 'utf-8');
-  } catch (e) {
-    logger.error('Error reading printerServer.exe', e);
-    return;
-  }
-
-  const currentInitBatHash = currentInitBat.replace(/(cd).*/g, '');
-  const newInitBatHash = newInitBat.replace(/(cd).*/g, '');
-
-  if (currentInitBatHash !== newInitBatHash) {
-    logger.info('Updating printerServer.exe');
-    try {
-      await fs.promises.writeFile(
-        initBatPath,
-        newInitBat.replace(
-          /(cd).*/g,
-          currentInitBat.match(/(cd).*/g)?.[0] || ''
-        )
-      );
-    } catch (e) {
-      logger.error('Error updating printerServer.exe', e);
-    }
-  }
-}
-
-// eslint-disable-next-line import/prefer-default-export
-export default async function autoUpdate() {
-  await logger.init('autoupdate');
-  return
-  try {
-    const success = await downloadLatestCode();
-
-    if (success) {
-      let currentVersion = '';
-
-      try {
-        currentVersion = await fs.promises.readFile('version', 'utf-8');
-      } catch (e) {
-        logger.warn('cannot find current version file', e);
-      }
-
-      let newVersion = '';
-
-      try {
-        newVersion = await fs.promises.readFile(
-          `${tempDirPath}${sep}code${sep}builds${sep}version`,
-          'utf-8'
-        );
-      } catch (e) {
-        logger.warn('cannot find new version file', e);
-      }
-
-      logger.info(
-        'Current version:',
-        currentVersion,
-        ' | New version:',
-        newVersion
-      );
-      if (currentVersion === newVersion && newVersion !== '') {
-        logger.info('Already up to date');
-        return;
-      }
-
-      logger.info('Updating code to version', newVersion);
-
-      // read all the downloaded files and their md5 hashes
-      await readdirRecursive(
-        `${tempDirPath}${sep}code${sep}builds${sep}printerServer.exe`,
-        ['printerServer.exe'],
-        async (newfile) => {
-          const oldFile = newfile.replace(`${tempDirPath}${sep}code${sep}`, '');
-
-          const oldFileHash = await md5File(oldFile);
-          const newFileHash = await md5File(newfile);
-
-          if (oldFileHash !== newFileHash) {
-            logger.info('    Updating file', oldFile);
-            await fs.promises.copyFile(newfile, oldFile);
-          }
-        }
-      );
-
-      await updateNewExe();
-    } else {
-      logger.error('Failed to download latest code');
-    }
-  } finally {
-    await cleanup();
-  }
-}
-
-//main();

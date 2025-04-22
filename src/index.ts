@@ -26,7 +26,20 @@ const main = async () => {
   const SERVER_PORT = nconf.get('PORT') || 7810;
 
   await logger.init();
-  await autoUpdate();
+  const args = process.argv.slice(2); // Get arguments after the script name
+  console.log('Arguments:', args);
+  
+  let updatePath: string | null = null;
+  
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--update' && i + 1 < args.length) {
+      updatePath = args[i + 1] ?? null; // Get the next argument as the update path
+    }
+  }
+  
+  console.log('Update path:', args);
+
+  await autoUpdate(args || ''); // Ensure updatePath is a string
  // await scanNetworkForConnections();
 
   await loadSettings();
