@@ -350,7 +350,7 @@ const printOrderForm = async (
       printer.println(`UID ${aadeInvoice?.uid}`);
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
-      printer.printQR(aadeInvoice?.qr, {
+      printer.printQR(aadeInvoice?.url, {
         cellSize:4,
         model: 4,
         correction: 'Q',
@@ -467,7 +467,7 @@ const printPaymentSlip = async (
       printer.println(`UID ${aadeInvoice?.uid}`);
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
-      printer.printQR(aadeInvoice?.qr, {
+      printer.printQR(aadeInvoice?.url, {
         cellSize:4,
         model: 4,
         correction: 'Q',
@@ -594,7 +594,7 @@ const printPaymentReceipt = async (
       printer.println(`UID ${aadeInvoice?.uid}`);
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
-      printer.printQR(aadeInvoice?.qr, {
+      printer.printQR(aadeInvoice?.url, {
         cellSize:4,
         model: 4,
         correction: 'Q',
