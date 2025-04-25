@@ -12,7 +12,7 @@ import {
   initNetWorkScanner,
   scanNetworkForConnections,
 } from './modules/network.ts';
-import { setupPrinters } from './modules/printer.ts';
+import { paymentReceipt, setupPrinters,orderForm } from './modules/printer.ts';
 import {
   getSettings,
   loadSettings,
@@ -90,7 +90,9 @@ const main = async () => {
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
+  app.route('/print-alp').post(paymentReceipt);
 
+  app.route('/print-payment-slip').post(orderForm);
   // app.route('/modem-reset').get();
   // app.route('/modem-status').get();
 

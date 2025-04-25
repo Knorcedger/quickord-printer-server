@@ -1,3 +1,5 @@
+import { Provider } from "nconf";
+
 export default {
   printOrder: {
     customerComments: {
@@ -52,6 +54,10 @@ export default {
       el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ ΣΥΝΑΛΛΑΓΗΣ',
       en: 'ATTENTION THIS IS NOT A RECEIPT',
     },
+    orderFormOrder: {
+      el: 'ΠΑΡΑΓΓΕΛΙΑ',
+      en: 'ORDER',
+    },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
       en: 'ORDER FORM',
@@ -74,7 +80,7 @@ export default {
         en: 'DELIVERY',
       },
       DINE_IN: {
-        el: 'ΤΡΑΠΕΖΙ',
+        el: 'ΤΡΑΠΕ',
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {
@@ -166,5 +172,29 @@ export default {
       el: 'ΣΧΟΛΙΑ ΣΕΡΒ',
       en: 'WAITER COMMENTS',
     },
-  },
+    taxNumber:{
+      el: 'Α.Φ.Μ.',
+      en: 'TAX NUMBER',
+    },
+    taxOffice: {
+      el: 'ΔΟΥ',
+      en: 'TAX OFFICE',
+    },
+    date:{
+      el: 'ΗΜΕΡ',
+      en: 'DATE',
+    },
+    time: {
+      el: 'ΩΡΑ',
+      en: 'TIME',
+    },
+    seriesNumber:{
+      el: 'Α/A',
+      en: 'SERIES NUMBER',
+    },
+    provider: {
+      el: 'ΜΕ ΤΗΝ ΥΠΟΣΤΗΡΙΞΗ ΤΗΣ',
+      en: 'POWERED BY',
+    },
+},
 };

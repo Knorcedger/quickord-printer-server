@@ -13,6 +13,7 @@ import { convertToDecimal, leftPad, tr } from './common.ts';
 import logger from './logger.ts';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
+import { transliterate } from 'transliteration';
 
 const DEFAULT_CODE_PAGE = 66;
 
@@ -195,13 +196,64 @@ export const paymentReceipt = (
     res.status(400).send(error.message);
   }
 };
+export const orderForm = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printOrderForm(req.body.aadeInvoice,req.body.table,req.body.waiter, req.body.lang || 'el');
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 
 const drawLine2 = (printer: ThermalPrinter) => {
   printer.println('------------------------------------------');
 };
 
-const printPaymentReceipt = async (
-  aadeInvoice: Object,
+interface AadeInvoice {
+  issuer: {
+    name: string;
+    activity: string;
+    address: {
+      street: string;
+      city: string;
+      postal_code: string;
+    };
+    vat_number: string;
+    tax_office: string;
+    phone: string;
+  };
+  issue_date: string;
+  header: {
+    series: {
+      code: string;
+    };
+    serial_number: string;
+    code: string;
+  };
+  details: {
+    name: string;
+    quantity: number;
+    net_value: number;
+  }[];
+  payment_methods: {
+    code: string;
+    amount: number;
+  }[];
+  mark: string;
+  url: string;
+  uid: string;
+  authentication_code: string;
+  qr: string;
+}
+
+const printOrderForm = async (
+  aadeInvoice: AadeInvoice,
+  tableNumber: string,
+  waiterName: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -212,7 +264,120 @@ const printPaymentReceipt = async (
       if (!settings || !printer) {
         continue;
       }
+      console.log(aadeInvoice)
+      printer.alignCenter();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.println(aadeInvoice?.issuer.name);
+      printer.println(aadeInvoice?.issuer.activity);
+       printer.println(
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+      );
 
+      printer.println(
+        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
+      );
+      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      printer.newLine();
+      printer.alignLeft();
+      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
+      const day = rawDate.substring(8, 10);
+      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
+      const year = rawDate.substring(0, 4);
+      const formattedDate = `${day}/${month}/${year}`;
+      printer.println(
+        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+      );
+      
+      // Second line: table and server
+      printer.println(
+        `${translations.printOrder.tableNumber[lang]} : ${tableNumber}`.padEnd(24) + `${translations.printOrder.waiter[lang]} : ${waiterName.toUpperCase()}`
+      );
+      printer.newLine();
+      printer.alignCenter();
+      printer.println(
+        tr(
+          `${translations.printOrder.orderForm[lang]}`,
+          settings.transliterate
+        )
+      );
+      printer.println(
+        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+      );
+      printer.newLine();
+      printer.alignLeft();
+      printer.println(
+        'ΕΙΔΟΣ'.padEnd(18) +
+        'ΠΟΣΟΤ'.padEnd(7) +
+        'ΑΞΙΑ'.padEnd(7) +
+        'ΦΠΑ'
+      );
+      drawLine2(printer);
+      let sumAmount = 0;
+      let sumQuantity = 0;
+      
+      aadeInvoice?.details.forEach((detail: any) => {
+        sumAmount += detail.net_value * detail.quantity;
+        sumQuantity += detail.quantity;
+      
+        const name = detail.name;
+        const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(2);
+        const vat = `${detail.tax.rate}%`; // "24%"
+      
+        printer.println(
+          name.padEnd(18).substring(0, 18) +         // Trim to 18 chars max
+          quantity.padEnd(7) +
+          value.padEnd(7) +
+          vat
+        );
+      });
+      drawLine2(printer);
+      printer.alignRight();
+      printer.newLine();
+      printer.alignLeft();
+      printer.println(`MARK ${aadeInvoice?.mark}`);
+      printer.println(`UID ${aadeInvoice?.uid}`);
+      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+      printer.alignCenter();
+      printer.printQR(aadeInvoice?.qr, {
+        cellSize:4,
+        model: 4,
+        correction: 'Q',
+      });
+      printer.newLine();
+      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.newLine();
+      printer.println(
+        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
+      );
+      printer.newLine();
+      printer.alignCenter();
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          logger.info('Printed payment');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
+const printPaymentReceipt = async (
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+
+      if (!settings || !printer) {
+        continue;
+      }
+      console.log(aadeInvoice)
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(true);
@@ -339,13 +504,11 @@ export const printOrder = async (
 
       for (let copies = 0; copies < settings.copies; copies += 1) {
         changeTextSize(printer, settings?.textSize || 'NORMAL');
-
-        printer.drawLine();
         printer.newLine();
         printer.alignCenter();
         printer.println(
           tr(
-            `${translations.printOrder.orderForm[lang]}`,
+            `${translations.printOrder.orderFormOrder[lang]}`,
             settings.transliterate
           )
         );
@@ -353,7 +516,7 @@ export const printOrder = async (
         printer.newLine();
         printer.println(tr(order.venue.title, settings.transliterate));
         printer.println(tr(order.venue.address, settings.transliterate));
-        printer.drawLine();
+        drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
           printer.setTextSize(1, 1);
@@ -439,7 +602,7 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-          printer.drawLine();
+          drawLine2(printer);
         }
 
         if (order.TakeAwayInfo) {
@@ -471,7 +634,7 @@ export const printOrder = async (
           }
 
           if (drawLine) {
-            printer.drawLine();
+            drawLine2(printer);
           }
         }
 
@@ -488,88 +651,70 @@ export const printOrder = async (
         }
         const vatBreakdown: { vat: number; total: number; netValue: number }[] =
           [];
-        productsToPrint.forEach((product) => {
-          let total = product.total;
-          printer.newLine();
-          const leftAmount = `${product.quantity}x `.length;
-          printer.println(
-            tr(
-              `${product.quantity}x ${product.title}  ${
-                product.total
-                  ? `${convertToDecimal(product.total).toFixed(2)}€`
-                  : ''
-              }
-            `,
-              settings.transliterate
-            )
-          );
-
-          product.choices?.forEach((choice) => {
-            console.log(product.choices, product.quantity);
-            total += (choice.price || 0) * (product.quantity || 1);
-            printer.println(
-              tr(
-                `${leftPad(
-                  ` - ${Number(choice.quantity) > 1 ? `${product.quantity}x` : ''} ${choice.title}`,
-                  leftAmount,
-                  ' '
-                )}  ${
-                  choice.price
-                    ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
-                    : ''
-                }`,
-                settings.transliterate
-              )
-            );
-          });
-          if (product.comments) {
-            printer.println(
-              tr(
-                ` ${translations.printOrder.productComments[lang]}:${product.comments.toUpperCase()}`,
-                settings.transliterate
-              )
-            );
-          }
-          if (product.vat) {
-            printer.println(
-              tr(
-                `${translations.printOrder.vat[lang]}:${product.vat}%`,
-                settings.transliterate
-              )
-            );
-            const vatRate = product.vat;
-            const existingVat = vatBreakdown.find(
-              (item) => item.vat === vatRate
-            );
-
-            // Function to round and ensure it is a float with two decimal precision
-            function roundToTwoDecimalPlaces(num) {
-              return parseFloat(num.toFixed(2)); // `.toFixed(2)` gives a string, then we parse it back to float
+          productsToPrint.forEach((product) => {
+            let total = product.total || 0;
+            const leftAmount = `${product.quantity}x `.length;
+          
+            // Bold if enabled
+            if (settings.textOptions.includes('BOLD_PRODUCTS')) {
+              printer.setTextSize(1, 1);
+            } else {
+              changeTextSize(printer, settings?.textSize || 'NORMAL');
             }
+          
+            printer.newLine();
+          
+            // Pad title and amount for alignment
+            const productLine = `${product.quantity}x ${product.title}`;
+            const priceStr = product.total ? `${convertToDecimal(product.total).toFixed(2)} €` : '';
+            const lineWidth = 42; // Assuming 42 character width for POS80
+            const paddedLine = productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
+          
+            printer.println(tr(paddedLine, settings.transliterate));
+          
+            // Handle product choices
+            product.choices?.forEach((choice) => {
+              total += (choice.price || 0) * (product.quantity || 1);
+              const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
+              const choicePrice = choice.price
+                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+                : '';
+              const paddedChoiceLine = choiceLine.padEnd(lineWidth - choicePrice.length, ' ') + choicePrice;
+              printer.println(tr(paddedChoiceLine, settings.transliterate));
+            });
+          
+            // Comments (if any)
+            if (product.comments) {
+              printer.println(
+                tr(
+                  ` ${translations.printOrder.productComments[lang]}: ${product.comments.toUpperCase()}`,
+                  settings.transliterate
+                )
+              );
+            }
+          
+            // VAT info (if any)
             if (product.vat) {
+              printer.println(
+                tr(`${translations.printOrder.vat[lang]}: ${product.vat}%`, settings.transliterate)
+              );
+          
               const vatRate = product.vat;
-
+          
               let choicesTotal = 0;
               if (product.choices) {
                 product.choices.forEach((choice) => {
                   choicesTotal += (choice.price || 0) * (product.quantity || 1);
                 });
               }
-
+          
               const rawTotal = product.total * product.quantity + choicesTotal;
               const rawNet = rawTotal / (1 + vatRate / 100);
-
-              const fullTotal = roundToTwoDecimalPlaces(
-                convertToDecimal(rawTotal)
-              );
-              const netValue = roundToTwoDecimalPlaces(
-                convertToDecimal(rawNet)
-              );
-
-              const existingVat = vatBreakdown.find(
-                (item) => item.vat === vatRate
-              );
-
+          
+              const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
+              const netValue = parseFloat(convertToDecimal(rawNet).toFixed(2));
+          
+              const existingVat = vatBreakdown.find((item) => item.vat === vatRate);
               if (existingVat) {
                 existingVat.total += fullTotal;
                 existingVat.netValue += netValue;
@@ -581,17 +726,24 @@ export const printOrder = async (
                 });
               }
             }
-          }
-          printer.alignRight();
-          printer.println(
-            tr(
-              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
-              settings.transliterate
-            )
-          );
-          printer.alignLeft();
-          printer.drawLine();
-        });
+          
+            // Print right-aligned total for this product with choices
+            printer.alignRight();
+            printer.println(
+              tr(
+                `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+                settings.transliterate
+              )
+            );
+            printer.alignLeft();
+          
+            // Reset text size after bold
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          
+            // Draw separator
+           drawLine2(printer);
+          });
+          
         if(vatBreakdown.length > 0) {
         console.log('vatBreakdown', vatBreakdown);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
