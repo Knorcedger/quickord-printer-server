@@ -8,10 +8,6 @@ import { CharacterSet } from 'node-thermal-printer';
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
 import { initModem } from './modules/modem.ts';
-import {
-  initNetWorkScanner,
-  scanNetworkForConnections,
-} from './modules/network.ts';
 import { paymentReceipt, setupPrinters,orderForm } from './modules/printer.ts';
 import {
   getSettings,
@@ -19,6 +15,7 @@ import {
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings.ts';
+import scanNetworkForConnections from './modules/network.ts';
 import printOrders from './resolvers/printOrders.ts';
 import settings from './resolvers/settings.ts';
 import testPrint from './resolvers/testPrint.ts';
