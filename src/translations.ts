@@ -1,4 +1,5 @@
 import { Provider } from "nconf";
+import { unknown } from "zod";
 
 export default {
   printOrder: {
@@ -196,5 +197,53 @@ export default {
       el: 'ΜΕ ΤΗΝ ΥΠΟΣΤΗΡΙΞΗ ΤΗΣ',
       en: 'POWERED BY',
     },
+    kind: {
+      el: 'ΕΙΔΟΣ',
+      en: 'KIND',
+    },
+    items:{
+      el:'ΤΕΜΑΧΙΑ',
+      en: 'ITEMS',
+    },
+    sum:{
+      el:'ΣΥΝΟΛΟ',
+      en: 'SUM',
+    },
+    unknown:{
+      el:'ΑΓΝΩΣΤΗ ΜΕΘΟΔΟΣ',
+      en: 'UKNOWN METHOD', 
+    },
+    amount:{
+      el:'ΠΟΣΟ',
+      en: 'AMOUNT',
+    },
+    payments:{
+      el:'ΠΛΗΡΩΜΕΣ',
+      en:'PAYMENTS',
+    },
+    quantity:{
+      el:'ΠΟΣΟΤ',
+      en:'QUANTITY',
+    },
+    price:{
+      el:'ΑΞΙΑ',
+      en:'PRICE',
+    },
+    reciept:{
+      el:'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      en:'RECEIPT',
+    },
+    paymentSlip:{
+      el:'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
+      en:'PAYMENT SLIP',
+    },
+    recieptEnd:{
+      el:'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      en:'END OF RECEIPT',
+    },
+    paymentSlipEnd:{
+      el:'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
+      en:'THANK YOU FOR YOUR PAYMENT',
+    }
 },
 };

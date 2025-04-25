@@ -8,7 +8,7 @@ import { CharacterSet } from 'node-thermal-printer';
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
 import { initModem } from './modules/modem.ts';
-import { paymentReceipt, setupPrinters,orderForm } from './modules/printer.ts';
+import { paymentReceipt, setupPrinters,orderForm, paymentSlip } from './modules/printer.ts';
 import {
   getSettings,
   loadSettings,
@@ -89,7 +89,8 @@ const main = async () => {
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(paymentReceipt);
 
-  app.route('/print-payment-slip').post(orderForm);
+  app.route('/print-payment-slip').post(paymentSlip );
+  app.route('/print-order-form').post(orderForm);
   // app.route('/modem-reset').get();
   // app.route('/modem-status').get();
 

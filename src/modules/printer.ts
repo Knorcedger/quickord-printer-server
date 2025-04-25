@@ -183,7 +183,18 @@ const PaymentMethodDescriptions = Object.freeze(
     ])
   )
 );
-
+export const paymentSlip = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printPaymentSlip(req.body.aadeInvoice, req.body.lang || 'el');
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 export const paymentReceipt = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -306,10 +317,10 @@ const printOrderForm = async (
       printer.newLine();
       printer.alignLeft();
       printer.println(
-        'ΕΙΔΟΣ'.padEnd(18) +
-        'ΠΟΣΟΤ'.padEnd(7) +
-        'ΑΞΙΑ'.padEnd(7) +
-        'ΦΠΑ'
+        `${translations.printOrder.kind[lang]}`.padEnd(18) +
+        `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+        `${translations.printOrder.price[lang]}`.padEnd(7) +
+        `${translations.printOrder.vat[lang]}`
       );
       drawLine2(printer);
       let sumAmount = 0;
@@ -365,6 +376,126 @@ const printOrderForm = async (
     }
   }
 };
+const printPaymentSlip = async (
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+
+      if (!settings || !printer) {
+        continue;
+      }
+      console.log(aadeInvoice)
+      printer.alignCenter();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.println(`${translations.printOrder.paymentSlip[lang]}`);
+      printer.println(aadeInvoice?.issuer.name);
+      printer.println(aadeInvoice?.issuer.activity);
+       printer.println(
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+      );
+
+      printer.println(
+        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
+      );
+      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      printer.newLine();
+      printer.alignLeft();
+      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
+      const day = rawDate.substring(8, 10);
+      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
+      const year = rawDate.substring(0, 4);
+      const formattedDate = `${day}/${month}/${year}`;
+      printer.newLine();
+      printer.println(
+        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+      );
+      
+      printer.alignLeft();
+
+      printer.newLine();
+      printer.println(
+        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+      );
+      printer.newLine();
+      printer.alignLeft();
+
+      let sumAmount = 0;
+      let sumQuantity = 0;
+      
+      aadeInvoice?.details.forEach((detail: any) => {
+      printer.bold(true);
+        sumQuantity += detail.quantity;
+      
+        const name = detail.name;
+        const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+        const value = ((detail.net_value * (1 + detail.tax.rate / 100))).toFixed(2);
+        const vat = `${detail.tax.rate}%`; // "24%"
+        sumAmount += parseFloat(value);
+        printer.println(
+          name.toUpperCase().padEnd(18).substring(0, 18) +         // Trim to 18 chars max
+          quantity.padStart(7) +
+          value.padStart(7) +
+          vat.padStart(7)
+        );
+      printer.bold(false);
+      });
+      drawLine2(printer);
+      printer.newLine();
+      printer.alignRight();
+      printer.setTextSize(1,1);
+      printer.bold(true);
+      printer.println(`${translations.printOrder.sum[lang]}: ${sumAmount}€`);
+      printer.setTextSize(0, 0);
+      printer.bold(false);
+      printer.alignCenter();
+      drawLine2(printer);
+      printer.println(`${translations.printOrder.payments[lang]}:`);
+      aadeInvoice?.payment_methods.forEach((detail: any) => {
+        printer.newLine();
+        const methodDescription =
+          PaymentMethodDescriptions[detail.code] || translations.printOrder.unknown[lang];
+        printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
+      });
+      drawLine2(printer);
+      printer.newLine();
+      printer.alignLeft();
+      printer.println(`MARK ${aadeInvoice?.mark}`);
+      printer.println(`UID ${aadeInvoice?.uid}`);
+      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+      printer.alignCenter();
+      printer.printQR(aadeInvoice?.qr, {
+        cellSize:4,
+        model: 4,
+        correction: 'Q',
+      });
+      printer.newLine();
+      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.newLine();
+      printer.println(
+        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
+      );
+      printer.newLine();
+      printer.println(
+        tr(`${translations.printOrder.paymentSlipEnd[lang]}`, settings.transliterate)
+      );
+      printer.alignCenter();
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          logger.info('Printed payment');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   lang: SupportedLanguages = 'el'
@@ -380,76 +511,104 @@ const printPaymentReceipt = async (
       console.log(aadeInvoice)
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.bold(true);
-      printer.println('**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ****');
+      printer.println(`${translations.printOrder.reciept[lang]}`);
       printer.println(aadeInvoice?.issuer.name);
-      printer.bold(false);
       printer.println(aadeInvoice?.issuer.activity);
-      printer.println(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}`
+       printer.println(
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
       );
-      printer.println(`ΤΚ: ${aadeInvoice?.issuer.address.postal_code}`);
+
       printer.println(
-        `ΑΦΜ: ${aadeInvoice?.issuer.vat_number} ΔΟΥ: ${aadeInvoice?.issuer.tax_office}`
+        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
-      printer.println(`ΤΗΛ: ${aadeInvoice?.issuer.phone}`);
+      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      printer.newLine();
+      printer.alignLeft();
+      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
+      const day = rawDate.substring(8, 10);
+      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
+      const year = rawDate.substring(0, 4);
+      const formattedDate = `${day}/${month}/${year}`;
+      printer.newLine();
+      printer.println(
+        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+      );
+      
+      printer.alignLeft();
       drawLine2(printer);
-      printer.println(`ΗΜΕΡΟΜΗΝΙΑ: ${aadeInvoice?.issue_date}`);
+      printer.newLine();
       printer.println(
-        `ΑΡ ΣΕΙΡΑΣ: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
       );
-      printer.println(`ΚΩΔΙΚΟΣ ΣΕΙΡΑΣ:${aadeInvoice?.header.code}`);
+      printer.newLine();
+      printer.alignLeft();
+      printer.println(
+        `${translations.printOrder.kind[lang]}`.padEnd(18) +
+        `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+        `${translations.printOrder.price[lang]}`.padEnd(7) +
+        `${translations.printOrder.vat[lang]}`
+      );
+      drawLine2(printer);
       let sumAmount = 0;
       let sumQuantity = 0;
+      
       aadeInvoice?.details.forEach((detail: any) => {
-        sumAmount += detail.net_value * detail.quantity;
+       
         sumQuantity += detail.quantity;
-        printer.newLine();
-        drawLine2(printer);
-        printer.newLine();
-        printer.table([
-          `     ${detail.name}`,
-          `${detail.quantity}x ${detail.net_value}€`,
-        ]);
+      
+        const name = detail.name;
+        const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+        const value = ((detail.net_value * (1 + detail.tax.rate / 100))).toFixed(2);
+        const vat = `${detail.tax.rate}%`; // "24%"
+        sumAmount += parseFloat(value);
+        printer.println(
+          name.padEnd(18).substring(0, 18) +         // Trim to 18 chars max
+          quantity.padEnd(7) +
+          value.padEnd(7) +
+          vat
+        );
       });
-      printer.newLine();
-      printer.println(`TEMAXIA: ${sumQuantity}`);
       drawLine2(printer);
+      printer.newLine();
+      printer.println(`${translations.printOrder.items[lang]}: ${sumQuantity}`);
+      printer.newLine();
       printer.alignRight();
-      printer.println(`ΣΥΝΟΛΟ: ${sumAmount}€`);
+      printer.setTextSize(1,1);
+      printer.bold(true);
+      printer.println(`${translations.printOrder.sum[lang]}: ${sumAmount}€`);
+      printer.setTextSize(0, 0);
+      printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
-      printer.println(`ΠΛΗΡΩΜΕΣ:`);
+      printer.println(`${translations.printOrder.payments[lang]}:`);
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
         const methodDescription =
-          PaymentMethodDescriptions[detail.code] || 'Άγνωστη Μέθοδος';
-        printer.println(`${methodDescription}     ΠΟΣΟ: ${detail.amount}€`);
+          PaymentMethodDescriptions[detail.code] || translations.printOrder.unknown[lang];
+        printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
       });
       drawLine2(printer);
       printer.newLine();
-      printer.println(`MARK: ${aadeInvoice?.mark}`);
-      printer.println(`ΠΑΡΟΧΟΣ:`);
-      printer.println(`${aadeInvoice?.url}`);
-      printer.println(`ΑΝΑΓΝΩΡΙΣΤΙΚΟ:`);
-      printer.println(`${aadeInvoice?.uid}`);
-      printer.println(`ΥΠΟΓΡΑΦΗ:`);
-      printer.println(`${aadeInvoice?.authentication_code}`);
-      printer.newLine();
-      printer.newLine();
+      printer.alignLeft();
+      printer.println(`MARK ${aadeInvoice?.mark}`);
+      printer.println(`UID ${aadeInvoice?.uid}`);
+      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+      printer.alignCenter();
       printer.printQR(aadeInvoice?.qr, {
-        cellSize: 3,
-        model: 3,
+        cellSize:4,
+        model: 4,
         correction: 'Q',
       });
+      printer.newLine();
+      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.newLine();
       printer.println(
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
-      printer.bold(true);
-      printer.println('**** ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ - ΛΗΞΗ ****');
-      printer.bold(false);
-      printer.newLine();
+      printer.println(
+        tr(`${translations.printOrder.recieptEnd[lang]}`, settings.transliterate)
+      );
       printer.alignCenter();
       printer.cut();
       printer
