@@ -200,8 +200,45 @@ const drawLine2 = (printer: ThermalPrinter) => {
   printer.println('------------------------------------------');
 };
 
+interface AadeInvoice {
+  issuer: {
+    name: string;
+    activity: string;
+    address: {
+      street: string;
+      city: string;
+      postal_code: string;
+    };
+    vat_number: string;
+    tax_office: string;
+    phone: string;
+  };
+  issue_date: string;
+  header: {
+    series: {
+      code: string;
+    };
+    serial_number: string;
+    code: string;
+  };
+  details: {
+    name: string;
+    quantity: number;
+    net_value: number;
+  }[];
+  payment_methods: {
+    code: string;
+    amount: number;
+  }[];
+  mark: string;
+  url: string;
+  uid: string;
+  authentication_code: string;
+  qr: string;
+}
+
 const printPaymentReceipt = async (
-  aadeInvoice: Object,
+  aadeInvoice: AadeInvoice,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -592,36 +629,36 @@ export const printOrder = async (
           printer.alignLeft();
           printer.drawLine();
         });
-        if(vatBreakdown.length > 0) {
-        console.log('vatBreakdown', vatBreakdown);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
-        // Print section headers
-        printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.analysisVat[lang]}`,
-            settings.transliterate
-          )
-        );
-        printer.alignLeft();
-        printer.println(
-          `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
-        );
+        if (vatBreakdown.length > 0) {
+          console.log('vatBreakdown', vatBreakdown);
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          // Print section headers
+          printer.alignCenter();
+          printer.println(
+            tr(
+              `${translations.printOrder.analysisVat[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.alignLeft();
+          printer.println(
+            `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
+          );
 
-        // Print each VAT item in a formatted row
-        vatBreakdown.forEach((item) => {
-          const vat = `${item.vat.toString()}%`.padEnd(10);
+          // Print each VAT item in a formatted row
+          vatBreakdown.forEach((item) => {
+            const vat = `${item.vat.toString()}%`.padEnd(10);
 
-          // Use .toFixed(2) directly to round to 2 decimal places
-          const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
-          const total = item.total.toFixed(2).padStart(18); // total comes second
+            // Use .toFixed(2) directly to round to 2 decimal places
+            const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
+            const total = item.total.toFixed(2).padStart(18); // total comes second
 
-          printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
-        });
+            printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
+          });
 
-        // Optionally print a footer or separator if needed
-        printer.println('');
-      }
+          // Optionally print a footer or separator if needed
+          printer.println('');
+        }
 
         if (order.waiterComment) {
           printer.newLine();

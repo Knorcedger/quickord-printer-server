@@ -13,7 +13,7 @@ mkdir ./builds || { echo "Failed to create builds directory"; exit 1; }
 
 npm run build:code || { echo "Failed to run npm build:code"; exit 1; }
 # Run the build command
-npm run build:exenexe || { echo "Failed to run npm build:exenexe"; exit 1; }
+npm run build:exe || { echo "Failed to run npm build:exe"; exit 1; }
 
 # Create destination directory
 mkdir -p ./builds/node_modules

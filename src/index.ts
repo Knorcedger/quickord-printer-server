@@ -8,8 +8,8 @@ import { CharacterSet } from 'node-thermal-printer';
 import homepage from './homepage.ts';
 import logger from './modules/logger.ts';
 import { initModem } from './modules/modem.ts';
-import scanNetworkForConnections from "./modules/network.ts"
-import { setupPrinters,paymentReceipt } from './modules/printer.ts';
+import scanNetworkForConnections from './modules/network.ts';
+import { setupPrinters, paymentReceipt } from './modules/printer.ts';
 import {
   getSettings,
   loadSettings,
@@ -28,19 +28,19 @@ const main = async () => {
   await logger.init();
   const args = process.argv.slice(2); // Get arguments after the script name
   console.log('Arguments:', args);
-  
+
   let updatePath: string | null = null;
-  
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--update' && i + 1 < args.length) {
       updatePath = args[i + 1] ?? null; // Get the next argument as the update path
     }
   }
-  
+
   console.log('Update path:', args);
 
-  await autoUpdate(args || ''); // Ensure updatePath is a string
- // await scanNetworkForConnections();
+  //await autoUpdate(args || ''); // Ensure updatePath is a string
+  // await scanNetworkForConnections();
 
   await loadSettings();
 
@@ -152,8 +152,7 @@ const main = async () => {
       'API listening at port',
       (server?.address?.() as { port: number })?.port
     );
-  }
-);
+  });
 };
 
 const skipErrorNames: string[] = [];
