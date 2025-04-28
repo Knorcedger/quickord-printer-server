@@ -9,11 +9,11 @@
     "outDir": "./dist",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "rootDir": "./src",
+    "rootDir": "src",
     "forceConsistentCasingInFileNames": true,
     "inlineSourceMap": true,
     "allowUnreachableCode": true,
-    "noEmit": false, // Changed to false to allow emission of JS files
+    "noEmit": true,
     "allowImportingTsExtensions": false,
     "strict": false,
     "strictNullChecks": true,
@@ -27,6 +27,6 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/autoupdate/autoupdate.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist", "jest.config.cjs"]
 }
