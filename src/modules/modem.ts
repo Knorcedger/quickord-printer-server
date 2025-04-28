@@ -1,17 +1,17 @@
 /* eslint-disable import/prefer-default-export */
 import { AutoDetectTypes } from '@serialport/bindings-cpp';
-import nconf from 'nconf';
+import * as nconf from 'nconf';
 import fetch from 'node-fetch';
 import { SerialPort } from 'serialport';
-import signale from 'signale';
+import * as signale from 'signale';
 
-import { getSettings, IModemSettings } from './settings.ts';
+import { getSettings, IModemSettings } from './settings';
 
 let modem: SerialPort<AutoDetectTypes>;
 // eslint-disable-next-line no-unused-vars
 let onDataCallback: (data: string) => void;
 // eslint-disable-next-line no-unused-vars
-let onErrorCallback: (error: Error) => void;
+let onErrorCallback: (error: Error) => void = () => {};
 
 const createSerialPort = async (port: string) => {
   const serialport = new SerialPort({

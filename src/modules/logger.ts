@@ -1,9 +1,12 @@
 /* eslint-disable no-underscore-dangle */
-import AdmZip from 'adm-zip';
+const AdmZip = require('adm-zip');
+
 import { existsSync } from 'node:fs';
-import fs from 'node:fs/promises';
-import process from 'node:process';
-import signale from 'signale';
+const fs = require('node:fs/promises');
+
+const process = require('node:process');
+
+import * as signale from 'signale';
 
 let _filename = 'app';
 
@@ -15,7 +18,8 @@ const appendLog = async (...args: unknown[]) => {
         let out = '';
 
         if (arg instanceof Error) {
-          out = `${arg.name}: ${arg.message}${arg.cause ? ` (cause: ${arg.cause})` : ''}\n${arg.stack}`;
+          const errorWithCause = arg as { cause?: unknown }; // Type assertion to include cause
+          out = `${arg.name}: ${arg.message}${errorWithCause.cause ? ` (cause: ${errorWithCause.cause})` : ''}\n${arg.stack}`;
         } else if (typeof arg === 'object') {
           out = JSON.stringify(arg);
         } else {

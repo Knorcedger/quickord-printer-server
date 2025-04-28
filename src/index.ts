@@ -1,26 +1,28 @@
-import bodyParser from 'body-parser';
-import cors from 'cors';
-import express, { Request, Response } from 'express';
-import nconf from 'nconf';
-import process from 'node:process';
+import * as bodyParser from 'body-parser';
+const cors = require('cors');
+
+import * as nconf from 'nconf';
+import { exit, env } from 'node:process';
 import { CharacterSet } from 'node-thermal-printer';
 
-import homepage from './homepage.ts';
-import logger from './modules/logger.ts';
-import { initModem } from './modules/modem.ts';
-import scanNetworkForConnections from './modules/network.ts';
-import { setupPrinters, paymentReceipt } from './modules/printer.ts';
+const express = require('express');
+import { Request, Response } from 'express';
+
+import { homepage } from './homepage';
+import logger from './modules/logger';
+import { initModem } from './modules/modem';
+import scanNetworkForConnections from './modules/network';
+import { setupPrinters, paymentReceipt } from './modules/printer';
 import {
   getSettings,
   loadSettings,
   PrinterTextOptions,
   PrinterTextSize,
-} from './modules/settings.ts';
-import printOrders from './resolvers/printOrders.ts';
-import settings from './resolvers/settings.ts';
-import testPrint from './resolvers/testPrint.ts';
-nconf.argv().env().file('./config.json');
-import autoUpdate from './autoupdate/autoupdate.ts';
+} from './modules/settings';
+import printOrders from './resolvers/printOrders';
+import settings from './resolvers/settings';
+import testPrint from './resolvers/testPrint';
+import * as autoUpdate from './autoupdate/autoupdate';
 
 const main = async () => {
   const SERVER_PORT = nconf.get('PORT') || 7810;
@@ -30,7 +32,6 @@ const main = async () => {
   console.log('Arguments:', args);
 
   let updatePath: string | null = null;
-
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--update' && i + 1 < args.length) {
       updatePath = args[i + 1] ?? null; // Get the next argument as the update path
@@ -92,7 +93,8 @@ const main = async () => {
 
         res.status(200).send({ lanConnections });
       } catch (error) {
-        res.status(500).send({ error });
+        logger.error('Error scanning network connections:', error);
+        res.status(500).send({ error: 'Failed to scan network connections' });
       }
     });
 

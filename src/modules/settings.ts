@@ -1,8 +1,8 @@
-import fs from 'node:fs';
+import * as fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
 
-import logger from './logger.ts';
+import logger from './logger';
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet, {
   description: 'The character set to use for the printer.',
@@ -26,10 +26,11 @@ export const PrinterTextOptions = z.enum(
 );
 
 export const PrinterSettings = z.object({
-  id: z .string({
-    invalid_type_error: 'id must be a string.',
-  })
-  .optional(),
+  id: z
+    .string({
+      invalid_type_error: 'id must be a string.',
+    })
+    .optional(),
   categoriesToPrint: z
     .array(z.string(), {
       description: 'The product categories to print on the receipt.',
@@ -38,7 +39,7 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
-    categoriesToNotPrint: z
+  categoriesToNotPrint: z
     .array(z.string(), {
       description: 'The product categories to not print on the receipt.',
       invalid_type_error: 'categoriesToNotPrint must be an array of strings.',
@@ -138,7 +139,7 @@ const migrateToV2 = (settings: ISettings): [ISettings, boolean] => {
     return printer;
   });
   return [settings, updated];
-}
+};
 
 export const loadSettings = async () => {
   try {
@@ -149,7 +150,7 @@ export const loadSettings = async () => {
     }
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
- /*   const updated = migrateToV2(settings);
+    /*   const updated = migrateToV2(settings);
     if (updated) {
       settings = updated[0];
       fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));

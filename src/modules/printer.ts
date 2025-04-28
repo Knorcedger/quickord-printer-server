@@ -8,11 +8,11 @@ import {
 } from 'node-thermal-printer';
 import { z } from 'zod';
 import { Request, Response } from 'express';
-import { Order } from '../resolvers/printOrders.ts';
-import { convertToDecimal, leftPad, tr } from './common.ts';
-import logger from './logger.ts';
-import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
-import { SupportedLanguages, translations } from './translations.ts';
+import { Order } from '../resolvers/printOrders';
+import { convertToDecimal, leftPad, tr } from './common';
+import logger from './logger';
+import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
+import { SupportedLanguages, translations } from './translations';
 
 const DEFAULT_CODE_PAGE = 66;
 
@@ -143,7 +143,6 @@ export const printTestPage = async (
   printer.setTextSize(3, 3);
   printer.println('text size 3');
   printer.cut();
-
   try {
     await printer.execute();
     logger.info(`Printed test page to ${device}`);
@@ -151,9 +150,13 @@ export const printTestPage = async (
     return 'success';
   } catch (error) {
     logger.error('Print failed:', error);
-    throw new Error('print failed', {
-      cause: error,
-    });
+
+    // Create the error and assert the type to include 'cause'
+    const printError = new Error('print failed');
+    (printError as { cause?: unknown }).cause = error;
+
+    // Throw the error with the cause manually attached
+    throw printError;
   }
 };
 
@@ -236,7 +239,9 @@ interface AadeInvoice {
   authentication_code: string;
   qr: string;
 }
-
+const roundToTwoDecimalPlaces = (num: number) => {
+  return parseFloat(num.toFixed(2)); // `.toFixed(2)` gives a string, then we parse it back to float
+};
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   lang: SupportedLanguages = 'el'
@@ -361,8 +366,7 @@ export const printOrder = async (
 
       const orderCreationDate = new Date(order.createdAt);
       const date =
-        orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') ||
-        '';
+        orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || '';
 
       const time = orderCreationDate.toLocaleTimeString('el-GR', {
         hour: '2-digit',
@@ -580,9 +584,6 @@ export const printOrder = async (
             );
 
             // Function to round and ensure it is a float with two decimal precision
-            function roundToTwoDecimalPlaces(num) {
-              return parseFloat(num.toFixed(2)); // `.toFixed(2)` gives a string, then we parse it back to float
-            }
             if (product.vat) {
               const vatRate = product.vat;
 

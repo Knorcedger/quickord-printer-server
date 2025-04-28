@@ -3,33 +3,32 @@
 /* eslint-disable no-await-in-loop */
 /* eslint-disable no-restricted-syntax */
 
-
-import nconf from 'nconf';
-import fs, { createWriteStream } from 'node:fs';
-import fsp from 'fs/promises';
+import * as fs from 'node:fs';
+import { createWriteStream } from 'node:fs';
+import * as fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, sep } from 'node:path';
-import { pipeline } from 'stream/promises';
+import { pipeline } from 'node:stream/promises';
+import { spawn } from 'node:child_process';
+import * as path from 'node:path';
+import * as JSZip from 'jszip';
+import { readFile } from 'node:fs/promises';
 
-import { readFile } from 'fs/promises';
+import * as nconf from 'nconf';
 
-import { spawn } from 'child_process'
 nconf.argv().env().file('./config.json');
-import path from 'path';
 
-
-import JSZip from 'jszip';
 import { exit } from 'node:process';
 let path2 = '';
 let args = ['--update', 'test'];
-let destDir ='../';
+let destDir = '../';
 /*
     tempDirPath = await fs.promises.mkdtemp(
       `${tmpdir()}${sep}quickord-cashier-server-update`
     );*/
 
 const ZIPPATH = '../quickord-cashier-server.zip';
-const tempDirPath =  `${tmpdir()}${sep}quickord-cashier-server-update`
+const tempDirPath = `${tmpdir()}${sep}quickord-cashier-server-update`;
 let srcDir = '';
 
 async function extractZip(zipBuffer, tempCodePath) {
@@ -87,51 +86,48 @@ async function copyOnlyFiles() {
   }
 }
 
-
-
 async function downloadLatestCode() {
-  console.log("you can start")
- 
-const cwd = process.cwd();
-const parentDir = path.resolve(cwd, '..');
+  console.log('you can start');
 
-console.log(`Parent directory: ${parentDir}`);
+  const cwd = process.cwd();
+  const parentDir = path.resolve(cwd, '..');
+
+  console.log(`Parent directory: ${parentDir}`);
 
   try {
-    
-   // logger.info('Downloading latest code');
-  //  const res = await fetch(nconf.get('CODE_UPDATE_URL'));
+    // logger.info('Downloading latest code');
+    //  const res = await fetch(nconf.get('CODE_UPDATE_URL'));
 
-   // const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-    const fileData = await readFile(ZIPPATH);//Buffer.from(await (await res.blob()).arrayBuffer());
+    // const res = await fetch(nconf.get('CODE_UPDATE_URL'));
+    const fileData = await readFile(ZIPPATH); //Buffer.from(await (await res.blob()).arrayBuffer());
 
     //logger.info('Creating temp dir');
-    srcDir = ( await fs.promises.mkdtemp(
+    srcDir = await fs.promises.mkdtemp(
       tempDirPath
       // `${tmpdir()}${sep}quickord-cashier-server-update`
-    ));
- //   
+    );
+    //
     const zipPath = `${srcDir}${sep}quickord-cashier-server.zip`;
- //   //logger.info('Writing zip file');
+    //   //logger.info('Writing zip file');
     await fs.promises.writeFile(zipPath, fileData);
-//
- //  // logger.info('Extracting zip file');
+    //
+    //  // logger.info('Extracting zip file');
     const tempCodePath = `${srcDir}${sep}code`;
     await fs.promises.mkdir(tempCodePath);
- //  
-//
+    //
+    //
     const zipBuffer = await fsp.readFile(zipPath);
     await extractZip(zipBuffer, tempCodePath);
-    const updateArg = tempCodePath
-    console.log(updateArg)
-    args[1] = tempCodePath
-    args[2] = '--parent'
-    args[3] = parentDir
-    path2 = tempCodePath + '/builds/printerServer.exe'
+    const updateArg = tempCodePath;
+    console.log(updateArg);
+    args[1] = tempCodePath;
+    args[2] = '--parent';
+    args[3] = parentDir;
+    path2 = tempCodePath + '/builds/printerServer.exe';
     try {
       const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...args], {
         detached: true,
-        stdio: 'ignore' // use 'inherit' for debugging if needed
+        stdio: 'ignore', // use 'inherit' for debugging if needed
       });
 
       child.on('error', (err) => {
@@ -142,16 +138,14 @@ console.log(`Parent directory: ${parentDir}`);
 
       console.log('Spawned successfully, exiting current app.');
       process.exit();
-
     } catch (err) {
       console.error('Exception during spawn:', err);
     }
 
     return true;
-
-  }catch (e) {
-    console.log(e)
-  //  logger.error(e);
+  } catch (e) {
+    console.log(e);
+    //  logger.error(e);
   }
 
   return false;
@@ -174,46 +168,43 @@ async function cleanup(dir) {
 }
 
 function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export default async function autoUpdate(path: string[]) {
   console.log('AutoUpdate path:', path);
- if(path.length === 0) {
-   await downloadLatestCode()
- }else if (path[0] === '--update') {
-  srcDir =  path[1]?.toString() || '';
-  destDir = path[3]?.toString() || '';
-  console.log(`srcDir: ${srcDir}`);
-  console.log(`destDir: ${destDir}`);
-  await copyOnlyFiles()
-  path[0] = '--remove'
-  path2 =  path[3] +  '/builds/printerServer.exe'|| ''
+  if (path.length === 0) {
+    await downloadLatestCode();
+  } else if (path[0] === '--update') {
+    srcDir = path[1]?.toString() || '';
+    destDir = path[3]?.toString() || '';
+    console.log(`srcDir: ${srcDir}`);
+    console.log(`destDir: ${destDir}`);
+    await copyOnlyFiles();
+    path[0] = '--remove';
+    path2 = path[3] + '/builds/printerServer.exe' || '';
 
-  try {
-    const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...path], {
-      detached: true,
-      stdio: 'ignore' // use 'inherit' for debugging if needed
-    });
+    try {
+      const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...path], {
+        detached: true,
+        stdio: 'ignore', // use 'inherit' for debugging if needed
+      });
 
-    child.on('error', (err) => {
-      console.error('Failed to spawn process:', err);
-    });
+      child.on('error', (err) => {
+        console.error('Failed to spawn process:', err);
+      });
 
-    child.unref(); // Important for detached mode
+      child.unref(); // Important for detached mode
 
-    console.log('Spawned successfully, exiting current app.');
-    process.exit();
-
-  } catch (err) {
-    console.error('Exception during spawn:', err);
+      console.log('Spawned successfully, exiting current app.');
+      process.exit();
+    } catch (err) {
+      console.error('Exception during spawn:', err);
+    }
+    //
+  } else if (path[0] === '--remove') {
+    srcDir = path[1]?.toString() || '';
+    console.log(`srcDir: ${srcDir}`);
+    await cleanup(srcDir);
   }
-  //
- }else if (path[0] === '--remove') {
-
-  srcDir =  path[1]?.toString() || '';
-  console.log(`srcDir: ${srcDir}`);
-  await cleanup(srcDir)
- }
 }
-

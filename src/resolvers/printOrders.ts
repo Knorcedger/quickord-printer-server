@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 
-import logger from '../modules/logger.ts';
-import { printOrders as printerPrintOrders } from '../modules/printer.ts';
+import logger from '../modules/logger';
+import { printOrders as printerPrintOrders } from '../modules/printer';
 
 export const Product = z.object({
   _id: z.string({
@@ -16,16 +16,18 @@ export const Product = z.object({
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
-  vat: z.preprocess(
-    (val) => {
-      const num = Number(val);
-      return isNaN(num) ? 0 : num;
-    },
-    z.number({
-      invalid_type_error: 'vat must be a number.',
-      required_error: 'vat is required.',
-    })
-  ).optional(),
+  vat: z
+    .preprocess(
+      (val) => {
+        const num = Number(val);
+        return isNaN(num) ? 0 : num;
+      },
+      z.number({
+        invalid_type_error: 'vat must be a number.',
+        required_error: 'vat is required.',
+      })
+    )
+    .optional(),
   choices: z
     .array(
       z.object({
@@ -222,7 +224,7 @@ const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('orders to print:', orders);
 
     printerPrintOrders(orders);
-    console.log(orders[0]?.products)
+    console.log(orders[0]?.products);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {
