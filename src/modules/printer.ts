@@ -728,7 +728,7 @@ export const printOrder = async (
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
-        printer.drawLine();
+        drawLine2(printer);
 
         if (order.deliveryInfo) {
           printer.println(
