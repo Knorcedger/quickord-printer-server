@@ -193,10 +193,6 @@ export default {
       el: 'Α/A',
       en: 'SERIES NUMBER',
     },
-    source:{
-      el: 'ΠΗΓΗ',
-      en: 'SOURCE',
-    },
     provider: {
       el: 'ΜΕ ΤΗΝ ΥΠΟΣΤΗΡΙΞΗ ΤΗΣ',
       en: 'POWERED BY',

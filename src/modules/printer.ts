@@ -496,6 +496,51 @@ const printPaymentSlip = async (
     }
   }
 };
+
+type ServiceType = {
+  value: string;
+  label_en: string;
+  label_el: string;
+};
+
+const SERVICES: Record<string, ServiceType> = {
+  wolt: {
+    value: 'wolt',
+    label_en: 'Wolt',
+    label_el: 'Wolt',
+  },
+  efood: {
+    value: 'efood',
+    label_en: 'eFood',
+    label_el: 'eFood',
+  },
+  box: {
+    value: 'box',
+    label_en: 'BOX',
+    label_el: 'BOX',
+  },
+  fagi: {
+    value: 'fagi',
+    label_en: 'Fagi',
+    label_el: 'Fagi',
+  },
+  store: {
+    value: 'store',
+    label_en: 'Store',
+    label_el: 'Κατάστημα',
+  },
+  phone: {
+    value: 'phone',
+    label_en: 'Phone',
+    label_el: 'Τηλέφωνο',
+  },
+  website: {
+    value: 'website',
+    label_en: 'Website',
+    label_el: 'Ιστότοπος',
+  },
+};
+
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   source: string,
@@ -535,12 +580,15 @@ const printPaymentReceipt = async (
       );
       
       printer.alignLeft();
+      if (lang === 'el') {
       printer.println(
-        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[source]?.label_el}`
       );
-      printer.println(
-        `${translations.printOrder.source[lang]}: ${source}`
-      );
+      }else{
+        printer.println(
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[source]?.label_en}`
+        );
+      }
       printer.newLine();
       printer.alignLeft();
       printer.println(
