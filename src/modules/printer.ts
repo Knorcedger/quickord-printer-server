@@ -200,7 +200,7 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
-    printPaymentReceipt(req.body.aadeInvoice, req.body.lang || 'el');
+    printPaymentReceipt(req.body.aadeInvoice,req.body.source, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -498,6 +498,7 @@ const printPaymentSlip = async (
 };
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
+  source: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -522,7 +523,6 @@ const printPaymentReceipt = async (
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
       printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
-      printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
       const day = rawDate.substring(8, 10);
@@ -531,14 +531,15 @@ const printPaymentReceipt = async (
       const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
       printer.println(
-        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
       
       printer.alignLeft();
-      drawLine2(printer);
-      printer.newLine();
       printer.println(
-        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+      );
+      printer.println(
+        `${translations.printOrder.source[lang]}: ${source}`
       );
       printer.newLine();
       printer.alignLeft();
@@ -569,15 +570,23 @@ const printPaymentReceipt = async (
         );
       });
       drawLine2(printer);
-      printer.newLine();
-      printer.println(`${translations.printOrder.items[lang]}: ${sumQuantity}`);
-      printer.newLine();
-      printer.alignRight();
-      printer.setTextSize(1,1);
-      printer.bold(true);
-      printer.println(`${translations.printOrder.sum[lang]}: ${sumAmount}€`);
-      printer.setTextSize(0, 0);
-      printer.bold(false);
+    // Line 1: Left-aligned item quantity (small text)
+    printer.setTextSize(0, 0);
+    printer.bold(true);
+    printer.alignLeft();
+
+    const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+    const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+    const rightText = `${translations.printOrder.sum[lang]}: ${sumAmount}€`;
+
+    // Calculate spacing
+    const spaceCount = lineWidth - leftText.length - rightText.length;
+    const spacing = ' '.repeat(Math.max(1, spaceCount));
+
+    // Print both on one line
+    printer.println(leftText + spacing + rightText);
+
+    printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
       printer.println(`${translations.printOrder.payments[lang]}:`);
