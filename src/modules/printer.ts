@@ -188,7 +188,7 @@ export const paymentSlip = (
   res: Response<{}, any>,
 ) => {
   try {
-    printPaymentSlip(req.body.aadeInvoice,req.body.issuer_text, req.body.lang || 'el');
+    printPaymentSlip(req.body.aadeInvoice,req.body.issuerText, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -200,7 +200,7 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
-    printPaymentReceipt(req.body.aadeInvoice,req.body.source,req.body.issuer_text, req.body.lang || 'el');
+    printPaymentReceipt(req.body.aadeInvoice,req.body.source,req.body.issuerText, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -378,7 +378,7 @@ const printOrderForm = async (
 };
 const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
-  issuer_text: string,
+  issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -402,8 +402,8 @@ const printPaymentSlip = async (
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
       printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
-      if(issuer_text){
-        printer.println(issuer_text);
+      if(issuerText){
+        printer.println(issuerText);
       }
       printer.newLine();
       printer.alignLeft();
@@ -543,7 +543,7 @@ const SERVICES: Record<string, ServiceType> = {
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   source: string,
-  issuer_text: string,
+  issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -568,8 +568,8 @@ const printPaymentReceipt = async (
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
       printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
-      if(issuer_text){
-        printer.println(issuer_text);
+      if(issuerText){
+        printer.println(issuerText);
       }
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
