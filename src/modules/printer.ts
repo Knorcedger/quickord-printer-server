@@ -185,10 +185,10 @@ const PaymentMethodDescriptions = Object.freeze(
 );
 export const paymentSlip = (
   req: Request<{}, any, any>,
-  res: Response<{}, any>
+  res: Response<{}, any>,
 ) => {
   try {
-    printPaymentSlip(req.body.aadeInvoice, req.body.lang || 'el');
+    printPaymentSlip(req.body.aadeInvoice,req.body.issuer_text, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -200,7 +200,7 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
-    printPaymentReceipt(req.body.aadeInvoice,req.body.source, req.body.lang || 'el');
+    printPaymentReceipt(req.body.aadeInvoice,req.body.source,req.body.issuer_text, req.body.lang || 'el');
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -378,6 +378,7 @@ const printOrderForm = async (
 };
 const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
+  issuer_text: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -388,7 +389,6 @@ const printPaymentSlip = async (
       if (!settings || !printer) {
         continue;
       }
-      console.log(aadeInvoice)
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(`${translations.printOrder.paymentSlip[lang]}`);
@@ -402,6 +402,9 @@ const printPaymentSlip = async (
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
       printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      if(issuer_text){
+        printer.println(issuer_text);
+      }
       printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
@@ -411,14 +414,13 @@ const printPaymentSlip = async (
       const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
       printer.println(
-        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
-      
       printer.alignLeft();
 
       printer.newLine();
       printer.println(
-        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
+        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
       );
       printer.newLine();
       printer.alignLeft();
@@ -446,10 +448,7 @@ const printPaymentSlip = async (
       drawLine2(printer);
       printer.newLine();
       printer.alignRight();
-      printer.setTextSize(1,1);
-      printer.bold(true);
       printer.println(`${translations.printOrder.sum[lang]}: ${sumAmount}€`);
-      printer.setTextSize(0, 0);
       printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
@@ -544,6 +543,7 @@ const SERVICES: Record<string, ServiceType> = {
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   source: string,
+  issuer_text: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -568,6 +568,9 @@ const printPaymentReceipt = async (
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
       printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      if(issuer_text){
+        printer.println(issuer_text);
+      }
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
       const day = rawDate.substring(8, 10);
