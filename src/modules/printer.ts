@@ -456,7 +456,7 @@ const printPaymentSlip = async (
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
         const methodDescription =
-          PaymentMethodDescriptions[detail.code] || translations.printOrder.unknown[lang];
+        PaymentMethod[detail.code].description || translations.printOrder.unknown[lang];
         printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
       });
       drawLine2(printer);
@@ -642,9 +642,11 @@ const printPaymentReceipt = async (
       drawLine2(printer);
       printer.println(`${translations.printOrder.payments[lang]}:`);
       aadeInvoice?.payment_methods.forEach((detail: any) => {
+
+        console.log(detail.code)
         printer.newLine();
         const methodDescription =
-          PaymentMethodDescriptions[detail.code] || translations.printOrder.unknown[lang];
+          PaymentMethod[detail.code].description || translations.printOrder.unknown[lang];
         printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
       });
       drawLine2(printer);
