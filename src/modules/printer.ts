@@ -835,6 +835,14 @@ export const printOrder = async (
               `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
               settings.transliterate
             ),
+            ...(order.waiterName
+              ? [
+                  tr(
+                    `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
+                    settings.transliterate
+                  ),
+                ]
+              : []),
           ]);
         }
 
