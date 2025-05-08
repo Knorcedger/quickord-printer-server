@@ -504,7 +504,7 @@ const printPaymentSlip = async (
           PaymentMethod[detail.code].description ||
           translations.printOrder.unknown[lang];
         printer.println(
-          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`
+          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
         );
       });
       drawLine2(printer);
@@ -713,7 +713,7 @@ const printPaymentReceipt = async (
           PaymentMethod[detail.code].description ||
           translations.printOrder.unknown[lang];
         printer.println(
-          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`
+          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
         );
       });
       drawLine2(printer);
