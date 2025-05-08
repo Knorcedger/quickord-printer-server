@@ -207,6 +207,7 @@ export const paymentReceipt = (
   try {
     printPaymentReceipt(
       req.body.aadeInvoice,
+      req.body.orderNumber,
       req.body.orderType,
       req.body.issuerText,
       req.body.lang || 'el'
