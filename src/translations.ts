@@ -1,5 +1,5 @@
-import { Provider } from "nconf";
-import { unknown } from "zod";
+import { Provider } from 'nconf';
+import { unknown } from 'zod';
 
 export default {
   printOrder: {
@@ -92,6 +92,22 @@ export default {
         el: 'ΠΑΚΕΤΟ',
         en: 'TAKE AWAY PACKAGE',
       },
+      EFOOD: {
+        el: 'EFOOD',
+        en: 'EFOOD',
+      },
+      WOLT: {
+        el: 'WOLT',
+        en: 'WOLT',
+      },
+      FAGI: {
+        el: 'FAGI',
+        en: 'FAGI',
+      },
+      BOX: {
+        el: 'BOX',
+        en: 'BOX',
+      },
     },
     orderWaiter: {
       el: 'ΣΕΡΒΙΤ',
@@ -173,7 +189,7 @@ export default {
       el: 'ΣΧΟΛΙΑ ΣΕΡΒ',
       en: 'WAITER COMMENTS',
     },
-    taxNumber:{
+    taxNumber: {
       el: 'Α.Φ.Μ.',
       en: 'TAX NUMBER',
     },
@@ -181,7 +197,7 @@ export default {
       el: 'ΔΟΥ',
       en: 'TAX OFFICE',
     },
-    date:{
+    date: {
       el: 'ΗΜΕΡ',
       en: 'DATE',
     },
@@ -189,7 +205,7 @@ export default {
       el: 'ΩΡΑ',
       en: 'TIME',
     },
-    seriesNumber:{
+    seriesNumber: {
       el: 'Α/A',
       en: 'SERIES NUMBER',
     },
@@ -201,49 +217,49 @@ export default {
       el: 'ΕΙΔΟΣ',
       en: 'KIND',
     },
-    items:{
-      el:'ΤΕΜΑΧΙΑ',
+    items: {
+      el: 'ΤΕΜΑΧΙΑ',
       en: 'ITEMS',
     },
-    sum:{
-      el:'ΣΥΝΟΛΟ',
+    sum: {
+      el: 'ΣΥΝΟΛΟ',
       en: 'SUM',
     },
-    unknown:{
-      el:'ΑΓΝΩΣΤΗ ΜΕΘΟΔΟΣ',
-      en: 'UKNOWN METHOD', 
+    unknown: {
+      el: 'ΑΓΝΩΣΤΗ ΜΕΘΟΔΟΣ',
+      en: 'UKNOWN METHOD',
     },
-    amount:{
-      el:'ΠΟΣΟ',
+    amount: {
+      el: 'ΠΟΣΟ',
       en: 'AMOUNT',
     },
-    payments:{
-      el:'ΠΛΗΡΩΜΕΣ',
-      en:'PAYMENTS',
+    payments: {
+      el: 'ΠΛΗΡΩΜΕΣ',
+      en: 'PAYMENTS',
     },
-    quantity:{
-      el:'ΠΟΣΟΤ',
-      en:'QUANTITY',
+    quantity: {
+      el: 'ΠΟΣΟΤ',
+      en: 'QUANTITY',
     },
-    price:{
-      el:'ΑΞΙΑ',
-      en:'PRICE',
+    price: {
+      el: 'ΑΞΙΑ',
+      en: 'PRICE',
     },
-    reciept:{
-      el:'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
-      en:'RECEIPT',
+    reciept: {
+      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      en: 'RECEIPT',
     },
-    paymentSlip:{
-      el:'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
-      en:'PAYMENT SLIP',
+    paymentSlip: {
+      el: 'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
+      en: 'PAYMENT SLIP',
     },
-    recieptEnd:{
-      el:'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
-      en:'END OF RECEIPT',
+    recieptEnd: {
+      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      en: 'END OF RECEIPT',
     },
-    paymentSlipEnd:{
-      el:'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
-      en:'THANK YOU FOR YOUR PAYMENT',
-    }
-},
+    paymentSlipEnd: {
+      el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
+      en: 'THANK YOU FOR YOUR PAYMENT',
+    },
+  },
 };
