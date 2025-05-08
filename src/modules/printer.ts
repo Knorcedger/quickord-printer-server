@@ -288,7 +288,7 @@ const printOrderForm = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
-
+      printer?.clear();
       if (!settings || !printer) {
         continue;
       }
@@ -399,6 +399,7 @@ const printOrderForm = async (
           waitForResponse: false,
         })
         .then(() => {
+          printer?.clear();
           logger.info('Printed payment');
         });
     } catch (error) {
@@ -416,7 +417,7 @@ const printPaymentSlip = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
-
+      printer?.clear();
       if (!settings || !printer) {
         continue;
       }
@@ -541,6 +542,7 @@ const printPaymentSlip = async (
           waitForResponse: false,
         })
         .then(() => {
+          printer?.clear();
           logger.info('Printed payment');
         });
     } catch (error) {
@@ -604,7 +606,7 @@ const printPaymentReceipt = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
-
+      printer?.clear();
       if (!settings || !printer) {
         continue;
       }
@@ -750,6 +752,7 @@ const printPaymentReceipt = async (
           waitForResponse: false,
         })
         .then(() => {
+          printer?.clear();
           logger.info('Printed payment');
         });
     } catch (error) {
@@ -765,8 +768,9 @@ export const printOrder = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
-
+      printer?.clear();
       if (!settings || !printer) {
+        printer?.clear();
         continue;
       }
 
@@ -777,6 +781,7 @@ export const printOrder = async (
       );
 
       if (!productsToPrint?.length) {
+        printer?.clear();
         continue;
       }
       if (settings.documentsToPrint !== undefined) {
@@ -1175,6 +1180,7 @@ export const printOrder = async (
           waitForResponse: false,
         })
         .then(() => {
+          printer.clear();
           logger.info(
             `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
           );
