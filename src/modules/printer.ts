@@ -643,15 +643,14 @@ const printPaymentReceipt = async (
       printer.println(
         `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
-
       printer.alignLeft();
       if (lang === 'el') {
         printer.println(
-          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType]?.label_el}`
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
         );
       } else {
         printer.println(
-          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType]?.label_en}`
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
         );
       }
       printer.newLine();
