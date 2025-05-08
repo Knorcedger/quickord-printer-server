@@ -8,7 +8,7 @@ import {
 } from 'node-thermal-printer';
 import { z } from 'zod';
 import { Request, Response } from 'express';
-import { Order } from '../resolvers/printOrders.ts';
+import { Order, OrderType } from '../resolvers/printOrders.ts';
 import { convertToDecimal, leftPad, tr } from './common.ts';
 import logger from './logger.ts';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
@@ -828,22 +828,23 @@ export const printOrder = async (
             settings.transliterate
           ),
         ]);
-
-        if (order?.tableNumber) {
-          printer.table([
-            tr(
-              `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
-              settings.transliterate
-            ),
-            ...(order.waiterName
-              ? [
-                  tr(
-                    `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
-                    settings.transliterate
-                  ),
-                ]
-              : []),
-          ]);
+        if (order?.orderType === 'DINE_IN') {
+          if (order?.tableNumber) {
+            printer.table([
+              tr(
+                `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+                settings.transliterate
+              ),
+              ...(order.waiterName
+                ? [
+                    tr(
+                      `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
+                      settings.transliterate
+                    ),
+                  ]
+                : []),
+            ]);
+          }
         }
 
         if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
