@@ -14,6 +14,7 @@ import logger from './logger.ts';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings.ts';
 import { SupportedLanguages, translations } from './translations.ts';
 import { transliterate } from 'transliteration';
+import { set } from 'nconf';
 
 const DEFAULT_CODE_PAGE = 66;
 
@@ -185,10 +186,14 @@ const PaymentMethodDescriptions = Object.freeze(
 );
 export const paymentSlip = (
   req: Request<{}, any, any>,
-  res: Response<{}, any>,
+  res: Response<{}, any>
 ) => {
   try {
-    printPaymentSlip(req.body.aadeInvoice,req.body.issuerText, req.body.lang || 'el');
+    printPaymentSlip(
+      req.body.aadeInvoice,
+      req.body.issuerText,
+      req.body.lang || 'el'
+    );
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -200,7 +205,12 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
-    printPaymentReceipt(req.body.aadeInvoice,req.body.source,req.body.issuerText, req.body.lang || 'el');
+    printPaymentReceipt(
+      req.body.aadeInvoice,
+      req.body.orderType,
+      req.body.issuerText,
+      req.body.lang || 'el'
+    );
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -212,7 +222,12 @@ export const orderForm = (
   res: Response<{}, any>
 ) => {
   try {
-    printOrderForm(req.body.aadeInvoice,req.body.table,req.body.waiter, req.body.lang || 'el');
+    printOrderForm(
+      req.body.aadeInvoice,
+      req.body.table,
+      req.body.waiter,
+      req.body.lang || 'el'
+    );
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -275,19 +290,27 @@ const printOrderForm = async (
       if (!settings || !printer) {
         continue;
       }
-      console.log(aadeInvoice)
+      if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('ORDERFORM')) {
+          console.log('ORDERFORM is not in documentsToPrint');
+          continue;
+        }
+      }
+      console.log(aadeInvoice);
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
-       printer.println(
+      printer.println(
         `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
       );
 
       printer.println(
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
-      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
+      printer.println(
+        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+      );
       printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
@@ -296,20 +319,21 @@ const printOrderForm = async (
       const year = rawDate.substring(0, 4);
       const formattedDate = `${day}/${month}/${year}`;
       printer.println(
-        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) + `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) +
+          `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
       );
-      
+
       // Second line: table and server
       printer.println(
-        `${translations.printOrder.tableNumber[lang]} : ${tableNumber}`.padEnd(24) + `${translations.printOrder.waiter[lang]} : ${waiterName.toUpperCase()}`
+        `${translations.printOrder.tableNumber[lang]} : ${tableNumber}`.padEnd(
+          24
+        ) +
+          `${translations.printOrder.waiter[lang]} : ${waiterName.toUpperCase()}`
       );
       printer.newLine();
       printer.alignCenter();
       printer.println(
-        tr(
-          `${translations.printOrder.orderForm[lang]}`,
-          settings.transliterate
-        )
+        tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
       printer.println(
         `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
@@ -318,28 +342,30 @@ const printOrderForm = async (
       printer.alignLeft();
       printer.println(
         `${translations.printOrder.kind[lang]}`.padEnd(18) +
-        `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-        `${translations.printOrder.price[lang]}`.padEnd(7) +
-        `${translations.printOrder.vat[lang]}`
+          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+          `${translations.printOrder.price[lang]}`.padEnd(7) +
+          `${translations.printOrder.vat[lang]}`
       );
       drawLine2(printer);
       let sumAmount = 0;
       let sumQuantity = 0;
-      
+
       aadeInvoice?.details.forEach((detail: any) => {
         sumAmount += detail.net_value * detail.quantity;
         sumQuantity += detail.quantity;
-      
+
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(2);
+        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
+          2
+        );
         const vat = `${detail.tax.rate}%`; // "24%"
-      
+
         printer.println(
-          name.padEnd(18).substring(0, 18) +         // Trim to 18 chars max
-          quantity.padEnd(7) +
-          value.padEnd(7) +
-          vat
+          name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
+            quantity.padEnd(7) +
+            value.padEnd(7) +
+            vat
         );
       });
       drawLine2(printer);
@@ -351,12 +377,14 @@ const printOrderForm = async (
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
       printer.printQR(aadeInvoice?.url, {
-        cellSize:4,
+        cellSize: 4,
         model: 4,
         correction: 'Q',
       });
       printer.newLine();
-      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.println(
+        `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
+      );
       printer.newLine();
       printer.println(
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
@@ -379,6 +407,7 @@ const printOrderForm = async (
 const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
+  orderNumber: number,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -389,20 +418,28 @@ const printPaymentSlip = async (
       if (!settings || !printer) {
         continue;
       }
+      if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('PAYMENT-SLIP')) {
+          console.log('PAYMENT-SLIP is not in documentsToPrint');
+          continue;
+        }
+      }
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(`${translations.printOrder.paymentSlip[lang]}`);
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
-       printer.println(
+      printer.println(
         `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
       );
 
       printer.println(
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
-      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
-      if(issuerText){
+      printer.println(
+        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+      );
+      if (issuerText) {
         printer.println(issuerText);
       }
       printer.newLine();
@@ -413,6 +450,7 @@ const printPaymentSlip = async (
       const year = rawDate.substring(0, 4);
       const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
+      printer.println(`#${orderNumber}`);
       printer.println(
         `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
@@ -427,28 +465,33 @@ const printPaymentSlip = async (
 
       let sumAmount = 0;
       let sumQuantity = 0;
-      
+
       aadeInvoice?.details.forEach((detail: any) => {
-      printer.bold(true);
+        printer.bold(true);
         sumQuantity += detail.quantity;
-      
+
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = ((detail.net_value * (1 + detail.tax.rate / 100))).toFixed(2);
+        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
+          2
+        );
         const vat = `${detail.tax.rate}%`; // "24%"
         sumAmount += parseFloat(value);
         printer.println(
-          name.toUpperCase().padEnd(18).substring(0, 18) +         // Trim to 18 chars max
-          quantity.padStart(7) +
-          value.padStart(7) +
-          vat.padStart(7)
+          name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
+            quantity.padStart(7) +
+            value.padStart(7) +
+            vat.padStart(7)
         );
-      printer.bold(false);
+        printer.bold(false);
       });
       drawLine2(printer);
       printer.newLine();
       printer.alignRight();
-      printer.println(`${translations.printOrder.sum[lang]}: ${sumAmount}€`);
+      const roundedSum = Number(sumAmount)
+        .toFixed(2)
+        .replace(/\.?0+$/, '');
+      printer.println(`${translations.printOrder.sum[lang]}: ${roundedSum}€`);
       printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
@@ -456,8 +499,11 @@ const printPaymentSlip = async (
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
         const methodDescription =
-        PaymentMethod[detail.code].description || translations.printOrder.unknown[lang];
-        printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
+          PaymentMethod[detail.code].description ||
+          translations.printOrder.unknown[lang];
+        printer.println(
+          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`
+        );
       });
       drawLine2(printer);
       printer.newLine();
@@ -467,19 +513,24 @@ const printPaymentSlip = async (
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
       printer.printQR(aadeInvoice?.url, {
-        cellSize:4,
+        cellSize: 4,
         model: 4,
         correction: 'Q',
       });
       printer.newLine();
-      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.println(
+        `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
+      );
       printer.newLine();
       printer.println(
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
       printer.println(
-        tr(`${translations.printOrder.paymentSlipEnd[lang]}`, settings.transliterate)
+        tr(
+          `${translations.printOrder.paymentSlipEnd[lang]}`,
+          settings.transliterate
+        )
       );
       printer.alignCenter();
       printer.cut();
@@ -542,7 +593,8 @@ const SERVICES: Record<string, ServiceType> = {
 
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
-  source: string,
+  orderType: string,
+  orderNumber: number,
   issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
@@ -554,21 +606,28 @@ const printPaymentReceipt = async (
       if (!settings || !printer) {
         continue;
       }
-      console.log(aadeInvoice)
+      if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('ALP')) {
+          console.log('ALP is not in documentsToPrint');
+          continue;
+        }
+      }
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(`${translations.printOrder.reciept[lang]}`);
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
-       printer.println(
+      printer.println(
         `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
       );
 
       printer.println(
         `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
       );
-      printer.println(`${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`);
-      if(issuerText){
+      printer.println(
+        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+      );
+      if (issuerText) {
         printer.println(issuerText);
       }
       printer.alignLeft();
@@ -578,76 +637,83 @@ const printPaymentReceipt = async (
       const year = rawDate.substring(0, 4);
       const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
+      printer.println(`#${orderNumber}`);
       printer.println(
         `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
-      
+
       printer.alignLeft();
       if (lang === 'el') {
-      printer.println(
-        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[source]?.label_el}`
-      );
-      }else{
         printer.println(
-          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[source]?.label_en}`
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType]?.label_el}`
+        );
+      } else {
+        printer.println(
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType]?.label_en}`
         );
       }
       printer.newLine();
       printer.alignLeft();
       printer.println(
         `${translations.printOrder.kind[lang]}`.padEnd(18) +
-        `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-        `${translations.printOrder.price[lang]}`.padEnd(7) +
-        `${translations.printOrder.vat[lang]}`
+          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+          `${translations.printOrder.price[lang]}`.padEnd(7) +
+          `${translations.printOrder.vat[lang]}`
       );
       drawLine2(printer);
       let sumAmount = 0;
       let sumQuantity = 0;
-      
+
       aadeInvoice?.details.forEach((detail: any) => {
-       
         sumQuantity += detail.quantity;
-      
+
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = ((detail.net_value * (1 + detail.tax.rate / 100))).toFixed(2);
+        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
+          2
+        );
         const vat = `${detail.tax.rate}%`; // "24%"
         sumAmount += parseFloat(value);
         printer.println(
-          name.padEnd(18).substring(0, 18) +         // Trim to 18 chars max
-          quantity.padEnd(7) +
-          value.padEnd(7) +
-          vat
+          name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
+            quantity.padEnd(7) +
+            value.padEnd(7) +
+            vat
         );
       });
       drawLine2(printer);
-    // Line 1: Left-aligned item quantity (small text)
-    printer.setTextSize(0, 0);
-    printer.bold(true);
-    printer.alignLeft();
+      // Line 1: Left-aligned item quantity (small text)
+      printer.setTextSize(0, 0);
+      printer.bold(true);
+      printer.alignLeft();
 
-    const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-    const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
-    const rightText = `${translations.printOrder.sum[lang]}: ${sumAmount}€`;
+      const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+      const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+      const roundedSum = Number(sumAmount)
+        .toFixed(2)
+        .replace(/\.?0+$/, '');
+      const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
 
-    // Calculate spacing
-    const spaceCount = lineWidth - leftText.length - rightText.length;
-    const spacing = ' '.repeat(Math.max(1, spaceCount));
+      // Calculate spacing
+      const spaceCount = lineWidth - leftText.length - rightText.length;
+      const spacing = ' '.repeat(Math.max(1, spaceCount));
 
-    // Print both on one line
-    printer.println(leftText + spacing + rightText);
+      // Print both on one line
+      printer.println(leftText + spacing + rightText);
 
-    printer.bold(false);
+      printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
       printer.println(`${translations.printOrder.payments[lang]}:`);
       aadeInvoice?.payment_methods.forEach((detail: any) => {
-
-        console.log(detail.code)
+        console.log(detail.code);
         printer.newLine();
         const methodDescription =
-          PaymentMethod[detail.code].description || translations.printOrder.unknown[lang];
-        printer.println(`${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`);
+          PaymentMethod[detail.code].description ||
+          translations.printOrder.unknown[lang];
+        printer.println(
+          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount}€`
+        );
       });
       drawLine2(printer);
       printer.newLine();
@@ -657,19 +723,24 @@ const printPaymentReceipt = async (
       printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
       printer.alignCenter();
       printer.printQR(aadeInvoice?.url, {
-        cellSize:4,
+        cellSize: 4,
         model: 4,
         correction: 'Q',
       });
       printer.newLine();
-      printer.println(`${translations.printOrder.provider[lang]} www.invoiceportal.gr`);
+      printer.println(
+        `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
+      );
       printer.newLine();
       printer.println(
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
       printer.println(
-        tr(`${translations.printOrder.recieptEnd[lang]}`, settings.transliterate)
+        tr(
+          `${translations.printOrder.recieptEnd[lang]}`,
+          settings.transliterate
+        )
       );
       printer.alignCenter();
       printer.cut();
@@ -706,6 +777,12 @@ export const printOrder = async (
 
       if (!productsToPrint?.length) {
         continue;
+      }
+      if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('ORDER')) {
+          console.log('ORDER is not in documentsToPrint');
+          continue;
+        }
       }
 
       const orderCreationDate = new Date(order.createdAt);
@@ -758,14 +835,6 @@ export const printOrder = async (
               `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
               settings.transliterate
             ),
-            ...(order.waiterName
-              ? [
-                  tr(
-                    `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
-                    settings.transliterate
-                  ),
-                ]
-              : []),
           ]);
         }
 
@@ -872,129 +941,139 @@ export const printOrder = async (
         }
         const vatBreakdown: { vat: number; total: number; netValue: number }[] =
           [];
-          productsToPrint.forEach((product) => {
-            let total = product.total || 0;
-            const leftAmount = `${product.quantity}x `.length;
-          
-            // Bold if enabled
-            if (settings.textOptions.includes('BOLD_PRODUCTS')) {
-              printer.setTextSize(1, 1);
-            } else {
-              changeTextSize(printer, settings?.textSize || 'NORMAL');
-            }
-          
-            printer.newLine();
-          
-            // Pad title and amount for alignment
-            const productLine = `${product.quantity}x ${product.title}`;
-            const priceStr = product.total ? `${convertToDecimal(product.total).toFixed(2)} €` : '';
-            const lineWidth = 42; // Assuming 42 character width for POS80
-            const paddedLine = productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
-          
-            printer.println(tr(paddedLine, settings.transliterate));
-          
-            // Handle product choices
-            product.choices?.forEach((choice) => {
-              total += (choice.price || 0) * (product.quantity || 1);
-              const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
-              const choicePrice = choice.price
-                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
-                : '';
-              const paddedChoiceLine = choiceLine.padEnd(lineWidth - choicePrice.length, ' ') + choicePrice;
-              printer.println(tr(paddedChoiceLine, settings.transliterate));
-            });
-          
-            // Comments (if any)
-            if (product.comments) {
-              printer.println(
-                tr(
-                  ` ${translations.printOrder.productComments[lang]}: ${product.comments.toUpperCase()}`,
-                  settings.transliterate
-                )
-              );
-            }
-          
-            // VAT info (if any)
-            if (product.vat) {
-              printer.println(
-                tr(`${translations.printOrder.vat[lang]}: ${product.vat}%`, settings.transliterate)
-              );
-          
-              const vatRate = product.vat;
-          
-              let choicesTotal = 0;
-              if (product.choices) {
-                product.choices.forEach((choice) => {
-                  choicesTotal += (choice.price || 0) * (product.quantity || 1);
-                });
-              }
-          
-              const rawTotal = product.total * product.quantity + choicesTotal;
-              const rawNet = rawTotal / (1 + vatRate / 100);
-          
-              const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
-              const netValue = parseFloat(convertToDecimal(rawNet).toFixed(2));
-          
-              const existingVat = vatBreakdown.find((item) => item.vat === vatRate);
-              if (existingVat) {
-                existingVat.total += fullTotal;
-                existingVat.netValue += netValue;
-              } else {
-                vatBreakdown.push({
-                  vat: vatRate,
-                  total: fullTotal,
-                  netValue: netValue,
-                });
-              }
-            }
-          
-            // Print right-aligned total for this product with choices
-            printer.alignRight();
+        productsToPrint.forEach((product) => {
+          let total = product.total || 0;
+          const leftAmount = `${product.quantity}x `.length;
+
+          // Bold if enabled
+          if (settings.textOptions.includes('BOLD_PRODUCTS')) {
+            printer.setTextSize(1, 1);
+          } else {
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+
+          printer.newLine();
+
+          // Pad title and amount for alignment
+          const productLine = `${product.quantity}x ${product.title}`;
+          const priceStr = product.total
+            ? `${convertToDecimal(product.total).toFixed(2)} €`
+            : '';
+          const lineWidth = 42; // Assuming 42 character width for POS80
+          const paddedLine =
+            productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
+
+          printer.println(tr(paddedLine, settings.transliterate));
+
+          // Handle product choices
+          product.choices?.forEach((choice) => {
+            total += (choice.price || 0) * (product.quantity || 1);
+            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
+            const choicePrice = choice.price
+              ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+              : '';
+            const paddedChoiceLine =
+              choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
+              choicePrice;
+            printer.println(tr(paddedChoiceLine, settings.transliterate));
+          });
+
+          // Comments (if any)
+          if (product.comments) {
             printer.println(
               tr(
-                `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+                ` ${translations.printOrder.productComments[lang]}: ${product.comments.toUpperCase()}`,
                 settings.transliterate
               )
             );
-            printer.alignLeft();
-          
-            // Reset text size after bold
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
-          
-            // Draw separator
-           drawLine2(printer);
-          });
-          
-        if(vatBreakdown.length > 0) {
-        console.log('vatBreakdown', vatBreakdown);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
-        // Print section headers
-        printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.analysisVat[lang]}`,
-            settings.transliterate
-          )
-        );
-        printer.alignLeft();
-        printer.println(
-          `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
-        );
+          }
 
-        // Print each VAT item in a formatted row
-        vatBreakdown.forEach((item) => {
-          const vat = `${item.vat.toString()}%`.padEnd(10);
+          // VAT info (if any)
+          if (product.vat) {
+            printer.println(
+              tr(
+                `${translations.printOrder.vat[lang]}: ${product.vat}%`,
+                settings.transliterate
+              )
+            );
 
-          // Use .toFixed(2) directly to round to 2 decimal places
-          const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
-          const total = item.total.toFixed(2).padStart(18); // total comes second
+            const vatRate = product.vat;
 
-          printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
+            let choicesTotal = 0;
+            if (product.choices) {
+              product.choices.forEach((choice) => {
+                choicesTotal += (choice.price || 0) * (product.quantity || 1);
+              });
+            }
+
+            const rawTotal = product.total * product.quantity + choicesTotal;
+            const rawNet = rawTotal / (1 + vatRate / 100);
+
+            const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
+            const netValue = parseFloat(convertToDecimal(rawNet).toFixed(2));
+
+            const existingVat = vatBreakdown.find(
+              (item) => item.vat === vatRate
+            );
+            if (existingVat) {
+              existingVat.total += fullTotal;
+              existingVat.netValue += netValue;
+            } else {
+              vatBreakdown.push({
+                vat: vatRate,
+                total: fullTotal,
+                netValue: netValue,
+              });
+            }
+          }
+
+          // Print right-aligned total for this product with choices
+          printer.alignRight();
+          printer.println(
+            tr(
+              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+              settings.transliterate
+            )
+          );
+          printer.alignLeft();
+
+          // Reset text size after bold
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+          // Draw separator
+          drawLine2(printer);
         });
 
-        // Optionally print a footer or separator if needed
-        printer.println('');
-      }
+        if (vatBreakdown.length > 0) {
+          console.log('vatBreakdown', vatBreakdown);
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          // Print section headers
+          printer.alignCenter();
+          printer.println(
+            tr(
+              `${translations.printOrder.analysisVat[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.alignLeft();
+          printer.println(
+            `${tr(translations.printOrder.percentage[lang], settings.transliterate).padEnd(10)}${tr(translations.printOrder.netWorth[lang], settings.transliterate).padStart(15)}${tr(translations.printOrder.total[lang], settings.transliterate).padStart(15)}`
+          );
+
+          // Print each VAT item in a formatted row
+          vatBreakdown.forEach((item) => {
+            const vat = `${item.vat.toString()}%`.padEnd(10);
+
+            // Use .toFixed(2) directly to round to 2 decimal places
+            const netValue = item.netValue.toFixed(2).padStart(12); // netValue comes first
+            const total = item.total.toFixed(2).padStart(18); // total comes second
+
+            printer.println(`${vat}${netValue}${total}`); // Reversed order of printing
+          });
+
+          // Optionally print a footer or separator if needed
+          printer.println('');
+        }
 
         if (order.waiterComment) {
           printer.newLine();

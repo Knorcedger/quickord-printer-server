@@ -16,16 +16,18 @@ export const Product = z.object({
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
-  vat: z.preprocess(
-    (val) => {
-      const num = Number(val);
-      return isNaN(num) ? 0 : num;
-    },
-    z.number({
-      invalid_type_error: 'vat must be a number.',
-      required_error: 'vat is required.',
-    })
-  ).optional(),
+  vat: z
+    .preprocess(
+      (val) => {
+        const num = Number(val);
+        return isNaN(num) ? 0 : num;
+      },
+      z.number({
+        invalid_type_error: 'vat must be a number.',
+        required_error: 'vat is required.',
+      })
+    )
+    .optional(),
   choices: z
     .array(
       z.object({
@@ -66,6 +68,10 @@ export const OrderType = z.enum([
   'DINE_IN',
   'TAKE_AWAY_INSIDE',
   'TAKE_AWAY_PACKAGE',
+  'EFOOD',
+  'WOLT',
+  'FAGI',
+  'BOX',
 ]);
 
 export const PaymentType = z.enum([

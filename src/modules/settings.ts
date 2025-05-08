@@ -34,6 +34,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
+  documentsToPrint: z
+    .array(z.string(), {
+      description: 'The documents to print on the receipt.',
+      invalid_type_error: 'documentsToPrint must be an array of strings.',
+      required_error: 'documentsToPrint is required.',
+    })
+    .optional()
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP']),
   characterSet: CharacterSetEnum,
   codePage: z
     .number({
