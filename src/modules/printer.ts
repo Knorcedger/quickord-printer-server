@@ -192,6 +192,7 @@ export const paymentSlip = (
     printPaymentSlip(
       req.body.aadeInvoice,
       req.body.issuerText,
+      req.body.orderNumber,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -594,8 +595,8 @@ const SERVICES: Record<string, ServiceType> = {
 
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
-  orderType: string,
   orderNumber: number,
+  orderType: string,
   issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
