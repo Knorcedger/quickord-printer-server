@@ -972,8 +972,6 @@ export const printOrder = async (
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
 
-          printer.newLine();
-
           // Pad title and amount for alignment
           const productLine = `${product.quantity}x ${product.title}`;
           const priceStr = product.total
