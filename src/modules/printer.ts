@@ -773,7 +773,12 @@ export const printOrder = async (
         printer?.clear();
         continue;
       }
-
+      if (settings.orderMethodsToPrint !== undefined) {
+        if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
+          console.log('orderType is not in orderMethodsToPrint');
+          continue;
+        }
+      }
       const productsToPrint = order.products.filter((product) =>
         product.categories.some(
           (category) => !settings?.categoriesToNotPrint?.includes(category)
