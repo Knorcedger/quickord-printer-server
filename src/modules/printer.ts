@@ -1167,12 +1167,7 @@ export const printOrder = async (
         printer.newLine();
         printer.newLine();
         printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.notReceiptNotice[lang]}`,
-            settings.transliterate
-          )
-        );
+        printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
         printer.cut();
       }
 
