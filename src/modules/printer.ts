@@ -915,7 +915,7 @@ export const printOrder = async (
           drawLine2(printer);
         }
 
-        if (order.TakeAwayInfo) {
+        if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
           let drawLine = false;
 
           const customerName = order.TakeAwayInfo.customerName?.trim();
@@ -1134,8 +1134,6 @@ export const printOrder = async (
             )
           );
         }
-
-        printer.newLine();
         printer.alignRight();
         // Calculate total without VAT (net values)
         const totalNetValue = vatBreakdown.reduce(
