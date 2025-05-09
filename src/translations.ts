@@ -52,7 +52,7 @@ export default {
       en: 'TEL',
     },
     notReceiptNotice: {
-      el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ ΣΥΝΑΛΛΑΓΗΣ',
+      el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ\nΣΥΝΑΛΛΑΓΗΣ',
       en: 'ATTENTION THIS IS NOT A RECEIPT',
     },
     orderFormOrder: {
