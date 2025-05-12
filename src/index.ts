@@ -22,7 +22,7 @@ import {
 import printOrders from './resolvers/printOrders';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
-import * as autoUpdate from './autoupdate/autoupdate';
+import autoUpdate from './autoupdate/autoupdate';
 
 const main = async () => {
   const SERVER_PORT = nconf.get('PORT') || 7810;
@@ -40,7 +40,7 @@ const main = async () => {
 
   console.log('Update path:', args);
 
-  //await autoUpdate(args || ''); // Ensure updatePath is a string
+  await autoUpdate(args); // Ensure updatePath is a string
   // await scanNetworkForConnections();
 
   await loadSettings();

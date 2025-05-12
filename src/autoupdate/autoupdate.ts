@@ -48,19 +48,57 @@ async function extractZip(zipBuffer, tempCodePath) {
   }
 }
 async function copyOnlyFiles() {
-  console.log(`Copying files from ${srcDir} to ${destDir}`);
+  const ignoredFolders = new Set(['dist', 'snapshot']);
 
-  async function walk(currentDir) {
-    let entries;
+  console.log(`🔍 Source Directory: ${srcDir}`);
+  console.log(`📁 Destination Directory: ${destDir}`);
+
+  // Clean the destination folder
+  try {
+    await fsp.rm(destDir, { recursive: true, force: true });
+    await fsp.mkdir(destDir, { recursive: true });
+    console.log('🧼 Cleaned destination folder.');
+  } catch (err) {
+    console.error('❌ Failed to clean destination folder:', err);
+    return;
+  }
+
+  // Helper to count how many times "builds" appears in the path
+  function isNestedBuildsPath(currentPath: string): boolean {
+    const relative = path.relative(srcDir, currentPath);
+    const segments = relative.split(path.sep);
+    let buildsCount = 0;
+    for (const segment of segments) {
+      if (segment === 'builds') buildsCount++;
+    }
+    return buildsCount > 1;
+  }
+
+  async function walk(currentDir: string) {
+    let entries: fs.Dirent[];
+
     try {
       entries = await fsp.readdir(currentDir, { withFileTypes: true });
     } catch (err) {
-      console.error(`Error reading directory ${currentDir}:`, err);
+      console.error(`❌ Error reading directory ${currentDir}:`, err);
       return;
     }
 
     for (const entry of entries) {
       const fullSrcPath = path.join(currentDir, entry.name);
+
+      // Skip ignored folders
+      if (ignoredFolders.has(entry.name)) {
+        console.log(`🚫 Skipping ignored folder: ${entry.name}`);
+        continue;
+      }
+
+      // Skip node_modules if in nested builds
+      if (entry.name === 'node_modules' && isNestedBuildsPath(currentDir)) {
+        console.log(`🚫 Skipping nested node_modules at: ${fullSrcPath}`);
+        continue;
+      }
+
       const relativePath = path.relative(srcDir, fullSrcPath);
       const destPath = path.join(destDir, relativePath);
 
@@ -70,22 +108,79 @@ async function copyOnlyFiles() {
           await walk(fullSrcPath);
         } else if (entry.isFile()) {
           await fsp.copyFile(fullSrcPath, destPath);
-          console.log(`Copied ${relativePath}`);
+          console.log(`✅ Copied ${relativePath}`);
         }
       } catch (err) {
-        console.error(`Error processing ${fullSrcPath}:`, err);
+        console.error(`❌ Error copying ${relativePath}:`, err);
       }
     }
   }
 
   try {
     await walk(srcDir);
-    console.log('✅ Copy completed.');
+    console.log('🎉 Copy completed successfully.');
   } catch (err) {
     console.error('❌ Failed to copy files:', err);
   }
 }
+export async function relaunchExe(appPath: string, args: string[]) {
+  const exePath = path.resolve(appPath); // Ensure absolute path
+  const buildsFolder = path.dirname(exePath); // Folder containing the exe
+  const safeCwd = path.resolve(__dirname, '..'); // MUST be outside of builds
 
+  const fullCommand = `"${exePath}" ${args.map(arg => `"${arg}"`).join(' ')}`;
+
+  try {
+     const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    });
+
+    child.unref();
+
+    console.log('Relaunched exe with args. Waiting to exit...');
+
+    // Wait a bit to ensure the child process fully starts
+   /* setTimeout(async () => {
+      try {
+        console.log('Attempting to delete builds folder:', buildsFolder);
+        await fsp.rm(buildsFolder, { recursive: true, force: true });
+        console.log('Builds folder deleted successfully.');
+      } catch (delErr) {
+        console.error('Failed to delete builds folder:', delErr);
+      }
+*/
+      setTimeout(async () => {process.exit(0)},500);
+    //}, 500); // 500ms delay to ensure safe spawn
+  } catch (err) {
+    console.error('Failed to relaunch exe:', err);
+  }
+}
+export async function deleteFolderRecursive(folderPath: string): Promise<void> {
+  try {
+    const entries = await fsp.readdir(folderPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(folderPath, entry.name);
+
+      if (entry.isDirectory()) {
+        await deleteFolderRecursive(fullPath); // recursive for subfolders
+      } else {
+        await fsp.unlink(fullPath); // delete file
+      }
+    }
+
+    await fsp.rmdir(folderPath); // remove empty folder
+    console.log(`Deleted: ${folderPath}`);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      console.warn(`Folder does not exist: ${folderPath}`);
+    } else {
+      console.error(`Error deleting ${folderPath}:`, err.message || err);
+    }
+  }
+}
 async function downloadLatestCode() {
   console.log('you can start');
 
@@ -124,23 +219,7 @@ async function downloadLatestCode() {
     args[2] = '--parent';
     args[3] = parentDir;
     path2 = tempCodePath + '/builds/printerServer.exe';
-    try {
-      const child = spawn('cmd.exe', ['/c', 'start', '', path2, ...args], {
-        detached: true,
-        stdio: 'ignore', // use 'inherit' for debugging if needed
-      });
-
-      child.on('error', (err) => {
-        console.error('Failed to spawn process:', err);
-      });
-
-      child.unref(); // Important for detached mode
-
-      console.log('Spawned successfully, exiting current app.');
-      process.exit();
-    } catch (err) {
-      console.error('Exception during spawn:', err);
-    }
+    relaunchExe(path2, args);  
 
     return true;
   } catch (e) {
@@ -171,6 +250,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function clearFolder(folderPath: string): Promise<void> {
+  try {
+    const entries = await fsp.readdir(folderPath, { withFileTypes: true });
+
+    const removals = entries.map(async (entry) => {
+      const fullPath = path.join(folderPath, entry.name);
+      if (entry.isDirectory()) {
+        await fsp.rm(fullPath, { recursive: true, force: true });
+      } else {
+        await fsp.unlink(fullPath);
+      }
+    });
+
+    await Promise.all(removals);
+    console.log(`Cleared contents of folder: ${folderPath}`);
+  } catch (err) {
+    console.error(`Failed to clear folder ${folderPath}:`, err);
+  }
+}
 export default async function autoUpdate(path: string[]) {
   console.log('AutoUpdate path:', path);
   if (path.length === 0) {
@@ -180,7 +278,24 @@ export default async function autoUpdate(path: string[]) {
     destDir = path[3]?.toString() || '';
     console.log(`srcDir: ${srcDir}`);
     console.log(`destDir: ${destDir}`);
+    console.log(process.cwd());
+    process.chdir(srcDir);
+    console.log(process.cwd());
+    try {
+  await deleteFolderRecursive(destDir);
+} catch (err: any) {
+  console.error('cleanupMain failed:', err.message || err);
+}
+
+    console.log(process.cwd());
+    try {
+    await fsp.mkdir(destDir, { recursive: true });
+    console.log(`Created folder: ${destDir}`);
+  } catch (err: any) {
+    console.error(`Failed to create folder "${destDir}":`, err.message || err);
+  }
     await copyOnlyFiles();
+     await deleteFolderRecursive(`${destDir}${sep}builds${sep}node_modules`);
     path[0] = '--remove';
     path2 = path[3] + '/builds/printerServer.exe' || '';
 
