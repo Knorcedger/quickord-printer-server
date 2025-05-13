@@ -20,6 +20,8 @@ import {
   PrinterTextSize,
 } from './modules/settings';
 import printOrders from './resolvers/printOrders';
+import { paymentSlip } from './modules/printer';
+import { orderForm } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
@@ -99,9 +101,12 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(printOrders);
-  app.route('/print-payment-receipt').post(paymentReceipt);
 
   app.route('/test-print').post(testPrint);
+  app.route('/print-alp').post(paymentReceipt);
+
+  app.route('/print-payment-slip').post(paymentSlip);
+  app.route('/print-order-form').post(orderForm);
 
   app
     .route('/logs')

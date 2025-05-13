@@ -68,8 +68,11 @@ export const OrderType = z.enum([
   'DINE_IN',
   'TAKE_AWAY_INSIDE',
   'TAKE_AWAY_PACKAGE',
+  'EFOOD',
+  'WOLT',
+  'FAGI',
+  'BOX',
 ]);
-
 export const PaymentType = z.enum([
   'DELIVERY_CARD',
   'DELIVERY_CASH',

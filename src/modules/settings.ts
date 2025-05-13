@@ -39,6 +39,31 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
+  documentsToPrint: z
+    .array(z.string(), {
+      description: 'The documents to print on the receipt.',
+      invalid_type_error: 'documentsToPrint must be an array of strings.',
+      required_error: 'documentsToPrint is required.',
+    })
+    .optional()
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP']),
+  orderMethodsToPrint: z
+    .array(z.string(), {
+      description: 'The order methods to print on the receipt.',
+      invalid_type_error: 'orderMethodsToPrint must be an array of strings.',
+      required_error: 'orderMethodsToPrint is required.',
+    })
+    .optional()
+    .default([
+      'DELIVERY',
+      'DINE_IN',
+      'TAKE_AWAY_INSIDE',
+      'TAKE_AWAY_PACKAGE',
+      'EFOOD',
+      'WOLT',
+      'FAGI',
+      'BOX',
+    ]),
   categoriesToNotPrint: z
     .array(z.string(), {
       description: 'The product categories to not print on the receipt.',
