@@ -29,8 +29,8 @@ const main = async () => {
 
   await logger.init();
   const args = process.argv.slice(2); // Get arguments after the script name
+  if (args[0] !== '--noupdate') {
   console.log('Arguments:', args);
-
   let updatePath: string | null = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--update' && i + 1 < args.length) {
@@ -38,9 +38,9 @@ const main = async () => {
     }
   }
 
-  console.log('Update path:', args);
-
+  console.log('Update path:', process.argv);
   await autoUpdate(args); // Ensure updatePath is a string
+  }
   // await scanNetworkForConnections();
 
   await loadSettings();
