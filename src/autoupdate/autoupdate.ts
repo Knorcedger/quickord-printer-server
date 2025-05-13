@@ -216,7 +216,7 @@ export async function relaunchExe(appPath: string, args: string[]) {
     console.error('Failed to relaunch exe:', err);
   }
 }
-export async function deleteFolderRecursive(folderPath: string): Promise<void> {
+export async function deleteFolderRecursive(folderPath: string,silent: boolean = false): Promise<void> {
   try {
     const entries = await fsp.readdir(folderPath, { withFileTypes: true });
 
@@ -224,19 +224,25 @@ export async function deleteFolderRecursive(folderPath: string): Promise<void> {
       const fullPath = path.join(folderPath, entry.name);
 
       if (entry.isDirectory()) {
-        await deleteFolderRecursive(fullPath); // recursive for subfolders
+        await deleteFolderRecursive(fullPath,silent); // recursive for subfolders
       } else {
         await fsp.unlink(fullPath); // delete file
       }
     }
 
     await fsp.rmdir(folderPath); // remove empty folder
+    if(!silent) {
     console.log(`Deleted: ${folderPath}`);
+    }
   } catch (err: any) {
     if (err.code === 'ENOENT') {
+       if(!silent) {
       console.warn(`Folder does not exist: ${folderPath}`);
+       }
     } else {
+      if(!silent) {
       console.error(`Error deleting ${folderPath}:`, err.message || err);
+      }
     }
   }
 }
@@ -250,11 +256,17 @@ async function downloadLatestCode() {
 
   try {
     // logger.info('Downloading latest code');
-    //  const res = await fetch(nconf.get('CODE_UPDATE_URL'));
+      const res = await fetch(nconf.get('CODE_UPDATE_URL'));
 
     // const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-    const fileData = await readFile(ZIPPATH); //Buffer.from(await (await res.blob()).arrayBuffer());
-
+    const fileData = Buffer.from(await (await res.blob()).arrayBuffer());//await readFile(ZIPPATH); 
+    let currentVersion
+    try {
+        currentVersion = await fs.promises.readFile('version', 'utf-8');
+      } catch (e) {
+        console.log('cannot find current version file', e);
+      }
+   
     //logger.info('Creating temp dir');
     srcDir = await fs.promises.mkdtemp(
       tempDirPath
@@ -273,7 +285,19 @@ async function downloadLatestCode() {
     const zipBuffer = await fsp.readFile(zipPath);
     await extractZip(zipBuffer, tempCodePath);
     const updateArg = tempCodePath;
+    console.log('Current version:', currentVersion);
+    const latestVersion = await fs.promises.readFile(
+      `${tempCodePath}${sep}builds${sep}version`,
+    );
+    console.log('Latest version:', latestVersion.toString());
+    if (currentVersion.toString() === latestVersion.toString() && latestVersion.toString() !== '') {
+      console.log('Already up to date');
+      await deleteFolderRecursive(srcDir,true);
+      return;
+    }
+    console.log('Updating to latest version');
     console.log(updateArg);
+    
     args[1] = tempCodePath;
     args[2] = '--parent';
     args[3] = parentDir;
