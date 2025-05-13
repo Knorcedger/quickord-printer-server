@@ -286,9 +286,26 @@ async function downloadLatestCode() {
     await extractZip(zipBuffer, tempCodePath);
     const updateArg = tempCodePath;
     console.log('Current version:', currentVersion);
-    const latestVersion = await fs.promises.readFile(
-      `${tempCodePath}${sep}builds${sep}version`,
-    );
+    let latestVersion;
+    try {
+     latestVersion = await fs.promises.readFile(
+          `${tempCodePath}${sep}builds${sep}version`,
+        );  
+    }catch (e) {
+      try {
+        latestVersion = await fs.promises.readFile(
+          `${tempCodePath}${sep}version`,
+        );  
+        console.log('v1 update detected!!! skipping...', latestVersion.toString());
+         await deleteFolderRecursive(srcDir,true);
+        return;
+      } catch (e) {
+        console.log('cannot find latest version file', e);
+      }
+    }
+    
+
+   
     console.log('Latest version:', latestVersion.toString());
     if (currentVersion.toString() === latestVersion.toString() && latestVersion.toString() !== '') {
       console.log('Already up to date');
