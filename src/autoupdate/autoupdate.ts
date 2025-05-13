@@ -165,9 +165,17 @@ export async function main() {
           'utf-8'
         );
       } catch (e) {
-        logger.warn('cannot find new version file', e);
+        try {
+        newVersion = await fs.promises.readFile(
+          `${tempDirPath}${sep}code${sep}builds${sep}version`,
+          'utf-8'
+        );
+        console.log('v2 update detected!!! skipping...');
+        return
+      } catch (e) {
+         logger.warn('cannot find new version file', e);
       }
-
+      }
       logger.info(
         'Current version:',
         currentVersion,
