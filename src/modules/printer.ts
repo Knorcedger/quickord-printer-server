@@ -778,6 +778,13 @@ export const printOrder = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
+      const isConnected = await printer?.isPrinterConnected();
+      console.log('Printer connected:', isConnected);
+      if (!isConnected) {
+        console.log('Printer not connected');
+        printer?.clear();
+        continue;
+      }
       printer?.clear();
       if (!settings || !printer) {
         printer?.clear();
