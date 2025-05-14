@@ -133,6 +133,11 @@ export const printTestPage = async (
   printer.newLine();
   printer.println('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
   printer.newLine();
+/*   const processedImage = await sharp("euro.png")
+      .resize(384) // resize width to fit printer
+      .threshold(128) // convert to black and white
+      .toBuffer();*/
+  //printer.printImageBuffer(processedImage)
   printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
   printer.setTextNormal();
   printer.println('text normal');
