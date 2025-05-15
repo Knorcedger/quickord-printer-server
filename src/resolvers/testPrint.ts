@@ -5,6 +5,7 @@ import { z } from 'zod';
 import logger from '../modules/logger';
 import { printTestPage } from '../modules/printer';
 
+
 const testPrint = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     let ip = '';

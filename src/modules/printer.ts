@@ -13,7 +13,9 @@ import { convertToDecimal, leftPad, tr } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
-
+import { connect } from 'node:http2';
+import { connected } from 'node:process';
+const { exec } = require('child_process');
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
@@ -102,6 +104,23 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
   return new ThermalPrinter(config);
 };
+function isUsbPrinterOnline(shareName: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
+
+    exec(command, (error, stdout, stderr) => {
+      if (error || stderr) {
+        return reject(error || stderr);
+      }
+
+      const output = stdout.trim().toLowerCase();
+      const isOffline = output === 'true';
+      resolve(!isOffline); // true if online
+    });
+  });
+}
+
+// Example usage
 
 export const printTestPage = async (
   ip: string,
@@ -115,14 +134,33 @@ export const printTestPage = async (
     interfaceString = `tcp://${ip}`;
     device = `ip printer: ${ip}`;
   }
-
+ 
   console.log(interfaceString);
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
     type: PrinterTypes.EPSON,
   });
+ 
 
+console.log(printers);
+ let connected = false;
+ if (ip !== '') {
+    connected =  await printer?.isPrinterConnected();
+} else {
+ try {
+  const shareName = interfaceString.split("\\").pop() || '';
+  connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+  } catch (error) {
+    console.error('Error checking printer connection:', error);
+    connected = false;
+  }
+}
+  if (!connected) {
+        console.log('Printer not connected');
+        printer?.clear();
+       return 'Printer not connected'
+      }
   printer.clear();
 
   changeCodePage(printer, codePage || DEFAULT_CODE_PAGE);
@@ -778,13 +816,6 @@ export const printOrder = async (
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
-      const isConnected = await printer?.isPrinterConnected();
-      console.log('Printer connected:', isConnected);
-      if (!isConnected) {
-        console.log('Printer not connected');
-        printer?.clear();
-        continue;
-      }
       printer?.clear();
       if (!settings || !printer) {
         printer?.clear();
@@ -801,7 +832,7 @@ export const printOrder = async (
           settings?.categoriesToPrint?.includes(category)
         )
       );
-
+      console.log(productsToPrint)
       if (!productsToPrint?.length) {
         printer?.clear();
         continue;
