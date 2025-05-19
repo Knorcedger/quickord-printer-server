@@ -22,6 +22,7 @@ import {
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { orderForm } from './modules/printer';
+import { checkPrinters } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
@@ -86,6 +87,15 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
     });
+app.route('/available').get(async (req: Request, res: Response) => {
+  try {
+    const printers = await checkPrinters();
+    res.status(200).send({ printers });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to check printers' });
+  }
+});
+
 
   app
     .route('/network')

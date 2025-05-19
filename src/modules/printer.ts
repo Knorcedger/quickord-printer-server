@@ -15,6 +15,7 @@ import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { connect } from 'node:http2';
 import { connected } from 'node:process';
+import { DEFAULT_MIN_VERSION } from 'node:tls';
 const { exec } = require('child_process');
 const DEFAULT_CODE_PAGE = 66;
 
@@ -269,6 +270,8 @@ export const orderForm = (
       req.body.aadeInvoice,
       req.body.table,
       req.body.waiter,
+      req.body.orderNumber,
+      req.body.issuerText,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -323,6 +326,8 @@ const printOrderForm = async (
   aadeInvoice: AadeInvoice,
   tableNumber: string,
   waiterName: string,
+  orderNumber: number,
+  issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -342,6 +347,9 @@ const printOrderForm = async (
       console.log(aadeInvoice);
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.println(
+        tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
+      );
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
       printer.println(
@@ -354,33 +362,25 @@ const printOrderForm = async (
       printer.println(
         `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
       );
-      printer.newLine();
+      printer.println(issuerText);
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
       const day = rawDate.substring(8, 10);
       const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
       const year = rawDate.substring(0, 4);
-      const formattedDate = `${day}/${month}/${year}`;
+       const formattedDate = `${day}/${month}/${year}`;
+      printer.newLine();
+      printer.println(`#${orderNumber}`);
       printer.println(
-        `${translations.printOrder.date[lang]} : ${formattedDate}`.padEnd(24) +
-          `${translations.printOrder.time[lang]} : ${aadeInvoice?.issue_date.substring(11, 16)}`
+        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
-
       // Second line: table and server
       printer.println(
-        `${translations.printOrder.tableNumber[lang]} : ${tableNumber}`.padEnd(
-          24
-        ) +
-          `${translations.printOrder.waiter[lang]} : ${waiterName.toUpperCase()}`
+        `${tableNumber},${waiterName.toUpperCase()}`)
+      printer.println(
+        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
       );
-      printer.newLine();
       printer.alignCenter();
-      printer.println(
-        tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
-      );
-      printer.println(
-        `${translations.printOrder.seriesNumber[lang]}: ${aadeInvoice?.header.series.code} ${aadeInvoice?.header.serial_number}`
-      );
       printer.newLine();
       printer.alignLeft();
       printer.println(
@@ -634,6 +634,11 @@ const SERVICES: Record<string, ServiceType> = {
     label_en: 'Website',
     label_el: 'Ιστότοπος',
   },
+  dine_in: {
+    value: 'dine_in',
+    label_en: 'Dine In',
+    label_el: 'Εντός Καταστήματος',
+  }
 };
 
 const printPaymentReceipt = async (
@@ -808,6 +813,48 @@ const printPaymentReceipt = async (
     }
   }
 };
+export const checkPrinters = async () => {
+  const connectedPrinterIds: { id: string,connected: boolean }[] = [];
+
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+
+    if (!settings || !printer) {
+      continue;
+    }
+console.log('printer', settings.id);
+    try {
+   //   const connected = await printer.isPrinterConnected();
+   let connected = false;
+ if (settings.ip !== '') {
+    connected =  await printer?.isPrinterConnected();
+} else {
+ try {
+  const shareName = settings.port.split("\\").pop() || '';
+  connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+  } catch (error) {
+    console.error('Error checking printer connection:', error);
+    connected = false;
+  }
+}
+     
+      if (connected) {
+         connectedPrinterIds.push({id: settings?.id || '',connected : true});
+         // Use printer settings as identifier
+         console.log('Printer connected:', printer);
+      } else {
+         connectedPrinterIds.push({id: settings?.id || '',connected : false});
+        printer?.clear();
+      }
+    } catch (error) {
+      console.error('Error checking printer connection:', error);
+    }
+  }
+  console.log('Connected printers:', connectedPrinterIds);
+  return connectedPrinterIds;
+};
+
 export const printOrder = async (
   order: z.infer<typeof Order>,
   lang: SupportedLanguages = 'el'
