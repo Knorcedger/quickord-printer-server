@@ -326,15 +326,14 @@ const printOrderForm = async (
       const day = rawDate.substring(8, 10);
       const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
       const year = rawDate.substring(0, 4);
-       const formattedDate = `${day}/${month}/${year}`;
+      const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
       printer.println(`#${orderNumber}`);
       printer.println(
         `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
       // Second line: table and server
-      printer.println(
-        `${tableNumber},${waiterName.toUpperCase()}`)
+      printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
       printer.println(
         `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
       );
@@ -596,7 +595,7 @@ const SERVICES: Record<string, ServiceType> = {
     value: 'dineIn',
     label_en: 'Dine In',
     label_el: 'Dine In',
-  }
+  },
 };
 
 const printPaymentReceipt = async (
@@ -784,12 +783,15 @@ export const printOrder = async (
           continue;
         }
       }
-      const productsToPrint = order.products.filter((product) =>
-        product.categories.some(
-          (category) => !settings?.categoriesToNotPrint?.includes(category)
-        )
-      );
-
+      const productsToPrint =
+        order.orderType === 'EFOOD'
+          ? order.products
+          : order.products.filter((product) =>
+              product.categories.some(
+                (category) =>
+                  !settings?.categoriesToNotPrint?.includes(category)
+              )
+            );
       if (!productsToPrint?.length) {
         printer?.clear();
         continue;
