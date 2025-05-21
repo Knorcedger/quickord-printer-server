@@ -265,5 +265,21 @@ export default {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
       en: 'THANK YOU FOR YOUR PAYMENT',
     },
+    itemRemoval: {
+      el: 'ΕΠΙΣΤΡΟΦΗ ΕΙΔΟΥΣ',
+      en: 'ITEM RETURN',
+    },
+    NOTICE: {
+      el: 'ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ',
+      en: 'THE PRESENT DOCUMENT IS ISSUED ONLY FOR INFORMATION',
+    },
+    NOTICE2:{
+      el: 'ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ',
+      en: 'PURPOSES AND DOES NOT STAND',
+    },
+    NOTICE3: {
+      el: 'ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.',
+      en: 'FOR A VALID TAX RECEIPT/INVOICE.',
+    },
   },
 };

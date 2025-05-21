@@ -353,8 +353,8 @@ const printOrderForm = async (
       aadeInvoice?.details.forEach((detail: any) => {
         sumAmount += detail.net_value * detail.quantity;
         sumQuantity += detail.quantity;
-
         const name = detail.name;
+       
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
         const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
           2
@@ -367,6 +367,9 @@ const printOrderForm = async (
             value.padEnd(7) +
             vat
         );
+        if(detail.rec_type === 7){
+          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`)
+        }
       });
       drawLine2(printer);
       printer.alignRight();
@@ -390,6 +393,15 @@ const printOrderForm = async (
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
+       printer.println(
+        tr(`${translations.printOrder.NOTICE[lang]}`, settings.transliterate)
+      );
+       printer.println(
+        tr(`${translations.printOrder.NOTICE2[lang]}`, settings.transliterate)
+      );
+       printer.println(
+        tr(`${translations.printOrder.NOTICE3[lang]}`, settings.transliterate)
+      );
       printer.alignCenter();
       printer.cut();
       printer
