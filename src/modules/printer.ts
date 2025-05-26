@@ -188,17 +188,18 @@ console.log(printers);
   printer.println('text size 3');
   printer.cut();
 
-  try {
-    await printer.execute();
-    logger.info(`Printed test page to ${device}`);
+try {
+  await printer.execute();
+  logger.info(`Printed test page to ${device}`);
 
-    return 'success';
-  } catch (error) {
-    logger.error('Print failed:', error);
-    throw new Error('print failed', {
-      cause: error,
-    });
-  }
+  return 'success';
+} catch (error) {
+  logger.error('Print failed:', error);
+  const err = new Error('print failed');
+  (err as any).cause = error;
+  throw err;
+}
+
 };
 
 const PaymentMethod = Object.freeze({
@@ -893,8 +894,8 @@ export const printOrder = async (
 
       const orderCreationDate = new Date(order.createdAt);
       const date =
-        orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') ||
-        '';
+      orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || ''
+
 
       const time = orderCreationDate.toLocaleTimeString('el-GR', {
         hour: '2-digit',
