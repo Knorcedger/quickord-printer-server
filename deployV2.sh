@@ -31,6 +31,8 @@ cp -r node_modules/serialport ./builds/node_modules/
 
 cp  version ./builds/builds/  || { echo "Failed to copy version"; exit 1; }
 cp  config.json ./builds/builds/ || { echo "Failed to copy config.json"; exit 1; }
+cp  printerServerService.exe ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
+cp  printerServerService.xml ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
 # Run the updater build command
 #npm run build:updater || { echo "Failed to run npm build:updater"; exit 1; }
 
