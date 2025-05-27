@@ -264,6 +264,7 @@ interface AadeInvoice {
     serial_number: string;
     code: string;
   };
+  gross_value: number;
   details: {
     name: string;
     quantity: number;
@@ -356,11 +357,8 @@ const printOrderForm = async (
         const name = detail.name;
        
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
-          2
-        );
+        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
         const vat = `${detail.tax.rate}%`; // "24%"
-
         printer.println(
           name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
             quantity.padEnd(7) +
@@ -566,7 +564,18 @@ type ServiceType = {
   label_en: string;
   label_el: string;
 };
+ const rounding = (num, decimals = 2) =>{
+  const factor = 10 ** decimals;
+  const n = num * factor;
+  const floorN = Math.floor(n);
+  const diff = n - floorN;
 
+  if (diff > 0.5) {
+    return (floorN + 1) / factor; // round up
+  } else {
+    return floorN / factor;       // round down (half rounds down)
+  }
+}
 const SERVICES: Record<string, ServiceType> = {
   wolt: {
     value: 'wolt',
@@ -688,9 +697,8 @@ const printPaymentReceipt = async (
 
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
-          2
-        );
+  
+        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
         const vat = `${detail.tax.rate}%`; // "24%"
         sumAmount += parseFloat(value);
         printer.println(
@@ -711,7 +719,7 @@ const printPaymentReceipt = async (
       const roundedSum = Number(sumAmount)
         .toFixed(2)
         .replace(/\.?0+$/, '');
-      const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+      const rightText = `${translations.printOrder.sum[lang]}: ${aadeInvoice.gross_value}€`;
 
       // Calculate spacing
       const spaceCount = lineWidth - leftText.length - rightText.length;
