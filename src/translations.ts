@@ -181,6 +181,10 @@ export default {
       el: 'ΚΑΘΑΡΗ ΧΩΡΙΣ ΦΠΑ',
       en: 'NET WITHOUT VAT',
     },
+     itemRemoval: {
+      el: 'ΕΠΙΣΤΡΟΦΗ ΕΙΔΟΥΣ',
+      en: 'ITEM RETURN',
+    },
     waiter: {
       el: 'ΣΕΡΒ',
       en: 'WTR',

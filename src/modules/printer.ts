@@ -403,13 +403,15 @@ const printOrderForm = async (
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
         const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
         const vat = `${detail.tax.rate}%`; // "24%"
-
         printer.println(
           name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
             quantity.padEnd(7) +
             value.padEnd(7) +
             vat
         );
+          if(detail.rec_type === 7){
+          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`)
+        }
       });
       drawLine2(printer);
       printer.alignRight();
