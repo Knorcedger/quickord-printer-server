@@ -299,6 +299,7 @@ interface AadeInvoice {
     tax_office: string;
     phone: string;
   };
+  gross_value: number;
   issue_date: string;
   header: {
     series: {
@@ -400,9 +401,7 @@ const printOrderForm = async (
 
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
-          2
-        );
+        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
         const vat = `${detail.tax.rate}%`; // "24%"
 
         printer.println(
@@ -721,10 +720,7 @@ const printPaymentReceipt = async (
 
           const name = detail.name;
           const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-          const value = (
-            detail.net_value *
-            (1 + detail.tax.rate / 100)
-          ).toFixed(2);
+          const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
           const vat = `${detail.tax.rate}%`; // "24%"
           sumAmount += parseFloat(value);
           printer.println(
