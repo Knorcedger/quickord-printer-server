@@ -34,6 +34,13 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
+  vatAnalysis: z
+    .boolean({
+      description: 'Whether to print the VAT analysis on the receipt.',
+      invalid_type_error: 'vatAnalysis must be a boolean.',
+      required_error: 'vatAnalysis is required.',
+    }).optional()
+    .default(true),
   documentsToPrint: z
     .array(z.string(), {
       description: 'The documents to print on the receipt.',
