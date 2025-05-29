@@ -6,7 +6,7 @@ export const homepage = () => {
         This is the homepage of the printer controller
       </p>
       <div>
-        To change the settings, please visit <a href="https://waiter.quickord.com/printer-server">quickord waiter</a>.
+        To change the settings, please visit <a href="https://app.quickord.com/venue/id/printer-settings">quickord</a>.
         <br />
         <br />
         <br />
