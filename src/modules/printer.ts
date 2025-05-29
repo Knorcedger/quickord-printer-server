@@ -433,6 +433,25 @@ const printOrderForm = async (
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
+       printer.println(
+        tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
+      );
+       printer.println(
+        tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
+      );
+       printer.println(
+        tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate)
+      );
+       printer.newLine();
+       printer.println(
+        tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
+      );
+       printer.println(
+        tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
+      );
+       printer.println(
+        tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
+      );
       printer.alignCenter();
       printer.cut();
       printer
@@ -1151,9 +1170,8 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        });
-
-        if (vatBreakdown.length > 0) {
+        })
+        if (vatBreakdown.length > 0 && (settings.vatAnalysis === true   || settings.vatAnalysis === undefined) ) {
           console.log('vatBreakdown', vatBreakdown);
           changeTextSize(printer, settings?.textSize || 'NORMAL');
           // Print section headers
@@ -1193,7 +1211,6 @@ export const printOrder = async (
             )
           );
         }
-
         if (order.customerComment) {
           printer.newLine();
           printer.println(
@@ -1232,6 +1249,7 @@ export const printOrder = async (
           0
         );
         console.log('totalNetValue', totalNetValue);
+        if (settings.vatAnalysis === true || settings.vatAnalysis === undefined) {
         // Print total without VAT
         printer.println(
           tr(
@@ -1239,6 +1257,8 @@ export const printOrder = async (
             settings.transliterate
           )
         );
+
+      }
         // Print total (with VAT)
         printer.println(
           tr(
@@ -1249,6 +1269,7 @@ export const printOrder = async (
         );
 
         printer.newLine();
+
         printer.println(
           tr(
             `${translations.printOrder.poweredBy[lang]}`,
