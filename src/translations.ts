@@ -11,6 +11,18 @@ export default {
       el: 'EMAIL',
       en: 'EMAIL',
     },
+    updated: {
+      el: 'ΑΛΛΑΓΗ',
+      en: 'UPDATED',
+    },
+    quantityChanged: {
+      el: 'ΑΛΛΑΓΗ ΠΟΣΟΤΗΤΑΣ',
+      en: 'QUANTITY CHANGED',
+    },
+    new: {
+      el: 'ΝΕΟ',
+      en: 'NEW',
+    },
     customerName: {
       el: 'ΟΝΟΜΑ',
       en: 'NAME',
@@ -273,7 +285,7 @@ export default {
       el: 'ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ',
       en: 'THE PRESENT DOCUMENT IS ISSUED ONLY FOR INFORMATION',
     },
-    NOTICE2:{
+    NOTICE2: {
       el: 'ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ',
       en: 'PURPOSES AND DOES NOT STAND',
     },
