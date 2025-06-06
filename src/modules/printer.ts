@@ -1042,10 +1042,15 @@ export const printOrder = async (
           ) {
             productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
           }
-
-          const priceStr = product.total
-            ? `${convertToDecimal(product.total).toFixed(2)} €`
-            : '';
+          let priceStr = '';
+          if (
+            settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true
+          ) {
+            priceStr = product.total
+              ? `${convertToDecimal(product.total).toFixed(2)} €`
+              : '';
+          }
           const lineWidth = 42; // Assuming 42 character width for POS80
           const paddedLine =
             productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
@@ -1056,9 +1061,15 @@ export const printOrder = async (
           product.choices?.forEach((choice) => {
             total += (choice.price || 0) * (product.quantity || 1);
             const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
-            const choicePrice = choice.price
-              ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
-              : '';
+            let choicePrice = '';
+            if (
+              settings.priceOnOrder === undefined ||
+              settings.priceOnOrder === true
+            ) {
+              choicePrice = choice.price
+                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+                : '';
+            }
             const paddedChoiceLine =
               choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
               choicePrice;
@@ -1076,7 +1087,10 @@ export const printOrder = async (
           }
 
           // VAT info (if any)
-          if (product.vat) {
+          if (
+            (product.vat && settings.priceOnOrder === undefined) ||
+            settings.priceOnOrder === true
+          ) {
             printer.println(
               tr(
                 `${translations.printOrder.vat[lang]}: ${product.vat}%`,
@@ -1094,7 +1108,7 @@ export const printOrder = async (
             }
 
             const rawTotal = product.total * product.quantity + choicesTotal;
-            const rawNet = rawTotal / (1 + vatRate / 100);
+            const rawNet = rawTotal / (1 + (vatRate || 0) / 100);
 
             const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
             const netValue = parseFloat(convertToDecimal(rawNet).toFixed(2));
@@ -1107,7 +1121,7 @@ export const printOrder = async (
               existingVat.netValue += netValue;
             } else {
               vatBreakdown.push({
-                vat: vatRate,
+                vat: vatRate || 0,
                 total: fullTotal,
                 netValue: netValue,
               });
@@ -1115,13 +1129,18 @@ export const printOrder = async (
           }
 
           // Print right-aligned total for this product with choices
-          printer.alignRight();
-          printer.println(
-            tr(
-              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
-              settings.transliterate
-            )
-          );
+          if (
+            settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true
+          ) {
+            printer.alignRight();
+            printer.println(
+              tr(
+                `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+                settings.transliterate
+              )
+            );
+          }
           printer.alignLeft();
 
           // Reset text size after bold
@@ -1224,13 +1243,18 @@ export const printOrder = async (
           );
         }
         // Print total (with VAT)
-        printer.println(
-          tr(
-            `
+        if (
+          settings.priceOnOrder === undefined ||
+          settings.priceOnOrder === true
+        ) {
+          printer.println(
+            tr(
+              `
             ${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
-            settings.transliterate
-          )
-        );
+              settings.transliterate
+            )
+          );
+        }
 
         printer.newLine();
 
