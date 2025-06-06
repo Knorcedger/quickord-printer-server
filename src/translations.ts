@@ -269,5 +269,17 @@ export default {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
       en: 'THANK YOU FOR YOUR PAYMENT',
     },
+     updated: {
+      el: 'ΑΛΛΑΓΗ',
+      en: 'UPDATED',
+    },
+    quantityChanged: {
+      el: 'ΑΛΛΑΓΗ ΠΟΣΟΤΗΤΑΣ',
+      en: 'QUANTITY CHANGED',
+    },
+    new: {
+      el: 'ΝΕΟ',
+      en: 'NEW',
+    },
   },
 };

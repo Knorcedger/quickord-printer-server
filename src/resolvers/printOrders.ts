@@ -3,7 +3,12 @@ import { z } from 'zod';
 
 import logger from '../modules/logger';
 import { printOrders as printerPrintOrders } from '../modules/printer';
-
+const updateStatusEnumValues = [
+  'INITIAL',
+  'NEW',
+  'UNCHANGED',
+  'UPDATED',
+] as const;
 export const Product = z.object({
   _id: z.string({
     invalid_type_error: 'product _id must be a string.',
@@ -28,6 +33,16 @@ export const Product = z.object({
       })
     )
     .optional(),
+   quantityChanged: z
+    .object({
+      is: z.number(),
+      was: z.number(),
+    })
+    .optional(),
+  updateStatus: z.enum(updateStatusEnumValues, {
+    invalid_type_error: 'Invalid update status.',
+    required_error: 'Update status is required.',
+  }),
   choices: z
     .array(
       z.object({
@@ -208,6 +223,12 @@ export const Order = z.object({
   waiterComment: z
     .string({
       invalid_type_error: 'waiterComment must be a string.',
+    })
+    .optional(),
+  isEdit: z
+    .boolean({
+      invalid_type_error: 'isEdit must be a boolean.',
+      required_error: 'isEdit is required.',
     })
     .optional(),
   waiterName: z

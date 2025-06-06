@@ -892,11 +892,13 @@ export const printOrder = async (
           continue;
         }
       }
-      const productsToPrint = order.products.filter((product) =>
+       let productsToPrint = order.products.filter((product) =>
         product.categories.some((category) =>
           settings?.categoriesToPrint?.includes(category)
         )
       );
+
+      
       console.log(productsToPrint)
       if (!productsToPrint?.length) {
         printer?.clear();
@@ -908,7 +910,14 @@ export const printOrder = async (
           continue;
         }
       }
-
+      const isEdit = order?.isEdit || false;
+            if (isEdit) {
+              productsToPrint = productsToPrint.filter(
+                (product) =>
+                  product?.updateStatus?.includes('NEW') ||
+                  product?.updateStatus?.includes('UPDATED')
+              );
+            }
       const orderCreationDate = new Date(order.createdAt);
       const date =
       orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || ''
@@ -1076,7 +1085,19 @@ export const printOrder = async (
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
-
+ if (product.updateStatus?.includes('NEW')) {
+            printer.println(`${translations.printOrder.new[lang]}`);
+          }
+          if (
+            product.updateStatus?.includes('UPDATED') &&
+            product.quantityChanged
+          ) {
+            printer.println(
+              `${translations.printOrder.quantityChanged[lang]}: ${product.quantityChanged.was} -> ${product.quantity}`
+            );
+          } else if (product.updateStatus?.includes('UPDATED')) {
+            printer.println(`${translations.printOrder.updated[lang]}`);
+          }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
             printer.setTextSize(1, 1);
@@ -1085,7 +1106,13 @@ export const printOrder = async (
           }
 
           // Pad title and amount for alignment
-          const productLine = `${product.quantity}x ${product.title}`;
+          let productLine = `${product.quantity}x ${product.title}`;
+          if (
+            product.updateStatus?.includes('UPDATED') &&
+            product.quantityChanged
+          ) {
+            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
+          }
           const priceStr = product.total
             ? `${convertToDecimal(product.total).toFixed(2)} €`
             : '';
