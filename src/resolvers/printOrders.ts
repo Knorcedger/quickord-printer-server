@@ -110,7 +110,7 @@ export const DeliveryInfo = z.object({
     .string({
       invalid_type_error: 'customerEmail must be a string.',
     })
-    .optional(),
+    .optional().nullable(),
   customerFirstname: z
     .string({
       invalid_type_error: 'customerName must be a string.',

@@ -892,11 +892,14 @@ export const printOrder = async (
           continue;
         }
       }
-       let productsToPrint = order.products.filter((product) =>
-        product.categories.some((category) =>
-          settings?.categoriesToPrint?.includes(category)
-        )
-      );
+       let productsToPrint =
+       order.orderType === 'EFOOD'
+          ? order.products
+          : order.products.filter((product) =>
+              product.categories.some((category) =>
+                settings?.categoriesToPrint?.includes(category)
+              )
+            );
 
       
       console.log(productsToPrint)
@@ -1317,8 +1320,7 @@ export const printOrder = async (
         ) {
         printer.println(
           tr(
-            `
-            ${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+            `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
             settings.transliterate
           )
         );
