@@ -1091,7 +1091,7 @@ export const printOrder = async (
                       }
                       if (
                         product.updateStatus?.includes('UPDATED') &&
-                        product.quantityChanged
+                        product.quantityChanged && isEdit
                       ) {
                         printer.println(
                           `${translations.printOrder.quantityChanged[lang]}`
