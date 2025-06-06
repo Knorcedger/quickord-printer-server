@@ -958,9 +958,11 @@ export const printOrder = async (
           const customerName = order.TakeAwayInfo.customerName?.trim();
 
           if (
-            (customerName && customerName !== 'null') ||
-            customerName !== 'undefined'
-          ) {
+          customerName !== undefined &&
+          customerName !== null &&
+          customerName !== 'null' &&
+          customerName !== 'undefined'
+        ) {
             printer.println(
               tr(
                 `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
