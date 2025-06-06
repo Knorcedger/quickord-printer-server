@@ -650,15 +650,15 @@ const SERVICES: Record<string, ServiceType> = {
     label_en: 'Phone',
     label_el: 'Τηλέφωνο',
   },
-  website: {
-    value: 'website',
-    label_en: 'Website',
-    label_el: 'Ιστότοπος',
+  takeAway: {
+    value: 'takeAway',
+    label_en: 'Take Away',
+    label_el: 'Take Away',
   },
   dine_in: {
-    value: 'dine_in',
+    value: 'dineIn',
     label_en: 'Dine In',
-    label_el: 'Εντός Καταστήματος',
+    label_el: 'Dine In',
   }
 };
 
@@ -1041,13 +1041,16 @@ export const printOrder = async (
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
           let drawLine = false;
-
+          
           const customerName = order.TakeAwayInfo.customerName?.trim();
 
           if (
-            (customerName && customerName !== 'null') ||
-            customerName !== 'undefined'
-          ) {
+          customerName !== undefined &&
+          customerName !== null &&
+          customerName !== 'null' &&
+          customerName !== 'undefined'
+        ) {
+
             printer.println(
               tr(
                 `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
