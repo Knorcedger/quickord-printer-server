@@ -911,7 +911,7 @@ export const printOrder = async (
         }
       }
       const isEdit = order?.isEdit || false;
-            if (isEdit) {
+            if (isEdit === true) {
               productsToPrint = productsToPrint.filter(
                 (product) =>
                   product?.updateStatus?.includes('NEW') ||
@@ -1085,19 +1085,21 @@ export const printOrder = async (
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
- if (product.updateStatus?.includes('NEW')) {
-            printer.println(`${translations.printOrder.new[lang]}`);
-          }
-          if (
-            product.updateStatus?.includes('UPDATED') &&
-            product.quantityChanged
-          ) {
-            printer.println(
-              `${translations.printOrder.quantityChanged[lang]}: ${product.quantityChanged.was} -> ${product.quantity}`
-            );
-          } else if (product.updateStatus?.includes('UPDATED')) {
-            printer.println(`${translations.printOrder.updated[lang]}`);
-          }
+          if (isEdit) {
+                      if (product.updateStatus?.includes('NEW')) {
+                        printer.println(`${translations.printOrder.new[lang]}`);
+                      }
+                      if (
+                        product.updateStatus?.includes('UPDATED') &&
+                        product.quantityChanged
+                      ) {
+                        printer.println(
+                          `${translations.printOrder.quantityChanged[lang]}`
+                        );
+                      } else if (product.updateStatus?.includes('UPDATED')) {
+                        printer.println(`${translations.printOrder.updated[lang]}`);
+                      }
+                    }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
             printer.setTextSize(1, 1);
