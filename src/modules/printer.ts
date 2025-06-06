@@ -355,9 +355,11 @@ const printOrderForm = async (
         sumAmount += detail.net_value * detail.quantity;
         sumQuantity += detail.quantity;
         const name = detail.name;
-       
+
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
+        const value = (
+          (detail.net_value || 0) + (detail?.tax?.value || 0)
+        )?.toFixed(2);
         const vat = `${detail.tax.rate}%`; // "24%"
         printer.println(
           name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
@@ -365,8 +367,8 @@ const printOrderForm = async (
             value.padEnd(7) +
             vat
         );
-        if(detail.rec_type === 7){
-          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`)
+        if (detail.rec_type === 7) {
+          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`);
         }
       });
       drawLine2(printer);
@@ -391,23 +393,21 @@ const printOrderForm = async (
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
-       printer.println(
+      printer.println(
         tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
       );
-       printer.println(
-        tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate)
-      );
-       printer.newLine();
-       printer.println(
+      printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
+      printer.newLine();
+      printer.println(
         tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
       );
       printer.alignCenter();
@@ -574,7 +574,7 @@ type ServiceType = {
   label_en: string;
   label_el: string;
 };
- const rounding = (num, decimals = 2) =>{
+const rounding = (num, decimals = 2) => {
   const factor = 10 ** decimals;
   const n = num * factor;
   const floorN = Math.floor(n);
@@ -583,9 +583,9 @@ type ServiceType = {
   if (diff > 0.5) {
     return (floorN + 1) / factor; // round up
   } else {
-    return floorN / factor;       // round down (half rounds down)
+    return floorN / factor; // round down (half rounds down)
   }
-}
+};
 const SERVICES: Record<string, ServiceType> = {
   wolt: {
     value: 'wolt',
@@ -707,8 +707,10 @@ const printPaymentReceipt = async (
 
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-  
-        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
+
+        const value = (
+          (detail.net_value || 0) + (detail?.tax?.value || 0)
+        )?.toFixed(2);
         const vat = `${detail.tax.rate}%`; // "24%"
         sumAmount += parseFloat(value);
         printer.println(
@@ -813,7 +815,8 @@ export const printOrder = async (
           continue;
         }
       }
-      const productsToPrint =
+
+      let productsToPrint =
         order.orderType === 'EFOOD'
           ? order.products
           : order.products.filter((product) =>
@@ -832,7 +835,14 @@ export const printOrder = async (
           continue;
         }
       }
-
+      const isEdit = order?.isEdit || false;
+      if (isEdit === true) {
+        productsToPrint = productsToPrint.filter(
+          (product) =>
+            product?.updateStatus?.includes('NEW') ||
+            product?.updateStatus?.includes('UPDATED')
+        );
+      }
       const orderCreationDate = new Date(order.createdAt);
       const date =
         orderCreationDate.toISOString().split('T')[0]?.replaceAll('-', '/') ||
@@ -1003,7 +1013,21 @@ export const printOrder = async (
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
-
+          if (isEdit) {
+            if (product.updateStatus?.includes('NEW')) {
+              printer.println(`${translations.printOrder.new[lang]}`);
+            }
+            if (
+              product.updateStatus?.includes('UPDATED') &&
+              product.quantityChanged
+            ) {
+              printer.println(
+                `${translations.printOrder.quantityChanged[lang]}`
+              );
+            } else if (product.updateStatus?.includes('UPDATED')) {
+              printer.println(`${translations.printOrder.updated[lang]}`);
+            }
+          }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
             printer.setTextSize(1, 1);
@@ -1012,10 +1036,23 @@ export const printOrder = async (
           }
 
           // Pad title and amount for alignment
-          const productLine = `${product.quantity}x ${product.title}`;
-          const priceStr = product.total
-            ? `${convertToDecimal(product.total).toFixed(2)} €`
-            : '';
+          let productLine = `${product.quantity}x ${product.title}`;
+          if (
+            product.updateStatus?.includes('UPDATED') &&
+            product.quantityChanged &&
+            isEdit
+          ) {
+            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
+          }
+          let priceStr = '';
+          if (
+            settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true
+          ) {
+            priceStr = product.total
+              ? `${convertToDecimal(product.total).toFixed(2)} €`
+              : '';
+          }
           const lineWidth = 42; // Assuming 42 character width for POS80
           const paddedLine =
             productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
@@ -1026,9 +1063,15 @@ export const printOrder = async (
           product.choices?.forEach((choice) => {
             total += (choice.price || 0) * (product.quantity || 1);
             const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
-            const choicePrice = choice.price
-              ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
-              : '';
+            let choicePrice = '';
+            if (
+              settings.priceOnOrder === undefined ||
+              settings.priceOnOrder === true
+            ) {
+              choicePrice = choice.price
+                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+                : '';
+            }
             const paddedChoiceLine =
               choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
               choicePrice;
@@ -1046,7 +1089,10 @@ export const printOrder = async (
           }
 
           // VAT info (if any)
-          if (product.vat) {
+          if (
+            (product.vat && settings.priceOnOrder === undefined) ||
+            settings.priceOnOrder === true
+          ) {
             printer.println(
               tr(
                 `${translations.printOrder.vat[lang]}: ${product.vat}%`,
@@ -1064,7 +1110,7 @@ export const printOrder = async (
             }
 
             const rawTotal = product.total * product.quantity + choicesTotal;
-            const rawNet = rawTotal / (1 + vatRate / 100);
+            const rawNet = rawTotal / (1 + (vatRate || 0) / 100);
 
             const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
             const netValue = parseFloat(convertToDecimal(rawNet).toFixed(2));
@@ -1077,7 +1123,7 @@ export const printOrder = async (
               existingVat.netValue += netValue;
             } else {
               vatBreakdown.push({
-                vat: vatRate,
+                vat: vatRate || 0,
                 total: fullTotal,
                 netValue: netValue,
               });
@@ -1085,13 +1131,18 @@ export const printOrder = async (
           }
 
           // Print right-aligned total for this product with choices
-          printer.alignRight();
-          printer.println(
-            tr(
-              `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
-              settings.transliterate
-            )
-          );
+          if (
+            settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true
+          ) {
+            printer.alignRight();
+            printer.println(
+              tr(
+                `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+                settings.transliterate
+              )
+            );
+          }
           printer.alignLeft();
 
           // Reset text size after bold
@@ -1099,8 +1150,11 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        })
-        if (vatBreakdown.length > 0 && (settings.vatAnalysis === true   || settings.vatAnalysis === undefined) ) {
+        });
+        if (
+          vatBreakdown.length > 0 &&
+          (settings.vatAnalysis === true || settings.vatAnalysis === undefined)
+        ) {
           console.log('vatBreakdown', vatBreakdown);
           changeTextSize(printer, settings?.textSize || 'NORMAL');
           // Print section headers
@@ -1178,24 +1232,31 @@ export const printOrder = async (
           0
         );
         console.log('totalNetValue', totalNetValue);
-        if (settings.vatAnalysis === true || settings.vatAnalysis === undefined) {
-        // Print total without VAT
-        printer.println(
-          tr(
-            `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
-            settings.transliterate
-          )
-        );
-
-      }
+        if (
+          settings.vatAnalysis === true ||
+          settings.vatAnalysis === undefined
+        ) {
+          // Print total without VAT
+          printer.println(
+            tr(
+              `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
+              settings.transliterate
+            )
+          );
+        }
         // Print total (with VAT)
-        printer.println(
-          tr(
-            `
+        if (
+          settings.priceOnOrder === undefined ||
+          settings.priceOnOrder === true
+        ) {
+          printer.println(
+            tr(
+              `
             ${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
-            settings.transliterate
-          )
-        );
+              settings.transliterate
+            )
+          );
+        }
 
         printer.newLine();
 
