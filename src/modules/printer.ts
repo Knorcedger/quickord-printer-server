@@ -1037,7 +1037,8 @@ export const printOrder = async (
           let productLine = `${product.quantity}x ${product.title}`;
           if (
             product.updateStatus?.includes('UPDATED') &&
-            product.quantityChanged
+            product.quantityChanged &&
+            isEdit
           ) {
             productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
           }
