@@ -1,5 +1,5 @@
 import * as bodyParser from 'body-parser';
-const cors = require('cors');
+import cors from 'cors';
 
 import * as nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
@@ -43,7 +43,7 @@ const main = async () => {
   console.log('Update path:', process.argv);
   await autoUpdate(args); // Ensure updatePath is a string
   }
-  // await scanNetworkForConnections();
+
 
   await loadSettings();
 
