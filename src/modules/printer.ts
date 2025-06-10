@@ -135,33 +135,32 @@ export const printTestPage = async (
     interfaceString = `tcp://${ip}`;
     device = `ip printer: ${ip}`;
   }
- 
+
   console.log(interfaceString);
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
     type: PrinterTypes.EPSON,
   });
- 
 
-console.log(printers);
- let connected = false;
- if (ip !== '') {
-    connected =  await printer?.isPrinterConnected();
-} else {
- try {
-  const shareName = interfaceString.split("\\").pop() || '';
-  connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
-  } catch (error) {
-    console.error('Error checking printer connection:', error);
-    connected = false;
+  console.log(printers);
+  let connected = false;
+  if (ip !== '') {
+    connected = await printer?.isPrinterConnected();
+  } else {
+    try {
+      const shareName = interfaceString.split('\\').pop() || '';
+      connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+    } catch (error) {
+      console.error('Error checking printer connection:', error);
+      connected = false;
+    }
   }
-}
   if (!connected) {
-        console.log('Printer not connected');
-        printer?.clear();
-       return 'Printer not connected'
-      }
+    console.log('Printer not connected');
+    printer?.clear();
+    return 'Printer not connected';
+  }
   printer.clear();
 
   changeCodePage(printer, codePage || DEFAULT_CODE_PAGE);
@@ -188,18 +187,17 @@ console.log(printers);
   printer.println('text size 3');
   printer.cut();
 
-try {
-  await printer.execute();
-  logger.info(`Printed test page to ${device}`);
+  try {
+    await printer.execute();
+    logger.info(`Printed test page to ${device}`);
 
-  return 'success';
-} catch (error) {
-  logger.error('Print failed:', error);
-  const err = new Error('print failed');
-  (err as any).cause = error;
-  throw err;
-}
-
+    return 'success';
+  } catch (error) {
+    logger.error('Print failed:', error);
+    const err = new Error('print failed');
+    (err as any).cause = error;
+    throw err;
+  }
 };
 
 const PaymentMethod = Object.freeze({
@@ -370,15 +368,14 @@ const printOrderForm = async (
       const day = rawDate.substring(8, 10);
       const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
       const year = rawDate.substring(0, 4);
-       const formattedDate = `${day}/${month}/${year}`;
+      const formattedDate = `${day}/${month}/${year}`;
       printer.newLine();
       printer.println(`#${orderNumber}`);
       printer.println(
         `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
       );
       // Second line: table and server
-      printer.println(
-        `${tableNumber},${waiterName.toUpperCase()}`)
+      printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
       printer.println(
         `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
       );
@@ -401,7 +398,9 @@ const printOrderForm = async (
 
         const name = detail.name;
         const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-        const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
+        const value = (
+          (detail.net_value || 0) + (detail?.tax?.value || 0)
+        )?.toFixed(2);
         const vat = `${detail.tax.rate}%`; // "24%"
         printer.println(
           name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
@@ -409,8 +408,8 @@ const printOrderForm = async (
             value.padEnd(7) +
             vat
         );
-          if(detail.rec_type === 7){
-          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`)
+        if (detail.rec_type === 7) {
+          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`);
         }
       });
       drawLine2(printer);
@@ -435,23 +434,21 @@ const printOrderForm = async (
         tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
       );
       printer.newLine();
-       printer.println(
+      printer.println(
         tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
       );
-       printer.println(
-        tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate)
-      );
-       printer.newLine();
-       printer.println(
+      printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
+      printer.newLine();
+      printer.println(
         tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
       );
-       printer.println(
+      printer.println(
         tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
       );
       printer.alignCenter();
@@ -659,7 +656,7 @@ const SERVICES: Record<string, ServiceType> = {
     value: 'dineIn',
     label_en: 'Dine In',
     label_el: 'Dine In',
-  }
+  },
 };
 
 const printPaymentReceipt = async (
@@ -741,7 +738,9 @@ const printPaymentReceipt = async (
 
           const name = detail.name;
           const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
-          const value = ((detail.net_value || 0) + ( detail?.tax?.value || 0))?.toFixed(2)
+          const value = (
+            (detail.net_value || 0) + (detail?.tax?.value || 0)
+          )?.toFixed(2);
           const vat = `${detail.tax.rate}%`; // "24%"
           sumAmount += parseFloat(value);
           printer.println(
@@ -832,7 +831,7 @@ const printPaymentReceipt = async (
   }
 };
 export const checkPrinters = async () => {
-  const connectedPrinterIds: { id: string,connected: boolean }[] = [];
+  const connectedPrinterIds: { id: string; connected: boolean }[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -841,28 +840,28 @@ export const checkPrinters = async () => {
     if (!settings || !printer) {
       continue;
     }
-console.log('printer', settings.id);
+    console.log('printer', settings.id);
     try {
-   //   const connected = await printer.isPrinterConnected();
-   let connected = false;
- if (settings.ip !== '') {
-    connected =  await printer?.isPrinterConnected();
-} else {
- try {
-  const shareName = settings.port.split("\\").pop() || '';
-  connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
-  } catch (error) {
-    console.error('Error checking printer connection:', error);
-    connected = false;
-  }
-}
-     
-      if (connected) {
-         connectedPrinterIds.push({id: settings?.id || '',connected : true});
-         // Use printer settings as identifier
-         console.log('Printer connected:', printer);
+      //   const connected = await printer.isPrinterConnected();
+      let connected = false;
+      if (settings.ip !== '') {
+        connected = await printer?.isPrinterConnected();
       } else {
-         connectedPrinterIds.push({id: settings?.id || '',connected : false});
+        try {
+          const shareName = settings.port.split('\\').pop() || '';
+          connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+        } catch (error) {
+          console.error('Error checking printer connection:', error);
+          connected = false;
+        }
+      }
+
+      if (connected) {
+        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
+        // Use printer settings as identifier
+        console.log('Printer connected:', printer);
+      } else {
+        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
         printer?.clear();
       }
     } catch (error) {
@@ -892,8 +891,8 @@ export const printOrder = async (
           continue;
         }
       }
-       let productsToPrint =
-       order.orderType === 'EFOOD'
+      let productsToPrint =
+        order.orderType === 'EFOOD'
           ? order.products
           : order.products.filter((product) =>
               product.categories.some((category) =>
@@ -901,8 +900,7 @@ export const printOrder = async (
               )
             );
 
-      
-      console.log(productsToPrint)
+      console.log(productsToPrint);
       if (!productsToPrint?.length) {
         printer?.clear();
         continue;
@@ -914,17 +912,16 @@ export const printOrder = async (
         }
       }
       const isEdit = order?.isEdit || false;
-            if (isEdit === true) {
-              productsToPrint = productsToPrint.filter(
-                (product) =>
-                  product?.updateStatus?.includes('NEW') ||
-                  product?.updateStatus?.includes('UPDATED')
-              );
-            }
+      if (isEdit === true) {
+        productsToPrint = productsToPrint.filter(
+          (product) =>
+            product?.updateStatus?.includes('NEW') ||
+            product?.updateStatus?.includes('UPDATED')
+        );
+      }
       const orderCreationDate = new Date(order.createdAt);
       const date =
-      orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || ''
-
+        orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || '';
 
       const time = orderCreationDate.toLocaleTimeString('el-GR', {
         hour: '2-digit',
@@ -1041,16 +1038,15 @@ export const printOrder = async (
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
           let drawLine = false;
-          
+
           const customerName = order.TakeAwayInfo.customerName?.trim();
 
           if (
-          customerName !== undefined &&
-          customerName !== null &&
-          customerName !== 'null' &&
-          customerName !== 'undefined'
-        ) {
-
+            customerName !== undefined &&
+            customerName !== null &&
+            customerName !== 'null' &&
+            customerName !== 'undefined'
+          ) {
             printer.println(
               tr(
                 `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
@@ -1092,20 +1088,21 @@ export const printOrder = async (
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
           if (isEdit) {
-                      if (product.updateStatus?.includes('NEW')) {
-                        printer.println(`${translations.printOrder.new[lang]}`);
-                      }
-                      if (
-                        product.updateStatus?.includes('UPDATED') &&
-                        product.quantityChanged && isEdit
-                      ) {
-                        printer.println(
-                          `${translations.printOrder.quantityChanged[lang]}`
-                        );
-                      } else if (product.updateStatus?.includes('UPDATED')) {
-                        printer.println(`${translations.printOrder.updated[lang]}`);
-                      }
-                    }
+            if (product.updateStatus?.includes('NEW')) {
+              printer.println(`${translations.printOrder.new[lang]}`);
+            }
+            if (
+              product.updateStatus?.includes('UPDATED') &&
+              product.quantityChanged &&
+              isEdit
+            ) {
+              printer.println(
+                `${translations.printOrder.quantityChanged[lang]}`
+              );
+            } else if (product.updateStatus?.includes('UPDATED')) {
+              printer.println(`${translations.printOrder.updated[lang]}`);
+            }
+          }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
             printer.setTextSize(1, 1);
@@ -1115,13 +1112,10 @@ export const printOrder = async (
 
           // Pad title and amount for alignment
           let productLine = `${product.quantity}x ${product.title}`;
-          if (
-            product.updateStatus?.includes('UPDATED') &&
-            product.quantityChanged
-          ) {
+          if (isEdit && product.quantityChanged) {
             productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
           }
-         let priceStr = '';
+          let priceStr = '';
           if (
             settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true
@@ -1166,7 +1160,7 @@ export const printOrder = async (
           }
 
           // VAT info (if any)
-           if (
+          if (
             (product.vat && settings.priceOnOrder === undefined) ||
             settings.priceOnOrder === true
           ) {
@@ -1208,7 +1202,7 @@ export const printOrder = async (
           }
 
           // Print right-aligned total for this product with choices
-           if (
+          if (
             settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true
           ) {
@@ -1227,8 +1221,11 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        })
-        if (vatBreakdown.length > 0 && (settings.vatAnalysis === true   || settings.vatAnalysis === undefined) ) {
+        });
+        if (
+          vatBreakdown.length > 0 &&
+          (settings.vatAnalysis === true || settings.vatAnalysis === undefined)
+        ) {
           console.log('vatBreakdown', vatBreakdown);
           changeTextSize(printer, settings?.textSize || 'NORMAL');
           // Print section headers
@@ -1306,29 +1303,30 @@ export const printOrder = async (
           0
         );
         console.log('totalNetValue', totalNetValue);
-        if (settings.vatAnalysis === true || settings.vatAnalysis === undefined) {
-        // Print total without VAT
-        printer.println(
-          tr(
-            `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
-            settings.transliterate
-          )
-        );
-
-      }
+        if (
+          settings.vatAnalysis === true ||
+          settings.vatAnalysis === undefined
+        ) {
+          // Print total without VAT
+          printer.println(
+            tr(
+              `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
+              settings.transliterate
+            )
+          );
+        }
         // Print total (with VAT)
         if (
           settings.priceOnOrder === undefined ||
           settings.priceOnOrder === true
         ) {
-        printer.println(
-          tr(
-            `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
-            settings.transliterate
-          )
-        );
-
-      }
+          printer.println(
+            tr(
+              `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
+              settings.transliterate
+            )
+          );
+        }
 
         printer.newLine();
 
