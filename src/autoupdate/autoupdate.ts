@@ -19,12 +19,7 @@ nconf.argv().env().file('./config.json');
 let path2 = '';
 let args = ['--update', 'test'];
 let destDir = '../';
-/*
-    tempDirPath = await fs.promises.mkdtemp(
-      `${tmpdir()}${sep}quickord-cashier-server-update`
-    );*/
 
-const ZIPPATH = '../quickord-cashier-server.zip';
 const tempDirPath = `${tmpdir()}${sep}quickord-cashier-server-update`;
 let srcDir = '';
 
@@ -44,82 +39,7 @@ async function extractZip(zipBuffer, tempCodePath) {
     }
   }
 }
-//async function copyOnlyFiles() {
-//  const ignoredFolders = new Set(['snapshot']);
-//
-//  console.log(`🔍 Source Directory: ${srcDir}`);
-//  console.log(`📁 Destination Directory: ${destDir}`);
-//
-//  // Clean the destination folder
-//  try {
-//    await fsp.rm(destDir, { recursive: true, force: true });
-//    await fsp.mkdir(destDir, { recursive: true });
-//    console.log('🧼 Cleaned destination folder.');
-//  } catch (err) {
-//    console.error('❌ Failed to clean destination folder:', err);
-//    return;
-//  }
-//
-//  // Helper to count how many times "builds" appears in the path
-//  function isNestedBuildsPath(currentPath: string): boolean {
-//    const relative = path.relative(srcDir, currentPath);
-//    const segments = relative.split(path.sep);
-//    let buildsCount = 0;
-//    for (const segment of segments) {
-//      if (segment === 'builds') buildsCount++;
-//    }
-//    return buildsCount > 1;
-//  }
-//
-//  async function walk(currentDir: string) {
-//    let entries: fs.Dirent[];
-//
-//    try {
-//      entries = await fsp.readdir(currentDir, { withFileTypes: true });
-//    } catch (err) {
-//      console.error(`❌ Error reading directory ${currentDir}:`, err);
-//      return;
-//    }
-//
-//    for (const entry of entries) {
-//      const fullSrcPath = path.join(currentDir, entry.name);
-//
-//      // Skip ignored folders
-//      if (ignoredFolders.has(entry.name)) {
-//        console.log(`🚫 Skipping ignored folder: ${entry.name}`);
-//        continue;
-//      }
-//
-//      // Skip node_modules if in nested builds
-//      if (entry.name === 'node_modules' && isNestedBuildsPath(currentDir)) {
-//        console.log(`🚫 Skipping nested node_modules at: ${fullSrcPath}`);
-//        continue;
-//      }
-//
-//      const relativePath = path.relative(srcDir, fullSrcPath);
-//      const destPath = path.join(destDir, relativePath);
-//
-//      try {
-//        if (entry.isDirectory()) {
-//          await fsp.mkdir(destPath, { recursive: true });
-//          await walk(fullSrcPath);
-//        } else if (entry.isFile()) {
-//          await fsp.copyFile(fullSrcPath, destPath);
-//          console.log(`✅ Copied ${relativePath}`);
-//        }
-//      } catch (err) {
-//        console.error(`❌ Error copying ${relativePath}:`, err);
-//      }
-//    }
-//  }
-//
-//  try {
-//    await walk(srcDir);
-//    console.log('🎉 Copy completed successfully.');
-//  } catch (err) {
-//    console.error('❌ Failed to copy files:', err);
-//  }
-//}
+
 export async function copyOnlyFiles(
   srcDir: string,
   destDir: string,
@@ -180,10 +100,7 @@ export async function copyOnlyFiles(
 }
 export async function relaunchExe(appPath: string, args: string[]) {
   const exePath = path.resolve(appPath); // Ensure absolute path
-  const buildsFolder = path.dirname(exePath); // Folder containing the exe
-  const safeCwd = path.resolve(__dirname, '..'); // MUST be outside of builds
 
-  const fullCommand = `"${exePath}" ${args.map(arg => `"${arg}"`).join(' ')}`;
 
   try {
      const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
@@ -196,16 +113,7 @@ export async function relaunchExe(appPath: string, args: string[]) {
 
     console.log('Relaunched exe with args. Waiting to exit...');
 
-    // Wait a bit to ensure the child process fully starts
-   /* setTimeout(async () => {
-      try {
-        console.log('Attempting to delete builds folder:', buildsFolder);
-        await fsp.rm(buildsFolder, { recursive: true, force: true });
-        console.log('Builds folder deleted successfully.');
-      } catch (delErr) {
-        console.error('Failed to delete builds folder:', delErr);
-      }
-*/
+
       setTimeout(async () => {process.exit(0)},500);
     //}, 500); // 500ms delay to ensure safe spawn
   } catch (err) {
@@ -363,9 +271,7 @@ async function cleanup(dir) {
   await fsp.rmdir(dir); // <-- this must be dir, NOT srcDir
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+
 export function copyWithCmd(sourceFolder: string, destFolder: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const src = path.resolve(sourceFolder);
@@ -384,25 +290,7 @@ export function copyWithCmd(sourceFolder: string, destFolder: string): Promise<v
   });
 }
 
-async function clearFolder(folderPath: string): Promise<void> {
-  try {
-    const entries = await fsp.readdir(folderPath, { withFileTypes: true });
 
-    const removals = entries.map(async (entry) => {
-      const fullPath = path.join(folderPath, entry.name);
-      if (entry.isDirectory()) {
-        await fsp.rm(fullPath, { recursive: true, force: true });
-      } else {
-        await fsp.unlink(fullPath);
-      }
-    });
-
-    await Promise.all(removals);
-    console.log(`Cleared contents of folder: ${folderPath}`);
-  } catch (err) {
-    console.error(`Failed to clear folder ${folderPath}:`, err);
-  }
-}
 function copySettingsFile(settingsPath, destDir) {
   return new Promise((resolve, reject) => {
     const command = `xcopy "${settingsPath}" "${path.join(destDir, 'builds')}\\" /Y`;

@@ -189,14 +189,7 @@ export const loadSettings = async () => {
     }
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
-    /*   const updated = migrateToV2(settings);
-    if (updated) {
-      settings = updated[0];
-      fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
-      saveSettings();
-    }else{
-      console.log("already v2")
-    }*/
+
     logger.info('Settings loaded:', settings);
 
     settings.printers = settings.printers?.map((printer) => {
