@@ -33,6 +33,11 @@ cp  version ./builds/builds/  || { echo "Failed to copy version"; exit 1; }
 cp  config.json ./builds/builds/ || { echo "Failed to copy config.json"; exit 1; }
 cp  printerServerService.exe ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
 cp  printerServerService.xml ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
+cp  start_printer_service.bat ./builds/builds/ || { echo "Failed to copy start_printer_service.bat"; exit 1; }
+cp  stop_printer_service.bat ./builds/builds/ || { echo "Failed to copy stop_printer_service.bat"; exit 1; }
+cp  uninstall_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
+cp  install_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
+
 # Run the updater build command
 #npm run build:updater || { echo "Failed to run npm build:updater"; exit 1; }
 

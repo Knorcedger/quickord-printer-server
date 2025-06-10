@@ -307,7 +307,7 @@ async function downloadLatestCode() {
 
    
     console.log('Latest version:', latestVersion.toString());
-    if (currentVersion.toString() === latestVersion.toString() && latestVersion.toString() !== '') {
+    if (currentVersion.toString() >= latestVersion.toString() && latestVersion.toString() !== '') {
       console.log('Already up to date');
       await deleteFolderRecursive(srcDir,true);
       return;
