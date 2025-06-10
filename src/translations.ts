@@ -1,6 +1,3 @@
-import { Provider } from 'nconf';
-import { unknown } from 'zod';
-
 export default {
   printOrder: {
     customerComments: {

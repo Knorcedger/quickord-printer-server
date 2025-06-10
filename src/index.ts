@@ -2,10 +2,9 @@ import * as bodyParser from 'body-parser';
 const cors = require('cors');
 
 import * as nconf from 'nconf';
-import { exit, env } from 'node:process';
 import { CharacterSet } from 'node-thermal-printer';
 
-const express = require('express');
+import express from 'express';
 import { Request, Response } from 'express';
 
 import { homepage } from './homepage';

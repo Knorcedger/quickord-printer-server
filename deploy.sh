@@ -5,7 +5,7 @@ node ./scripts/create_version_file.js || { echo "Failed to create version file";
 
 # Check if the version file was created successfully
 rm -rf ./dist || { echo "Failed to remove old dist"; exit 1; }
-mkdir ./dist || { echo "Failed to create dist directory"; exit 1; }
+#mkdir ./dist || { echo "Failed to create dist directory"; exit 1; }
 
 # Remove old builds and prepare new build directory
 rm -rf ./builds || { echo "Failed to remove old builds"; exit 1; }

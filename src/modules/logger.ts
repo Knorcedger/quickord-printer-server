@@ -1,12 +1,12 @@
 /* eslint-disable no-underscore-dangle */
-const AdmZip = require('adm-zip');
+import AdmZip from 'adm-zip';
 
 import { existsSync } from 'node:fs';
-const fs = require('node:fs/promises');
+import fs from 'node:fs/promises';
 
-const process = require('node:process');
+import process from 'node:process';
 
-import * as signale from 'signale';
+import signale from 'signale';
 
 let _filename = 'app';
 

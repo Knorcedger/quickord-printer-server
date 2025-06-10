@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import * as signale from 'signale';
+import signale from 'signale';
 
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';

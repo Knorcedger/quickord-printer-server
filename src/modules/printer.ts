@@ -13,10 +13,7 @@ import { convertToDecimal, leftPad, tr } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
-import { connect } from 'node:http2';
-import { connected } from 'node:process';
-import { DEFAULT_MIN_VERSION } from 'node:tls';
-const { exec } = require('child_process');
+import { exec } from 'child_process';
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];

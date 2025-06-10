@@ -11,15 +11,11 @@ import { dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { spawn,exec } from 'node:child_process';
 import * as path from 'node:path';
-import * as JSZip from 'jszip';
-import { readFile } from 'node:fs/promises';
+import JSZip from 'jszip';
 
 import * as nconf from 'nconf';
 
 nconf.argv().env().file('./config.json');
-
-import { exit } from 'node:process';
-import { Console } from 'node:console';
 let path2 = '';
 let args = ['--update', 'test'];
 let destDir = '../';

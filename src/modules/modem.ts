@@ -3,7 +3,7 @@ import { AutoDetectTypes } from '@serialport/bindings-cpp';
 import * as nconf from 'nconf';
 import fetch from 'node-fetch';
 import { SerialPort } from 'serialport';
-import * as signale from 'signale';
+import signale from 'signale';
 
 import { getSettings, IModemSettings } from './settings';
 
