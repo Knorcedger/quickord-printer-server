@@ -174,8 +174,12 @@ export const printTestPage = async (
       .toBuffer();*/
   //printer.printImageBuffer(processedImage)
   printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
-  printer.setTextNormal();
+  printer.setTextNormal();  
   printer.println('text normal');
+  printer.setTextSize(1, 0);  
+  printer.println('text bigger');
+  printer.setTextSize(0, 1);  
+  printer.println('text more height');
   printer.setTextSize(1, 1);
   printer.println('text size 1');
   printer.setTextSize(2, 2);
@@ -946,7 +950,7 @@ export const printOrder = async (
         drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
-          printer.setTextSize(1, 1);
+          printer.setTextSize(1, 0);
         }
 
         printer.table([
@@ -977,7 +981,7 @@ export const printOrder = async (
         }
 
         if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
-          printer.setTextSize(1, 1);
+          printer.setTextSize(1, 0);
         } else {
           changeTextSize(printer, settings?.textSize || 'NORMAL');
         }
@@ -1072,7 +1076,7 @@ export const printOrder = async (
           settings.textOptions?.forEach((textOption) => {
             switch (textOption) {
               case 'BOLD_PRODUCTS':
-                printer.setTextSize(1, 1);
+                printer.setTextSize(1, 0);
                 break;
               default:
                 break;
@@ -1102,7 +1106,7 @@ export const printOrder = async (
           }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
-            printer.setTextSize(1, 1);
+            printer.setTextSize(1, 0);
           } else {
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
