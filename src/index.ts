@@ -1,7 +1,7 @@
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 
-import * as nconf from 'nconf';
+import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
 
 import express from 'express';
@@ -27,7 +27,7 @@ import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 
 const main = async () => {
-  const SERVER_PORT = nconf.get('PORT') || 7810;
+  const SERVER_PORT = nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
   const args = process.argv.slice(2); // Get arguments after the script name

@@ -13,9 +13,10 @@ import { spawn,exec } from 'node:child_process';
 import * as path from 'node:path';
 import JSZip from 'jszip';
 
-import * as nconf from 'nconf';
+import nconf from 'nconf';
 
-nconf.argv().env().file('./config.json');
+
+nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
 let args = ['--update', 'test'];
 let destDir = '../';
