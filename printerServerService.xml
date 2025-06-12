@@ -1,0 +1,7 @@
+<service>
+  <id>printerServer</id>
+  <name>printerServer</name>
+  <description>This service runs the printer server app.</description>
+  <executable>printerServer.exe</executable>
+  <log mode="roll" />
+</service>

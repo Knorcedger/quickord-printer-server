@@ -1,12 +1,12 @@
-import { getSettings } from './modules/settings.ts';
+import { getSettings } from './modules/settings';
 
-export default () => {
+export const homepage = () => {
   return `<div style="padding: 12px;">
       <p style="font-weight: bold;">
         This is the homepage of the printer controller
       </p>
       <div>
-        To change the settings, please visit <a href="https://waiter.quickord.com/printer-server">quickord waiter</a>.
+        To change the settings, please visit <a href="https://app.quickord.com/venue/id/printer-settings">quickord</a>.
         <br />
         <br />
         <br />

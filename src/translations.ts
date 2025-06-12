@@ -1,8 +1,8 @@
 export default {
   printOrder: {
     customerComments: {
-      el: 'ΣΧΟΛΙΑ',
-      en: 'COMMENTS',
+      el: 'ΣΧΟΛΙΑ ΠΕΛΑΤΗ',
+      en: 'CUSTOMER COMMENTS',
     },
     customerEmail: {
       el: 'EMAIL',
@@ -11,6 +11,22 @@ export default {
     customerName: {
       el: 'ΟΝΟΜΑ',
       en: 'NAME',
+    },
+    vat: {
+      el: 'ΦΠΑ',
+      en: 'VAT',
+    },
+    analysisVat: {
+      el: 'ΑΝΑΛΥΣΗ ΦΠΑ ΚΑΤΑ ΣΥΝΤΕΛΕΣΤΗ',
+      en: 'ANALYSIS VAT BY RATE',
+    },
+    percentage: {
+      el: 'ΠΟΣΟΣΤΟ',
+      en: 'PERCENTAGE',
+    },
+    netWorth: {
+      el: 'ΚΑΘΑΡΗ ΑΞΙΑ',
+      en: 'NET WORTH',
     },
     deliveryAddress: {
       el: 'ΔΙΕΥΘΥΝΣΗ',
@@ -33,8 +49,16 @@ export default {
       en: 'TEL',
     },
     notReceiptNotice: {
-      el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ ΣΥΝΑΛΛΑΓΗΣ',
-      en: 'ATTENTION THIS IS NOT A RECEIPT',
+      el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ',
+      en: 'ATTENTION THIS IS NOT A',
+    },
+    notReceiptNoticeContinue: {
+      el: 'ΣΥΝΑΛΑΓΗΣ',
+      en: 'RECEIPT',
+    },
+    orderFormOrder: {
+      el: 'ΠΑΡΑΓΓΕΛΙΑ',
+      en: 'ORDER',
     },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
@@ -58,7 +82,7 @@ export default {
         en: 'DELIVERY',
       },
       DINE_IN: {
-        el: 'ΤΡΑΠΕΖΙ',
+        el: 'ΤΡΑΠΕ',
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {
@@ -68,6 +92,22 @@ export default {
       TAKE_AWAY_PACKAGE: {
         el: 'ΠΑΚΕΤΟ',
         en: 'TAKE AWAY PACKAGE',
+      },
+      EFOOD: {
+        el: 'EFOOD',
+        en: 'EFOOD',
+      },
+      WOLT: {
+        el: 'WOLT',
+        en: 'WOLT',
+      },
+      FAGI: {
+        el: 'FAGI',
+        en: 'FAGI',
+      },
+      BOX: {
+        el: 'BOX',
+        en: 'BOX',
       },
     },
     orderWaiter: {
@@ -134,13 +174,109 @@ export default {
       el: 'ΣΥΝΟΛΟ',
       en: 'TOTAL',
     },
+    netWithoutVat: {
+      el: 'ΚΑΘΑΡΗ ΧΩΡΙΣ ΦΠΑ',
+      en: 'NET WITHOUT VAT',
+    },
+     itemRemoval: {
+      el: 'ΕΠΙΣΤΡΟΦΗ ΕΙΔΟΥΣ',
+      en: 'ITEM RETURN',
+    },
     waiter: {
       el: 'ΣΕΡΒ',
       en: 'WTR',
     },
+    productComments: {
+      el: 'ΣΧΟΛΙΑ ΠΡΟΙΟΝΤΟΣ',
+      en: 'PRODUCT COMMENTS',
+    },
     waiterComments: {
       el: 'ΣΧΟΛΙΑ ΣΕΡΒ',
-      en: 'WAITER COM',
+      en: 'WAITER COMMENTS',
+    },
+    taxNumber: {
+      el: 'Α.Φ.Μ.',
+      en: 'TAX NUMBER',
+    },
+    taxOffice: {
+      el: 'ΔΟΥ',
+      en: 'TAX OFFICE',
+    },
+    date: {
+      el: 'ΗΜΕΡ',
+      en: 'DATE',
+    },
+    time: {
+      el: 'ΩΡΑ',
+      en: 'TIME',
+    },
+    seriesNumber: {
+      el: 'Α/A',
+      en: 'SERIES NUMBER',
+    },
+    provider: {
+      el: 'ΜΕ ΤΗΝ ΥΠΟΣΤΗΡΙΞΗ ΤΗΣ',
+      en: 'POWERED BY',
+    },
+    kind: {
+      el: 'ΕΙΔΟΣ',
+      en: 'KIND',
+    },
+    items: {
+      el: 'ΤΕΜΑΧΙΑ',
+      en: 'ITEMS',
+    },
+    sum: {
+      el: 'ΣΥΝΟΛΟ',
+      en: 'SUM',
+    },
+    unknown: {
+      el: 'ΑΓΝΩΣΤΗ ΜΕΘΟΔΟΣ',
+      en: 'UKNOWN METHOD',
+    },
+    amount: {
+      el: 'ΠΟΣΟ',
+      en: 'AMOUNT',
+    },
+    payments: {
+      el: 'ΠΛΗΡΩΜΕΣ',
+      en: 'PAYMENTS',
+    },
+    quantity: {
+      el: 'ΠΟΣΟΤ',
+      en: 'QUANTITY',
+    },
+    price: {
+      el: 'ΑΞΙΑ',
+      en: 'PRICE',
+    },
+    reciept: {
+      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      en: 'RECEIPT',
+    },
+    paymentSlip: {
+      el: 'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
+      en: 'PAYMENT SLIP',
+    },
+    recieptEnd: {
+      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      en: 'END OF RECEIPT',
+    },
+    paymentSlipEnd: {
+      el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
+      en: 'THANK YOU FOR YOUR PAYMENT',
+    },
+     updated: {
+      el: 'ΑΛΛΑΓΗ',
+      en: 'UPDATED',
+    },
+    quantityChanged: {
+      el: 'ΑΛΛΑΓΗ ΠΟΣΟΤΗΤΑΣ',
+      en: 'QUANTITY CHANGED',
+    },
+    new: {
+      el: 'ΝΕΟ',
+      en: 'NEW',
     },
   },
 };

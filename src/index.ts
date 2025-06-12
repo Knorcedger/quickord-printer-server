@@ -1,36 +1,49 @@
-import bodyParser from 'body-parser';
+import * as bodyParser from 'body-parser';
 import cors from 'cors';
-import express, { Request, Response } from 'express';
+
 import nconf from 'nconf';
-import process from 'node:process';
 import { CharacterSet } from 'node-thermal-printer';
 
-import homepage from './homepage.ts';
-import logger from './modules/logger.ts';
-import { initModem } from './modules/modem.ts';
-import {
-  initNetWorkScanner,
-  scanNetworkForConnections,
-} from './modules/network.ts';
-import { setupPrinters } from './modules/printer.ts';
+import express from 'express';
+import { Request, Response } from 'express';
+
+import { homepage } from './homepage';
+import logger from './modules/logger';
+import { initModem } from './modules/modem';
+import scanNetworkForConnections from './modules/network';
+import { setupPrinters, paymentReceipt } from './modules/printer';
 import {
   getSettings,
   loadSettings,
   PrinterTextOptions,
   PrinterTextSize,
-} from './modules/settings.ts';
-import printOrders from './resolvers/printOrders.ts';
-import settings from './resolvers/settings.ts';
-import testPrint from './resolvers/testPrint.ts';
-
-nconf.argv().env().file('./config.json');
+} from './modules/settings';
+import printOrders from './resolvers/printOrders';
+import { paymentSlip } from './modules/printer';
+import { orderForm } from './modules/printer';
+import { checkPrinters } from './modules/printer';
+import settings from './resolvers/settings';
+import testPrint from './resolvers/testPrint';
+import autoUpdate from './autoupdate/autoupdate';
 
 const main = async () => {
-  const SERVER_PORT = nconf.get('PORT') || 7810;
+  const SERVER_PORT = nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
+  const args = process.argv.slice(2); // Get arguments after the script name
+  if (args[0] !== '--noupdate') {
+  console.log('Arguments:', args);
+  let updatePath: string | null = null;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--update' && i + 1 < args.length) {
+      updatePath = args[i + 1] ?? null; // Get the next argument as the update path
+    }
+  }
 
-  await initNetWorkScanner();
+  console.log('Update path:', process.argv);
+  await autoUpdate(args); // Ensure updatePath is a string
+  }
+
 
   await loadSettings();
 
@@ -39,7 +52,6 @@ const main = async () => {
   await setupPrinters(getSettings());
 
   const app = express();
-
   app.use(
     cors({
       origin(origin: string | undefined, callback: any) {
@@ -74,6 +86,15 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
     });
+app.route('/available').get(async (req: Request, res: Response) => {
+  try {
+    const printers = await checkPrinters();
+    res.status(200).send({ printers });
+  } catch (error) {
+    res.status(500).send({ error: 'Failed to check printers' });
+  }
+});
+
 
   app
     .route('/network')
@@ -83,16 +104,18 @@ const main = async () => {
 
         res.status(200).send({ lanConnections });
       } catch (error) {
-        res.status(500).send({ error });
+        logger.error('Error scanning network connections:', error);
+        res.status(500).send({ error: 'Failed to scan network connections' });
       }
     });
 
   app.route('/print-orders').post(printOrders);
 
   app.route('/test-print').post(testPrint);
+  app.route('/print-alp').post(paymentReceipt);
 
-  // app.route('/modem-reset').get();
-  // app.route('/modem-status').get();
+  app.route('/print-payment-slip').post(paymentSlip);
+  app.route('/print-order-form').post(orderForm);
 
   app
     .route('/logs')

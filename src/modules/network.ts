@@ -1,109 +1,77 @@
-/* eslint-disable consistent-return */
-import network from 'network';
-import { exec, execSync } from 'node:child_process';
-import process from 'node:process';
+import * as net from 'net';
+import * as ping from 'ping';
 
-import logger from './logger.ts';
+const subnet = '192.168.1';
+const ports = [9100, 515, 631];
 
-let IS_NMAP_INSTALLED = false;
+async function checkPort(
+  ip: string,
+  port: number
+): Promise<{ ip: string; port: number; open: boolean }> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(2000);
 
-export const initNetWorkScanner = async () => {
-  const OS = process.platform;
+    socket.connect(port, ip, () => {
+      socket.destroy();
+      resolve({ ip, port, open: true });
+    });
 
-  const isNmapInstalled =
-    OS === 'linux'
-      ? execSync('nmap --version').toString()
-      : execSync('nmap -V').toString();
+    socket.on('error', () => {
+      socket.destroy();
+      resolve({ ip, port, open: false });
+    });
 
-  if (isNmapInstalled.toLowerCase().includes('nmap version ')) {
-    logger.info('nmap is already installed');
-    IS_NMAP_INSTALLED = true;
-    return;
-  }
-
-  if (OS !== 'win32') {
-    logger.error(
-      'nmap is not installed, OS is not win32 please install nmap manually.'
-    );
-    return;
-  }
-
-  logger.error('nmap is not installed, please install nmap manually.');
-};
-
-const execPromise = (command: string) => {
-  return new Promise((resolve, reject) => {
-    exec(command, (err, stdout) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      resolve(stdout);
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve({ ip, port, open: false });
     });
   });
-};
+}
 
-export const scanNetworkForConnections = async (): Promise<
-  Array<Array<string>>
-> => {
-  if (!IS_NMAP_INSTALLED) {
-    logger.error('nmap is not installed, cannot scan network.');
-    return [];
+export default async function scanNetworkForConnections(): Promise<
+  { ip: string; port: number }[]
+> {
+  console.log(`🔍 Scanning ${subnet}.0/24 for devices...`);
+
+  const printers: { id: string; ip: string; port: number }[] = [];
+  const pingPromises: Promise<any>[] = [];
+
+  // Step 1: Ping all IPs in the subnet
+  for (let i = 1; i < 255; i++) {
+    let ip = `${subnet}.${i}`;
+    pingPromises.push(ping.promise.probe(ip, { timeout: 1 }));
   }
 
-  return new Promise((resolve, reject) => {
-    network.get_gateway_ip(async (err: any, ip: string) => {
-      if (err) {
-        logger.error('Error getting gateway ip:', err);
-        reject(err);
-        return;
-      }
+  const pingResults = await Promise.all(pingPromises);
+  const aliveHosts = pingResults
+    .filter((res) => res.alive)
+    .map((res) => res.host);
 
-      try {
-        logger.info('Scanning network');
-        let IPs = '';
+  // Step 2: Check ports on alive hosts
+  const portCheckPromises: Promise<{
+    ip: string;
+    port: number;
+    open: boolean;
+  }>[] = [];
+  for (const ip of aliveHosts) {
+    for (const port of ports) {
+      portCheckPromises.push(checkPort(ip, port));
+    }
+  }
 
-        if (process.platform === 'win32') {
-          IPs = (
-            (await execPromise(`nmap -sn ${ip}/24`)) as any
-          ).toString() as string;
-        } else if (process.platform === 'linux') {
-          IPs = (
-            (await execPromise(`nmap -sn ${ip}/24`)) as any
-          ).toString() as string;
-        }
-        logger.info('Network scan info received:', IPs);
+  const portResults = await Promise.all(portCheckPromises);
 
-        const connections: Array<Array<string>> = [];
+  // Step 3: Filter and collect open ports
+  for (const result of portResults) {
+    if (result.open) {
+      printers.push({ id: result.ip, ip: result.ip, port: result.port });
+      console.log(
+        `🖨️ Printer (or device) found at ${result.ip}:${result.port}`
+      );
+    }
+  }
 
-        IPs.split('\n').forEach((line) => {
-          if (line.includes('Nmap scan report for')) {
-            const info = line.split('Nmap scan report for ')[1] || '';
-            let connectionName = info.split(' ')[0];
-
-            let connectionIp = info
-              .split(' ')[1]
-              ?.replace('(', '')
-              .replace(')', '');
-
-            if (!connectionIp) {
-              connectionIp = connectionName;
-              connectionName = '';
-            }
-
-            connections.push([
-              connectionName?.replace('\r', '') || 'Unknown',
-              connectionIp?.replace('\r', '') || '',
-            ]);
-          }
-        });
-
-        resolve(connections);
-      } catch (error) {
-        logger.error('Error scanning network:', error);
-        reject(error);
-      }
-    });
-  }) as Promise<Array<Array<string>>>;
-};
+  console.log('✅ Finished scanning! Found printers:', printers);
+  return printers;
+}

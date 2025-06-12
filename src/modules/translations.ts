@@ -1,4 +1,4 @@
-import translationsContent from '../translations.ts';
+import translationsContent from '../translations';
 
 export const translations = translationsContent;
 

@@ -1,17 +1,48 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 
-import logger from '../modules/logger.ts';
-import { printOrders as printerPrintOrders } from '../modules/printer.ts';
-
+import logger from '../modules/logger';
+import { printOrders as printerPrintOrders } from '../modules/printer';
+const updateStatusEnumValues = [
+  'INITIAL',
+  'NEW',
+  'UNCHANGED',
+  'UPDATED',
+] as const;
 export const Product = z.object({
   _id: z.string({
     invalid_type_error: 'product _id must be a string.',
     required_error: 'product _id is required.',
   }),
+  comments: z.string({
+    invalid_type_error: 'comments must be a string.',
+    required_error: 'comments is required.',
+  }),
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
+  vat: z
+    .preprocess(
+      (val) => {
+        const num = Number(val);
+        return isNaN(num) ? 0 : num;
+      },
+      z.number({
+        invalid_type_error: 'vat must be a number.',
+        required_error: 'vat is required.',
+      })
+    )
+    .optional(),
+   quantityChanged: z
+    .object({
+      is: z.number(),
+      was: z.number(),
+    })
+    .optional(),
+  updateStatus: z.enum(updateStatusEnumValues, {
+    invalid_type_error: 'Invalid update status.',
+    required_error: 'Update status is required.',
+  }),
   choices: z
     .array(
       z.object({
@@ -52,8 +83,11 @@ export const OrderType = z.enum([
   'DINE_IN',
   'TAKE_AWAY_INSIDE',
   'TAKE_AWAY_PACKAGE',
+  'EFOOD',
+  'WOLT',
+  'FAGI',
+  'BOX',
 ]);
-
 export const PaymentType = z.enum([
   'DELIVERY_CARD',
   'DELIVERY_CASH',
@@ -76,7 +110,7 @@ export const DeliveryInfo = z.object({
     .string({
       invalid_type_error: 'customerEmail must be a string.',
     })
-    .optional(),
+    .optional().nullable(),
   customerFirstname: z
     .string({
       invalid_type_error: 'customerName must be a string.',
@@ -191,6 +225,12 @@ export const Order = z.object({
       invalid_type_error: 'waiterComment must be a string.',
     })
     .optional(),
+  isEdit: z
+    .boolean({
+      invalid_type_error: 'isEdit must be a boolean.',
+      required_error: 'isEdit is required.',
+    })
+    .optional(),
   waiterName: z
     .string({
       invalid_type_error: 'waiterName must be a string.',
@@ -208,6 +248,7 @@ const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('orders to print:', orders);
 
     printerPrintOrders(orders);
+    console.log(orders[0]?.products);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {

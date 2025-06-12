@@ -5,13 +5,13 @@ import fetch from 'node-fetch';
 import { SerialPort } from 'serialport';
 import signale from 'signale';
 
-import { getSettings, IModemSettings } from './settings.ts';
-
+import { getSettings, IModemSettings } from './settings';
+nconf.argv().env().file({ file: './config.json' });
 let modem: SerialPort<AutoDetectTypes>;
 // eslint-disable-next-line no-unused-vars
 let onDataCallback: (data: string) => void;
 // eslint-disable-next-line no-unused-vars
-let onErrorCallback: (error: Error) => void;
+let onErrorCallback: (error: Error) => void = () => {};
 
 const createSerialPort = async (port: string) => {
   const serialport = new SerialPort({
@@ -66,15 +66,15 @@ export const createModem = async (settings: IModemSettings) => {
       const res = await fetch(nconf.get('QUICKORD_API_URL'), {
         body: JSON.stringify({
           query: `mutation {
-    incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}"){
+    incomingPhoneCall_V3(phoneNumber: "${data}", venueId:"${settings.venueId}"){
     status
     }
     }`,
         }),
         headers: {
           'Content-Type': 'application/json',
-          apiKey: 'referral_web_qm2ebaEWL48WHjh23bNi9ZRhiaVI0jT9',
-          appId: 'referral',
+          'api-version': 'v3',
+          appId: 'desktop',
         },
         method: 'POST',
       });

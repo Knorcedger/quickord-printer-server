@@ -1,8 +1,8 @@
-import fs from 'node:fs';
+import * as fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
 
-import logger from './logger.ts';
+import logger from './logger';
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet, {
   description: 'The character set to use for the printer.',
@@ -26,14 +26,64 @@ export const PrinterTextOptions = z.enum(
 );
 
 export const PrinterSettings = z.object({
+  id: z
+    .string({
+      invalid_type_error: 'id must be a string.',
+    })
+    .optional(),
+  categoriesToPrint: z
+    .array(z.string(), {
+      description: 'The product categories to print on the receipt.',
+      invalid_type_error: 'categoriesToPrint must be an array of strings.',
+      required_error: 'categoriesToPrint is required.',
+    })
+    .optional()
+    .default([]),
+  vatAnalysis: z
+    .boolean({
+      description: 'Whether to print the VAT analysis on the receipt.',
+      invalid_type_error: 'vatAnalysis must be a boolean.',
+      required_error: 'vatAnalysis is required.',
+    }).optional()
+    .default(true),
+    priceOnOrder: z
+    .boolean({
+      description: 'Whether to print the price on the order.',
+      invalid_type_error: 'priceOnOrder must be a boolean.',
+      required_error: 'priceOnOrder is required.',
+    })
+    .optional(),
+  documentsToPrint: z
+    .array(z.string(), {
+      description: 'The documents to print on the receipt.',
+      invalid_type_error: 'documentsToPrint must be an array of strings.',
+      required_error: 'documentsToPrint is required.',
+    })
+    .optional()
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP']),
+  orderMethodsToPrint: z
+    .array(z.string(), {
+      description: 'The order methods to print on the receipt.',
+      invalid_type_error: 'orderMethodsToPrint must be an array of strings.',
+      required_error: 'orderMethodsToPrint is required.',
+    })
+    .optional()
+    .default([
+      'DELIVERY',
+      'DINE_IN',
+      'TAKE_AWAY_INSIDE',
+      'TAKE_AWAY_PACKAGE',
+      'EFOOD',
+      'WOLT',
+      'FAGI',
+      'BOX',
+    ]),
   categoriesToNotPrint: z
     .array(z.string(), {
       description: 'The product categories to not print on the receipt.',
       invalid_type_error: 'categoriesToNotPrint must be an array of strings.',
-      required_error: 'categoriesToNotPrint is required.',
     })
-    .optional()
-    .default([]),
+    .optional(),
   characterSet: CharacterSetEnum,
   codePage: z
     .number({
@@ -106,6 +156,28 @@ export type ISettings = z.infer<typeof Settings>;
 let settings: ISettings = {
   modem: { port: '', venueId: '' },
   printers: [],
+};
+
+const migrateToV2 = (settings: ISettings): [ISettings, boolean] => {
+  let updated = false;
+  //i want to add id to printers like "1" "2" "3" etc when they dont have and also make categoriesToNotPrint categoriesToPrint
+  settings.printers = settings.printers.map((printer, index) => {
+    if (!printer.id) {
+      console.log('updated printer id', index + 1);
+      updated = true;
+      printer.id = (index + 1).toString();
+    }
+
+    if (printer.categoriesToNotPrint) {
+      updated = true;
+      console.log('updated printer categories');
+      printer.categoriesToPrint = printer.categoriesToNotPrint;
+      delete printer.categoriesToNotPrint;
+    }
+
+    return printer;
+  });
+  return [settings, updated];
 };
 
 export const loadSettings = async () => {

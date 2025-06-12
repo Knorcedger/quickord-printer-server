@@ -1,16 +1,16 @@
 import { Request, Response } from 'express';
 import signale from 'signale';
 
-import logger from '../modules/logger.ts';
-import { createModem } from '../modules/modem.ts';
-import { setupPrinters } from '../modules/printer.ts';
+import logger from '../modules/logger';
+import { createModem } from '../modules/modem';
+import { setupPrinters } from '../modules/printer';
 import {
   getSettings,
   IPrinterSettings,
   saveSettings,
   Settings,
   updateSettings,
-} from '../modules/settings.ts';
+} from '../modules/settings';
 
 const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
