@@ -178,7 +178,7 @@ export default {
       el: 'ΚΑΘΑΡΗ ΧΩΡΙΣ ΦΠΑ',
       en: 'NET WITHOUT VAT',
     },
-     itemRemoval: {
+    itemRemoval: {
       el: 'ΕΠΙΣΤΡΟΦΗ ΕΙΔΟΥΣ',
       en: 'ITEM RETURN',
     },
@@ -226,6 +226,10 @@ export default {
       el: 'ΤΕΜΑΧΙΑ',
       en: 'ITEMS',
     },
+    discount: {
+      el: 'ΕΚΠΤΩΣΗ',
+      en: 'DISCOUNT',
+    },
     sum: {
       el: 'ΣΥΝΟΛΟ',
       en: 'SUM',
@@ -266,7 +270,7 @@ export default {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
       en: 'THANK YOU FOR YOUR PAYMENT',
     },
-     updated: {
+    updated: {
       el: 'ΑΛΛΑΓΗ',
       en: 'UPDATED',
     },
