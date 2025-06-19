@@ -14,6 +14,7 @@ import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
+import { Z_FIXED } from 'zlib';
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
@@ -174,11 +175,11 @@ export const printTestPage = async (
       .toBuffer();*/
   //printer.printImageBuffer(processedImage)
   printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
-  printer.setTextNormal();  
+  printer.setTextNormal();
   printer.println('text normal');
-  printer.setTextSize(1, 0);  
+  printer.setTextSize(1, 0);
   printer.println('text bigger');
-  printer.setTextSize(0, 1);  
+  printer.setTextSize(0, 1);
   printer.println('text more height');
   printer.setTextSize(1, 1);
   printer.println('text size 1');
@@ -235,6 +236,7 @@ export const paymentSlip = (
       req.body.aadeInvoice,
       req.body.issuerText,
       req.body.orderNumber,
+      req.body.discount,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -253,6 +255,7 @@ export const paymentReceipt = (
       req.body.orderNumber,
       req.body.orderType,
       req.body.issuerText,
+      req.body.discount,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -471,6 +474,10 @@ const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
   orderNumber: number,
+  discount: {
+    amount: number;
+    type: 'PERCENTAGE' | 'FIXED' | 'NONE';
+  },
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -550,6 +557,17 @@ const printPaymentSlip = async (
       });
       drawLine2(printer);
       printer.newLine();
+      let discountAmount = '';
+      if (discount.type === 'FIXED') {
+        discountAmount = (discount.amount / 100).toString() + '€';
+      } else {
+        discountAmount = discount.amount.toString() + '%';
+      }
+      if (discountAmount !== '') {
+        printer.println(
+          `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+        );
+      }
       printer.alignRight();
       const roundedSum = Number(sumAmount)
         .toFixed(2)
@@ -660,11 +678,33 @@ const SERVICES: Record<string, ServiceType> = {
   },
 };
 
+const DISCOUNTTYPES: Record<string, ServiceType> = {
+  fixed: {
+    value: 'fixed',
+    label_en: 'Fixed',
+    label_el: 'Σταθερή',
+  },
+  percent: {
+    value: 'percent',
+    label_en: 'Percentage',
+    label_el: 'Ποσοστό',
+  },
+  none: {
+    value: 'none',
+    label_en: 'Unknown',
+    label_el: 'Άγνωστη',
+  },
+};
+
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   orderNumber: number,
   orderType: string,
   issuerText: string,
+  discount: {
+    amount: number;
+    type: 'PERCENTAGE' | 'FIXED' | 'NONE';
+  },
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -754,6 +794,17 @@ const printPaymentReceipt = async (
         drawLine2(printer);
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        let discountAmount = '';
+        if (discount.type === 'FIXED') {
+          discountAmount = (discount.amount / 100).toString() + '€';
+        } else {
+          discountAmount = discount.amount.toString() + '%';
+        }
+        if (discountAmount !== '') {
+          printer.println(
+            `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+          );
+        }
         printer.bold(true);
         printer.alignLeft();
 
@@ -1076,7 +1127,9 @@ export const printOrder = async (
           settings.textOptions?.forEach((textOption) => {
             switch (textOption) {
               case 'BOLD_PRODUCTS':
+                printer.bold(true);
                 printer.setTextSize(1, 0);
+                printer.bold(false);
                 break;
               default:
                 break;
@@ -1106,7 +1159,9 @@ export const printOrder = async (
           }
           // Bold if enabled
           if (settings.textOptions.includes('BOLD_PRODUCTS')) {
+            printer.bold(true);
             printer.setTextSize(1, 0);
+            printer.bold(false);
           } else {
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
