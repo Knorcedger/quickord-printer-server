@@ -923,11 +923,13 @@ export const checkPrinters = async () => {
   console.log('Connected printers:', connectedPrinterIds);
   return connectedPrinterIds;
 };
-
 export const printOrder = async (
   order: z.infer<typeof Order>,
   lang: SupportedLanguages = 'el'
-) => {
+): Promise<Error[] | undefined> => {
+  const errors: Error[] = [];
+
+  const executionPromises: Promise<void>[] = [];
   for (let i = 0; i < printers.length; i += 1) {
     try {
       const settings = printers[i]?.[1];
@@ -1402,24 +1404,57 @@ export const printOrder = async (
         printer.cut();
       }
 
-      printer
-        .execute({
-          waitForResponse: false,
-        })
+      const execPromise = printer
+        .execute({ waitForResponse: false })
         .then(() => {
           printer.clear();
           logger.info(
             `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
           );
+        })
+        .catch((error) => {
+          if (
+            error.code === 'ECONNREFUSED' ||
+            error.message.includes('socket')
+          ) {
+            logger.error(
+              `Socket error while printing order ${order._id}: ${error.message}`
+            );
+          } else {
+            logger.error(
+              `Error printing order ${order._id}: ${error.message} ${settings.ip || settings.port}`
+            );
+          }
+          errors.push(
+            new Error(
+              `Printer ${settings?.ip || settings?.port || 'unknown'}: ${error.message}`
+            )
+          );
         });
-    } catch (error) {
-      logger.error('Print failed:', error);
+
+      executionPromises.push(execPromise);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      errors.push(error);
     }
   }
+
+  await Promise.allSettled(executionPromises);
+
+  return errors.length ? errors : undefined;
 };
 
-export const printOrders = async (orders: z.infer<typeof Order>[]) => {
-  orders.forEach(async (order) => {
-    printOrder(order);
-  });
+export const printOrders = async (
+  orders: z.infer<typeof Order>[]
+): Promise<Error[] | undefined> => {
+  const allErrors: Error[] = [];
+
+  for (const order of orders) {
+    const result = await printOrder(order);
+    if (Array.isArray(result)) {
+      allErrors.push(...result);
+    }
+  }
+
+  return allErrors.length ? allErrors : undefined;
 };

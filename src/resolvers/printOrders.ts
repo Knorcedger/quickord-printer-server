@@ -33,7 +33,7 @@ export const Product = z.object({
       })
     )
     .optional(),
-   quantityChanged: z
+  quantityChanged: z
     .object({
       is: z.number(),
       was: z.number(),
@@ -110,7 +110,8 @@ export const DeliveryInfo = z.object({
     .string({
       invalid_type_error: 'customerEmail must be a string.',
     })
-    .optional().nullable(),
+    .optional()
+    .nullable(),
   customerFirstname: z
     .string({
       invalid_type_error: 'customerName must be a string.',
@@ -241,19 +242,27 @@ export const Order = z.object({
 
 const Orders = z.array(Order);
 
-const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const printOrders = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
   try {
     const orders = Orders.parse(req.body);
 
     logger.info('orders to print:', orders);
+    const err = await printerPrintOrders(orders);
 
-    printerPrintOrders(orders);
+    if (err) {
+      // If there's an error returned, throw it to be caught below
+      throw new Error(err.toString());
+    }
+
     console.log(orders[0]?.products);
 
-    res.status(200).send({ status: 'updated' });
-  } catch (error) {
+    res.status(200).send({ status: 'success' });
+  } catch (error: any) {
     logger.error('Error printing orders:', error);
-    res.status(400).send({ error: error.message });
+    res.status(400).send({ error: error.message || 'Unknown error' });
   }
 };
 
