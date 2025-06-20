@@ -558,11 +558,14 @@ const printPaymentSlip = async (
       drawLine2(printer);
       printer.newLine();
       let discountAmount = '';
-      if (discount.type === 'FIXED') {
-        discountAmount = (discount.amount / 100).toString() + '€';
-      } else {
-        discountAmount = discount.amount.toString() + '%';
+      if (discount && Object.keys(discount).length !== 0) {
+        if (discount.type === 'FIXED') {
+          discountAmount = (discount.amount / 100).toString() + '€';
+        } else {
+          discountAmount = discount.amount.toString() + '%';
+        }
       }
+
       if (discountAmount !== '') {
         printer.println(
           `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
@@ -795,11 +798,14 @@ const printPaymentReceipt = async (
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
         let discountAmount = '';
-        if (discount.type === 'FIXED') {
-          discountAmount = (discount.amount / 100).toString() + '€';
-        } else {
-          discountAmount = discount.amount.toString() + '%';
+        if (discount && Object.keys(discount).length !== 0) {
+          if (discount.type === 'FIXED') {
+            discountAmount = (discount.amount / 100).toString() + '€';
+          } else {
+            discountAmount = discount.amount.toString() + '%';
+          }
         }
+
         if (discountAmount !== '') {
           printer.println(
             `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
