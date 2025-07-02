@@ -143,6 +143,22 @@ export default {
         el: 'ΜΕΤΡΗΤΑ ΚΑΙ ΚΑΡΤΑ',
         en: 'CASH AND CARD',
       },
+      ONLINE_EFOOD: {
+        el: 'ONLINE EFOOD',
+        en: 'ONLINE EFOOD',
+      },
+      ONLINE_FAGI: {
+        el: 'ONLINE FAGI',
+        en: 'ONLINE FAGI',
+      },
+      ONLINE_BOX: {
+        el: 'ONLINE BOX',
+        en: 'ONLINE BOX',
+      },
+      ONLINE_WOLT: {
+        el: 'ONLINE WOLT',
+        en: 'ONLINE WOLT',
+      },
     },
     poweredBy: {
       el: 'POWERED BY QUICKORD',
