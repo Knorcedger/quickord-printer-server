@@ -33,7 +33,7 @@ export const Product = z.object({
       })
     )
     .optional(),
-   quantityChanged: z
+  quantityChanged: z
     .object({
       is: z.number(),
       was: z.number(),
@@ -95,6 +95,10 @@ export const PaymentType = z.enum([
   'WAITER_CARD',
   'WAITER_CASH',
   'WAITER_CASH_AND_CARD',
+  'ONLINE_EFOOD',
+  'ONLINE_FAGI',
+  'ONLINE_BOX',
+  'ONLINE_WOLT',
 ]);
 
 export const DeliveryInfo = z.object({
@@ -110,7 +114,8 @@ export const DeliveryInfo = z.object({
     .string({
       invalid_type_error: 'customerEmail must be a string.',
     })
-    .optional().nullable(),
+    .optional()
+    .nullable(),
   customerFirstname: z
     .string({
       invalid_type_error: 'customerName must be a string.',
