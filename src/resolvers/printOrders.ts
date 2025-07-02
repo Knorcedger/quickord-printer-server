@@ -14,10 +14,12 @@ export const Product = z.object({
     invalid_type_error: 'product _id must be a string.',
     required_error: 'product _id is required.',
   }),
-  comments: z.string({
-    invalid_type_error: 'comments must be a string.',
-    required_error: 'comments is required.',
-  }),
+  comments: z
+    .string({
+      invalid_type_error: 'comments must be a string.',
+      required_error: 'comments is required.',
+    })
+    .nullable(),
   categories: z.array(
     z.string({ invalid_type_error: 'categories must be an array of strings.' })
   ),
@@ -96,6 +98,10 @@ export const PaymentType = z.enum([
   'WAITER_CARD',
   'WAITER_CASH',
   'WAITER_CASH_AND_CARD',
+  'ONLINE_EFOOD',
+  'ONLINE_WOLT',
+  'ONLINE_FAGI',
+  'ONLINE_BOX',
 ]);
 
 export const DeliveryInfo = z.object({
