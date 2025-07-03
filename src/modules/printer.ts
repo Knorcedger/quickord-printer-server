@@ -1188,15 +1188,15 @@ export const printOrder = async (
 
           // Handle product choices
           product.choices?.forEach((choice) => {
-            total += (choice.price || 0) * (product.quantity || 1);
-            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
+            total += (choice.price || 0) * (choice.quantity || 1);
+            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
             let choicePrice = '';
             if (
               settings.priceOnOrder === undefined ||
               settings.priceOnOrder === true
             ) {
               choicePrice = choice.price
-                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+                ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
                 : '';
             }
             const paddedChoiceLine =
@@ -1204,7 +1204,6 @@ export const printOrder = async (
               choicePrice;
             printer.println(tr(paddedChoiceLine, settings.transliterate));
           });
-
           // Comments (if any)
           if (product.comments) {
             printer.println(
