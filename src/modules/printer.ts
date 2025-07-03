@@ -138,7 +138,7 @@ export const printTestPage = async (
   printer.println(',.!?;"€$@#*&%[]{}\\|+-<>/1234567890');
   printer.setTextNormal();
   printer.println('text normal');
-  printer.setTextSize(1, 0);  
+  printer.setTextSize(1, 0);
   printer.println('text bigger');
   printer.setTextSize(0, 1);
   printer.println('text more height');
@@ -972,11 +972,11 @@ export const printOrder = async (
           const customerName = order.TakeAwayInfo.customerName?.trim();
 
           if (
-          customerName !== undefined &&
-          customerName !== null &&
-          customerName !== 'null' &&
-          customerName !== 'undefined'
-        ) {
+            customerName !== undefined &&
+            customerName !== null &&
+            customerName !== 'null' &&
+            customerName !== 'undefined'
+          ) {
             printer.println(
               tr(
                 `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
@@ -1065,15 +1065,16 @@ export const printOrder = async (
 
           // Handle product choices
           product.choices?.forEach((choice) => {
-            total += (choice.price || 0) * (product.quantity || 1);
-            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${product.quantity}x ` : ''}${choice.title}`;
+            console.log('choice', choice.quantity);
+            total += (choice.price || 0) * (choice.quantity || 1);
+            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
             let choicePrice = '';
             if (
               settings.priceOnOrder === undefined ||
               settings.priceOnOrder === true
             ) {
               choicePrice = choice.price
-                ? `+${convertToDecimal(choice.price * (product.quantity || 1)).toFixed(2)} €`
+                ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
                 : '';
             }
             const paddedChoiceLine =
