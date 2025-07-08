@@ -6,7 +6,7 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
-import { z } from 'zod';
+import { date, z } from 'zod';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import { convertToDecimal, leftPad, tr } from './common';
@@ -15,6 +15,7 @@ import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
 import { Z_FIXED } from 'zlib';
+import { add } from 'nconf';
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
@@ -227,6 +228,102 @@ const PaymentMethodDescriptions = Object.freeze(
     ])
   )
 );
+export const parkingTicket = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printParkingTicket(
+      req.body.venueName,
+      req.body.license,
+      req.body.address,
+      req.body.phone,
+      req.body.date,
+      req.body.entryTime,
+      req.body.operatingHours,
+      req.body.hourlyRate,
+      req.body.lang || 'el'
+    );
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
+const formatLine = (left, right) => {
+  const space = 40 - left.length - right.length;
+  return left + ' '.repeat(space > 0 ? space : 1) + right;
+};
+const printParkingTicket = async (
+  venueName: string,
+  license: string,
+  address: string,
+  phone: string,
+  date: string,
+  entryTime: string,
+  operatingHours: string,
+  hourlyRate: number,
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+      printer?.clear();
+      if (!settings || !printer) {
+        continue;
+      }
+      /* if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('PARKINGTICKET')) {
+          console.log('PARKINGTICKET is not in documentsToPrint');
+          continue;
+        }
+      }*/
+      printer.alignCenter();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.bold(true);
+      printer.println('PARKING TICKET');
+      printer.bold(false);
+      printer.bold(true);
+      printer.println(venueName);
+      printer.bold(false);
+      printer.println(address);
+      printer.println(phone);
+      drawLine2(printer);
+      printer.alignLeft();
+      printer.newLine();
+      printer.println(formatLine('LICENSE:', license));
+      printer.println(formatLine('DATE:', date));
+      printer.println(formatLine('ENTRY TIME:', entryTime));
+      drawLine2(printer);
+      printer.alignLeft();
+      printer.newLine();
+      printer.println(formatLine('Operating Hours:', operatingHours));
+      printer.println(formatLine('Hourly Rate:', hourlyRate));
+      printer.bold(true);
+      printer.alignCenter();
+      printer.println('IMPORTANT NOTICE');
+      printer.bold(false);
+      printer.println('Keep this ticket visible on dashboard');
+      printer.println(' Vehicle must exit before closing time');
+      printer.println(' Overstay fees may apply');
+      drawLine2(printer);
+      printer.println('Thank you for parking with us!');
+      printer.println('Keep this ticket for your records');
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          printer?.clear();
+          logger.info('Printed payment');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
 export const paymentSlip = (
   req: Request<{}, any, any>,
   res: Response<{}, any>

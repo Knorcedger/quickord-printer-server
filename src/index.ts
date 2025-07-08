@@ -20,6 +20,7 @@ import {
 } from './modules/settings';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
+import { parkingTicket } from './modules/printer';
 import { orderForm } from './modules/printer';
 import { checkPrinters } from './modules/printer';
 import settings from './resolvers/settings';
@@ -27,23 +28,23 @@ import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 
 const main = async () => {
-  const SERVER_PORT = nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
+  const SERVER_PORT =
+    nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
   const args = process.argv.slice(2); // Get arguments after the script name
   if (args[0] !== '--noupdate') {
-  console.log('Arguments:', args);
-  let updatePath: string | null = null;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--update' && i + 1 < args.length) {
-      updatePath = args[i + 1] ?? null; // Get the next argument as the update path
+    console.log('Arguments:', args);
+    let updatePath: string | null = null;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--update' && i + 1 < args.length) {
+        updatePath = args[i + 1] ?? null; // Get the next argument as the update path
+      }
     }
-  }
 
-  console.log('Update path:', process.argv);
-  await autoUpdate(args); // Ensure updatePath is a string
+    console.log('Update path:', process.argv);
+    await autoUpdate(args); // Ensure updatePath is a string
   }
-
 
   await loadSettings();
 
@@ -86,15 +87,14 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
     });
-app.route('/available').get(async (req: Request, res: Response) => {
-  try {
-    const printers = await checkPrinters();
-    res.status(200).send({ printers });
-  } catch (error) {
-    res.status(500).send({ error: 'Failed to check printers' });
-  }
-});
-
+  app.route('/available').get(async (req: Request, res: Response) => {
+    try {
+      const printers = await checkPrinters();
+      res.status(200).send({ printers });
+    } catch (error) {
+      res.status(500).send({ error: 'Failed to check printers' });
+    }
+  });
 
   app
     .route('/network')
@@ -116,6 +116,7 @@ app.route('/available').get(async (req: Request, res: Response) => {
 
   app.route('/print-payment-slip').post(paymentSlip);
   app.route('/print-order-form').post(orderForm);
+  app.route('/parking-ticket').post(parkingTicket);
 
   app
     .route('/logs')
