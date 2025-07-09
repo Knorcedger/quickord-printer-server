@@ -798,10 +798,12 @@ const printPaymentReceipt = async (
   orderNumber: number,
   orderType: string,
   issuerText: string,
-  discount: {
-    amount: number;
-    type: 'PERCENTAGE' | 'FIXED' | 'NONE';
-  },
+  discount:
+    | {
+        amount: number;
+        type: 'PERCENTAGE' | 'FIXED' | 'NONE';
+      }
+    | {},
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -849,6 +851,7 @@ const printPaymentReceipt = async (
         printer.println(
           `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
         );
+
         printer.alignLeft();
         if (lang === 'el') {
           printer.println(
@@ -892,16 +895,19 @@ const printPaymentReceipt = async (
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
         let discountAmount = '';
-        if (discount.type === 'FIXED') {
-          discountAmount = (discount.amount / 100).toString() + '€';
-        } else {
-          discountAmount = discount.amount.toString() + '%';
+        if ('amount' in discount && 'type' in discount) {
+          if (discount.type === 'FIXED') {
+            discountAmount = (discount.amount / 100).toString() + '€';
+          } else {
+            discountAmount = discount.amount.toString() + '%';
+          }
+          if (discountAmount !== '') {
+            printer.println(
+              `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+            );
+          }
         }
-        if (discountAmount !== '') {
-          printer.println(
-            `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
-          );
-        }
+
         printer.bold(true);
         printer.alignLeft();
 
