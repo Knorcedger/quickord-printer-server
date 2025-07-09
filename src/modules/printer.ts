@@ -215,6 +215,7 @@ export const paymentReceipt = (
       req.body.orderNumber,
       req.body.orderType,
       req.body.issuerText,
+      req.body.tip,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -638,6 +639,7 @@ const printPaymentReceipt = async (
   orderNumber: number,
   orderType: string,
   issuerText: string,
+  tip: number,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -727,6 +729,11 @@ const printPaymentReceipt = async (
       drawLine2(printer);
       // Line 1: Left-aligned item quantity (small text)
       printer.setTextSize(0, 0);
+      if (tip > 0) {
+        printer.println(
+          `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
+        );
+      }
       printer.bold(true);
       printer.alignLeft();
 
@@ -735,7 +742,7 @@ const printPaymentReceipt = async (
       const roundedSum = Number(sumAmount)
         .toFixed(2)
         .replace(/\.?0+$/, '');
-      const rightText = `${translations.printOrder.sum[lang]}: ${aadeInvoice.gross_value}€`;
+      const rightText = `${translations.printOrder.sum[lang]}: ${aadeInvoice.gross_value + tip / 100}€`;
 
       // Calculate spacing
       const spaceCount = lineWidth - leftText.length - rightText.length;
