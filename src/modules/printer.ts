@@ -353,6 +353,7 @@ export const paymentReceipt = (
       req.body.orderType,
       req.body.issuerText,
       req.body.discount,
+      req.body.tip,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -804,6 +805,7 @@ const printPaymentReceipt = async (
         type: 'PERCENTAGE' | 'FIXED' | 'NONE';
       }
     | {},
+  tip: number,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -907,7 +909,11 @@ const printPaymentReceipt = async (
             );
           }
         }
-
+        if (tip > 0) {
+          printer.println(
+            `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
+          );
+        }
         printer.bold(true);
         printer.alignLeft();
 
