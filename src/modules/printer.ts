@@ -1147,12 +1147,25 @@ export const printOrder = async (
           changeTextSize(printer, settings?.textSize || 'NORMAL');
         }
 
-        printer.println(
+        printer.print(
           tr(
-            `${translations.printOrder.orderType[lang]}:${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            `${translations.printOrder.orderType[lang]}:`,
             settings.transliterate
           )
         );
+        if (
+          order.orderType === 'DINE_IN' ||
+          order.orderType === 'TAKE_AWAY_INSIDE' ||
+          order.orderType === 'TAKE_AWAY_PACKAGE'
+        ) {
+          printer.bold(true);
+          printer.setTextSize(1, 0);
+        }
+        printer.println(
+          `${translations.printOrder.orderTypes[order.orderType][lang]}`
+        );
+        printer.bold(false);
+        printer.setTextSize(0, 0);
         printer.println(
           tr(
             `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`,
