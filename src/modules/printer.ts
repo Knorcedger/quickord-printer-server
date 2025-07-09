@@ -919,9 +919,10 @@ const printPaymentReceipt = async (
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
         const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
-        const roundedSum = Number(sumAmount)
+        const roundedSum = Number(sumAmount + tip / 100)
           .toFixed(2)
           .replace(/\.?0+$/, '');
+
         const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
 
         // Calculate spacing
