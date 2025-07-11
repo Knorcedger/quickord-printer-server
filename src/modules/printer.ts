@@ -241,7 +241,6 @@ export const parkingTicket = (
       req.body.date,
       req.body.entryTime,
       req.body.operatingHours,
-      req.body.hourlyRate,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -262,7 +261,6 @@ const printParkingTicket = async (
   date: string,
   entryTime: string,
   operatingHours: string,
-  hourlyRate: number,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -283,6 +281,7 @@ const printParkingTicket = async (
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(true);
       printer.println('PARKING TICKET');
+      drawLine2(printer);
       printer.bold(false);
       printer.bold(true);
       printer.println(venueName);
@@ -295,18 +294,16 @@ const printParkingTicket = async (
       printer.println(formatLine('LICENSE:', license));
       printer.println(formatLine('DATE:', date));
       printer.println(formatLine('ENTRY TIME:', entryTime));
-      drawLine2(printer);
       printer.alignLeft();
-      printer.newLine();
       printer.println(formatLine('Operating Hours:', operatingHours));
-      printer.println(formatLine('Hourly Rate:', hourlyRate));
       printer.bold(true);
       printer.alignCenter();
+      printer.newLine();
       printer.println('IMPORTANT NOTICE');
       printer.bold(false);
-      printer.println('Keep this ticket visible on dashboard');
-      printer.println(' Vehicle must exit before closing time');
-      printer.println(' Overstay fees may apply');
+      printer.println('Keep this ticket. Vehicle must exit before');
+
+      printer.println(' closing time Overstay fees may apply');
       drawLine2(printer);
       printer.println('Thank you for parking with us!');
       printer.println('Keep this ticket for your records');
@@ -1220,7 +1217,8 @@ export const printOrder = async (
             customerName !== undefined &&
             customerName !== null &&
             customerName !== 'null' &&
-            customerName !== 'undefined'
+            customerName !== 'undefined' &&
+            customerName !== ''
           ) {
             printer.println(
               tr(
@@ -1261,6 +1259,16 @@ export const printOrder = async (
         }
         const vatBreakdown: { vat: number; total: number; netValue: number }[] =
           [];
+
+        printer.alignCenter();
+        printer.println(
+          tr(
+            `${translations.printOrder.startOrder[lang]}`,
+            settings.transliterate
+          )
+        );
+        drawLine2(printer);
+        printer.alignLeft();
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
