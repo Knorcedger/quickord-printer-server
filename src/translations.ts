@@ -118,6 +118,10 @@ export default {
       el: 'ΤΡΟΠΟΣ ΠΛΗΡΩΜΗΣ',
       en: 'PAYMENT METHOD',
     },
+    startOrder: {
+      el: 'ΑΡΧΗ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'START ORDER',
+    },
     paymentTypes: {
       DELIVERY_CARD: {
         el: 'ΚΑΡΤΑ ΣΤΟ DELIVERY',
