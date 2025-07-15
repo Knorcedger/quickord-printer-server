@@ -1231,7 +1231,7 @@ export const printOrder = async (
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
-        if (order.tip) {
+        if (order.tip && settings.priceOnOrder) {
           printer.newLine();
           printer.println(
             tr(
