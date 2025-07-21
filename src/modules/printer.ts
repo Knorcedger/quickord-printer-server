@@ -228,6 +228,21 @@ const PaymentMethodDescriptions = Object.freeze(
     ])
   )
 );
+export const pelatologioRecord = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printPelatologioRecord(
+      req.body.pelatologioRecord as PelatologioRecord,
+      req.body.lang || 'el'
+    );
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 export const parkingTicket = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -321,6 +336,107 @@ const printParkingTicket = async (
     }
   }
 };
+const formatToGreek = (date: Date | string): string => {
+  const entryDate = new Date(date);
+  return entryDate.toLocaleString('el-GR', {
+    timeZone: 'Europe/Athens',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+};
+const printPelatologioRecord = async (
+  pelatologioRecord: PelatologioRecord,
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+      printer?.clear();
+      if (!settings || !printer) {
+        continue;
+      }
+
+      printer.alignCenter();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.bold(true);
+      printer.println('PELATOLOGIO RECORD');
+      printer.newLine();
+      printer.alignLeft();
+      printer.println(
+        'SERVICE TYPE: ' +
+          (pelatologioRecord.clientServiceType?.toUpperCase() || 'N/A')
+      );
+      printer.println('DCLID: ' + pelatologioRecord.dclId);
+      printer.println('STATUS: ' + pelatologioRecord.status?.toUpperCase());
+      printer.println(
+        'CATEGORY: ' + pelatologioRecord.vehicleCategory?.toUpperCase()
+      );
+      if (pelatologioRecord.vehicleRegNumber) {
+        printer.println('REG NUMBER: ' + pelatologioRecord.vehicleRegNumber);
+      }
+      if (pelatologioRecord.foreignVehicleRegNumber) {
+        printer.println(
+          'REG NUMBER: ' + pelatologioRecord.foreignVehicleRegNumber
+        );
+      }
+      if (pelatologioRecord.dateTime) {
+        printer.println(
+          'TIME OF ENTRY: ' + formatToGreek(pelatologioRecord.dateTime)
+        );
+      }
+      if (pelatologioRecord.completionDateTime) {
+        printer.println(
+          'COMPLETION DATE: ' +
+            formatToGreek(pelatologioRecord.completionDateTime)
+        );
+      }
+      if (pelatologioRecord.comments) {
+        printer.println('COMMENTS: ' + pelatologioRecord.comments);
+      }
+      if (pelatologioRecord.amount) {
+        printer.println('AMOUNT: ' + pelatologioRecord.amount.toFixed(2) + '€');
+      }
+      if (pelatologioRecord.cancellationReason) {
+        printer.println(
+          'CANCELLATION REASON: ' + pelatologioRecord.cancellationReason
+        );
+      }
+      if (pelatologioRecord.nonIssueInvoice) {
+        printer.println('TYPE OF INVOICE: INVOICE NOT ISSUED');
+      }
+      if (pelatologioRecord.fim) {
+        printer.println('TYPE OF INVOICE: ΑΛΠ/ΑΠΥ/FIM');
+        printer.println('FIMAA: ' + pelatologioRecord.fim.fimAA);
+        printer.println('FIMNUMBER: ' + pelatologioRecord.fim.fimNumber);
+        printer.println('FIMISSUE DATE: ' + pelatologioRecord.fim.fimIssueDate);
+        printer.println('FIMISSUE TIME: ' + pelatologioRecord.fim.fimIssueTime);
+      }
+      if (pelatologioRecord.invoiceMark) {
+        printer.println('TYPE OF INVOICE: ΑΛΠ/ΑΠΥ');
+        printer.println('INVOICE MARK: ' + pelatologioRecord.invoiceMark);
+      }
+      printer.alignCenter();
+      printer.newLine();
+      printer.println('POWERED BY MYPELATES');
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          printer?.clear();
+          logger.info('Printed payment');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
 export const paymentSlip = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -382,6 +498,68 @@ export const orderForm = (
 const drawLine2 = (printer: ThermalPrinter) => {
   printer.println('------------------------------------------');
 };
+
+interface PelatologioRecord {
+  amount?: number;
+  cancellationReason?: string;
+  clientServiceType?: 'rental' | 'garage' | 'parkingcarwash';
+  comments?: string;
+  completionDateTime?: Date | string;
+  contactId?: string; // ObjectId as string
+  cooperatingVatNumber?: string;
+  customerVatNumber?: string;
+  dateTime?: Date | string;
+  dclId?: number;
+  entityVatNumber?: string;
+  entryCompletion?: boolean;
+  exitDateTime?: Date | string;
+  fim?: {
+    fimAA?: number;
+    fimIssueDate?: string; // YYYY-MM-DD
+    fimIssueTime?: string; // HH:mm:ss
+    fimNumber?: string;
+  };
+  foreignVehicleRegNumber?: string;
+  invoiceKind?: 'RECEIPT' | 'INVOICE' | 'FIM_RECEIPT';
+  invoiceMark?: string;
+  isDiffVehReturnLocation?: boolean;
+  nonIssueInvoice?: boolean;
+  offSiteProvidedService?: 'TEMPORARY_EXIT' | 'MOVE_TO_SAME_ENTITY';
+  otherBranch?: number;
+  providedServiceCategory?:
+    | 'CATALOG_WORK'
+    | 'CUSTOM_AGREEMENT'
+    | 'DAMAGE_ASSESSMENT'
+    | 'FREE_SERVICE'
+    | 'OTHER'
+    | 'WARRANTY_COMPENSATION';
+  providedServiceCategoryOther?: string;
+  reasonNonIssueType?:
+    | 'FREE_SERVICE'
+    | 'GUARANTEE_PROVISION_COMPENSATION'
+    | 'SELF_USE';
+  status?: 'active' | 'completed' | 'cancelled' | 'noInvoiceYet';
+  updatesHistory?: {
+    comments?: string;
+    dateTime?: Date | string;
+    updateInfo?: string;
+    userId?: string; // ObjectId as string
+  }[];
+  vehicleCategory?: string;
+  vehicleFactory?: string;
+  vehicleId?: string; // ObjectId as string
+  vehicleMovementPurpose?:
+    | 'RENTAL'
+    | 'REPAIR'
+    | 'PERSONAL_USE'
+    | 'FREE_SERVICE'
+    | 'OTHER';
+  vehicleRegNumber?: string;
+  vehicleReturnLocation?: string;
+  venueId?: string; // ObjectId as string
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+}
 
 interface AadeInvoice {
   issuer: {
@@ -653,10 +831,13 @@ const printPaymentSlip = async (
       drawLine2(printer);
       printer.newLine();
       let discountAmount = '';
-      if (discount.type === 'FIXED') {
-        discountAmount = (discount.amount / 100).toString() + '€';
-      } else {
-        discountAmount = discount.amount.toString() + '%';
+      console.log(discount.type);
+      if (discount.type !== undefined) {
+        if (discount.type === 'FIXED') {
+          discountAmount = (discount.amount / 100).toString() + '€';
+        } else {
+          discountAmount = discount.amount.toString() + '%';
+        }
       }
       if (discountAmount !== '') {
         printer.println(

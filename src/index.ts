@@ -23,6 +23,7 @@ import { paymentSlip } from './modules/printer';
 import { parkingTicket } from './modules/printer';
 import { orderForm } from './modules/printer';
 import { checkPrinters } from './modules/printer';
+import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
@@ -117,6 +118,7 @@ const main = async () => {
   app.route('/print-payment-slip').post(paymentSlip);
   app.route('/print-order-form').post(orderForm);
   app.route('/parking-ticket').post(parkingTicket);
+  app.route('/print-pelatologio-record').post(pelatologioRecord);
 
   app
     .route('/logs')
