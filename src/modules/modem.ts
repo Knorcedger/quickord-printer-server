@@ -74,6 +74,7 @@ export const createModem = async (settings: IModemSettings) => {
         headers: {
           'Content-Type': 'application/json',
           'api-version': 'v3',
+          'apikey': 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
           appId: 'desktop',
         },
         method: 'POST',
