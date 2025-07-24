@@ -1480,9 +1480,16 @@ export const printOrder = async (
 
           // Pad title and amount for alignment
           let productLine = `${product.quantity}x ${product.title}`;
-          if (isEdit && product.quantityChanged) {
+          if (
+            product.updateStatus?.includes('NEW') &&
+            isEdit &&
+            product.quantityChanged
+          ) {
+            productLine = `${product.quantity}x ${product.title}`;
+          } else if (isEdit && product.quantityChanged) {
             productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
           }
+
           let priceStr = '';
           if (
             settings.priceOnOrder === undefined ||
