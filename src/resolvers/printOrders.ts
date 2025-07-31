@@ -233,7 +233,7 @@ export const Order = z.object({
     })
     .optional(),
   appId: z
-    .enum(['kiosk', 'desktop'], {
+    .enum(['kiosk', 'desktop', 'mobile', 'customer'], {
       description: 'The type of the printer.',
       invalid_type_error: 'printerType must be a valid PrinterType.',
       required_error: 'printerType is required.',
