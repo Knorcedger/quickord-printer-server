@@ -1226,10 +1226,6 @@ export const printOrder = async (
         printer?.clear();
         continue;
       }
-      if (appId === 'kiosk' && settings?.printerType !== 'KIOSK') {
-        console.log('it is not kiosk order');
-        continue;
-      }
       if (settings.orderMethodsToPrint !== undefined) {
         if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
           console.log('orderType is not in orderMethodsToPrint');
@@ -1458,6 +1454,10 @@ export const printOrder = async (
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
+          if (appId !== 'kiosk' && settings.printerType === 'KIOSK') {
+            console.log('Skipping product');
+            return;
+          }
           if (isEdit) {
             if (product.updateStatus?.includes('NEW')) {
               printer.println(`${translations.printOrder.new[lang]}`);

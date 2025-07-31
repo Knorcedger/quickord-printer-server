@@ -232,6 +232,14 @@ export const Order = z.object({
       invalid_type_error: 'waiterComment must be a string.',
     })
     .optional(),
+  appId: z
+    .enum(['kiosk', 'desktop'], {
+      description: 'The type of the printer.',
+      invalid_type_error: 'printerType must be a valid PrinterType.',
+      required_error: 'printerType is required.',
+    })
+    .optional()
+    .default('desktop'),
   isEdit: z
     .boolean({
       invalid_type_error: 'isEdit must be a boolean.',
