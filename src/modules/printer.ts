@@ -1214,6 +1214,7 @@ export const checkPrinters = async () => {
 
 export const printOrder = async (
   order: z.infer<typeof Order>,
+  appId: string = 'desktop',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1223,6 +1224,10 @@ export const printOrder = async (
       printer?.clear();
       if (!settings || !printer) {
         printer?.clear();
+        continue;
+      }
+      if (appId === 'kiosk' && settings?.printerType !== 'KIOSK') {
+        console.log('it is not kiosk order');
         continue;
       }
       if (settings.orderMethodsToPrint !== undefined) {

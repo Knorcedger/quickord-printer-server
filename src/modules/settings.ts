@@ -44,9 +44,10 @@ export const PrinterSettings = z.object({
       description: 'Whether to print the VAT analysis on the receipt.',
       invalid_type_error: 'vatAnalysis must be a boolean.',
       required_error: 'vatAnalysis is required.',
-    }).optional()
+    })
+    .optional()
     .default(true),
-    priceOnOrder: z
+  priceOnOrder: z
     .boolean({
       description: 'Whether to print the price on the order.',
       invalid_type_error: 'priceOnOrder must be a boolean.',
@@ -61,6 +62,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP']),
+  printerType: z
+    .enum(['KIOSK', 'DESKTOP'], {
+      description: 'The type of the printer.',
+      invalid_type_error: 'printerType must be a valid PrinterType.',
+      required_error: 'printerType is required.',
+    })
+    .optional()
+    .default('DESKTOP'),
   orderMethodsToPrint: z
     .array(z.string(), {
       description: 'The order methods to print on the receipt.',
