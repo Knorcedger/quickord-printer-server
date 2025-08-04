@@ -11,7 +11,7 @@ import { homepage } from './homepage';
 import logger from './modules/logger';
 import { initModem } from './modules/modem';
 import scanNetworkForConnections from './modules/network';
-import { setupPrinters, paymentReceipt } from './modules/printer';
+import { setupPrinters, paymentReceipt, rateUs } from './modules/printer';
 import {
   getSettings,
   loadSettings,
@@ -119,6 +119,7 @@ const main = async () => {
   app.route('/print-order-form').post(orderForm);
   app.route('/parking-ticket').post(parkingTicket);
   app.route('/print-pelatologio-record').post(pelatologioRecord);
+  app.route('/print-rate-us').post(rateUs);
 
   app
     .route('/logs')
