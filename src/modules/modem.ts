@@ -66,15 +66,14 @@ export const createModem = async (settings: IModemSettings) => {
       const res = await fetch(nconf.get('QUICKORD_API_URL'), {
         body: JSON.stringify({
           query: `mutation {
-    incomingPhoneCall_V3(phoneNumber: "${data}", venueId:"${settings.venueId}"){
+    incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}"){
     status
     }
     }`,
         }),
         headers: {
           'Content-Type': 'application/json',
-          'api-version': 'v3',
-          'apikey': 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
+          apikey: 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
           appId: 'desktop',
         },
         method: 'POST',

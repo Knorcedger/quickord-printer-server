@@ -271,7 +271,6 @@ export const rateUs = (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     printRateUs(
       req.body.rateUsUrl,
-      req.body.logoUrl,
       req.body.rateUsStars,
       req.body.lang || 'el'
     );
@@ -369,7 +368,6 @@ const formatToGreek = (date: Date | string): string => {
 
 const printRateUs = async (
   rateUsUrl: string,
-  logoUrl: string,
   rateUsStars: string,
   lang: SupportedLanguages = 'el'
 ) => {
@@ -381,22 +379,31 @@ const printRateUs = async (
       if (!settings || !printer) {
         continue;
       }
-      /* if (settings.documentsToPrint !== undefined) {
-        if (!settings.documentsToPrint?.includes('PARKINGTICKET')) {
-          console.log('PARKINGTICKET is not in documentsToPrint');
+      if (settings.documentsToPrint !== undefined) {
+        if (!settings.documentsToPrint?.includes('RATEUS')) {
+          console.log('RATEUS is not in documentsToPrint');
           continue;
         }
+      }
+      /*if (
+        !settings.logoUtils?.whereToPrint?.includes('rateUs') ||
+        settings.logoUtils?.logoUrl === null
+      ) {
+        console.log('logoUtils are not defined properly');
+        continue;
       }*/
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(true);
       printer.setTextSize(1, 0);
-      const logo = await axios.get(logoUrl, { responseType: 'arraybuffer' });
-      const processedImage = await sharp(logo.data)
+      /* const logo = await axios.get(settings?.logoUtils?.logoUrl || '', {
+        responseType: 'arraybuffer',
+      });*/
+      /* const processedImage = await sharp(logo.data)
         .resize(334)
         .threshold(118)
         .toBuffer();
-      printer.printImageBuffer(processedImage);
+      printer.printImageBuffer(processedImage);*/
       printer.newLine();
       printer.println('ΚΑΝΤΕ ΜΑΣ,');
       printer.setTextSize(0, 0);

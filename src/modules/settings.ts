@@ -16,6 +16,33 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
   required_error: 'textSize is required.',
 });
 
+const logoUtilsSchema = z
+  .object({
+    whereToPrint: z
+      .array(
+        z.enum(['receipt', 'rateUs'], {
+          description: 'Allowed features to enable logo for.',
+          invalid_type_error:
+            'Each item in whereToPrint must be "receipt" or "rateUs".',
+        })
+      )
+      .nonempty({
+        message:
+          'whereToPrint must be a non-empty array containing "receipt" or "rateUs".',
+      }),
+    logoUrl: z
+      .string({
+        description: 'The URL of the logo to print on the receipt.',
+        invalid_type_error: 'logoUrl must be a string.',
+        required_error: 'logoUrl is required.',
+      })
+      .url('logoUrl must be a valid URL')
+      .nullable()
+      .optional(),
+  })
+  .optional()
+  .nullable();
+
 export const PrinterTextOptions = z.enum(
   ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
   {
@@ -39,6 +66,7 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
+  // logoUtils: logoUtilsSchema.optional().nullable(),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',
@@ -61,7 +89,7 @@ export const PrinterSettings = z.object({
       required_error: 'documentsToPrint is required.',
     })
     .optional()
-    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP']),
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'RATEUS']),
   printerType: z
     .enum(['KIOSK', 'DESKTOP'], {
       description: 'The type of the printer.',
