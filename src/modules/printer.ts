@@ -17,8 +17,7 @@ import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-import { Z_FIXED } from 'zlib';
-import { add } from 'nconf';
+import { add, set } from 'nconf';
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
@@ -796,9 +795,14 @@ const printOrderForm = async (
         `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
       );
       printer.newLine();
-      printer.println(
-        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
-      );
+      if (settings.poweredByQuickord) {
+        printer.println(
+          tr(
+            `${translations.printOrder.poweredBy[lang]}`,
+            settings.transliterate
+          )
+        );
+      }
       printer.newLine();
       printer.println(
         tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
@@ -968,9 +972,14 @@ const printPaymentSlip = async (
         `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
       );
       printer.newLine();
-      printer.println(
-        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
-      );
+      if (settings.poweredByQuickord) {
+        printer.println(
+          tr(
+            `${translations.printOrder.poweredBy[lang]}`,
+            settings.transliterate
+          )
+        );
+      }
       printer.newLine();
       printer.println(
         tr(
@@ -1230,12 +1239,14 @@ const printPaymentReceipt = async (
           `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
         );
         printer.newLine();
-        printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(
+              `${translations.printOrder.poweredBy[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         printer.newLine();
         printer.println(
           tr(
@@ -1393,6 +1404,7 @@ export const printOrder = async (
         ]);
         if (order?.orderType === 'DINE_IN') {
           if (order?.tableNumber) {
+            printer.bold(true);
             printer.table([
               tr(
                 `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
@@ -1407,6 +1419,7 @@ export const printOrder = async (
                   ]
                 : []),
             ]);
+            printer.bold(false);
           }
         }
 
@@ -1533,12 +1546,14 @@ export const printOrder = async (
           [];
 
         printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.startOrder[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.startOrder) {
+          printer.println(
+            tr(
+              `${translations.printOrder.startOrder[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         drawLine2(printer);
         printer.alignLeft();
         productsToPrint.forEach((product) => {
@@ -1798,13 +1813,14 @@ export const printOrder = async (
         }
 
         printer.newLine();
-
-        printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(
+              `${translations.printOrder.poweredBy[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         printer.newLine();
         printer.newLine();
         printer.alignCenter();
