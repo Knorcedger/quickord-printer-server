@@ -52,12 +52,6 @@ jobs:
       - name: Install NASM
         if: steps.cache-nasm.outputs.cache-hit != 'true'
         run: choco install nasm -y
-      - name: Add NASM to PATH
-        run: echo "C:\ProgramData\chocolatey\lib\nasm\tools" >> $GITHUB_PATH
-      #  - name: Install Visual Studio Build Tools
-      #   run: |
-      #    choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --quiet --norestart --includeRecommended"
-      # shell: powershell
 
       - name: Install Nexe globally
         run: npm install -g nexe
@@ -76,4 +70,5 @@ jobs:
         run: |
           FOR /F "usebackq tokens=*" %%i IN (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) DO SET VS_PATH=%%i
           call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          set PATH=%PATH%;C:\ProgramData\chocolatey\lib\nasm\tools
           bash ./deploy.sh
