@@ -67,6 +67,23 @@ export const PrinterSettings = z.object({
     .optional()
     .default([]),
   // logoUtils: logoUtilsSchema.optional().nullable(),
+  poweredByQuickord: z
+    .boolean({
+      description:
+        'Whether to print the "Powered by Quickord" message on the receipt.',
+      invalid_type_error: 'poweredByQuickord must be a boolean.',
+      required_error: 'poweredByQuickord is required.',
+    })
+    .optional()
+    .default(true),
+  startOrder: z
+    .boolean({
+      description: 'Whether to print the start order on the receipt.',
+      invalid_type_error: 'startOrder must be a boolean.',
+      required_error: 'startOrder is required.',
+    })
+    .optional()
+    .default(true),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',

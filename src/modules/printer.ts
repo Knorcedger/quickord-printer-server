@@ -6,9 +6,6 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
-import sharp from 'sharp';
-import fetch from 'node-fetch';
-import axios from 'axios';
 import { date, z } from 'zod';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
@@ -17,8 +14,7 @@ import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-import { Z_FIXED } from 'zlib';
-import { add } from 'nconf';
+import { add, set } from 'nconf';
 const DEFAULT_CODE_PAGE = 66;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
@@ -267,20 +263,20 @@ export const parkingTicket = (
     res.status(400).send(error.message);
   }
 };
-export const rateUs = (req: Request<{}, any, any>, res: Response<{}, any>) => {
-  try {
-    printRateUs(
-      req.body.rateUsUrl,
-      req.body.rateUsStars,
-      req.body.lang || 'el'
-    );
-    res.status(200).send({ status: 'done' });
-  } catch (error) {
-    logger.error('Error printing test page:', error);
-    res.status(400).send(error.message);
-  }
-};
-
+//export const rateUs = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+//  try {
+//    printRateUs(
+//      req.body.rateUsUrl,
+//      req.body.rateUsStars,
+//      req.body.lang || 'el'
+//    );
+//    res.status(200).send({ status: 'done' });
+//  } catch (error) {
+//    logger.error('Error printing test page:', error);
+//    res.status(400).send(error.message);
+//  }
+//};
+//
 const formatLine = (left, right) => {
   const space = 40 - left.length - right.length;
   return left + ' '.repeat(space > 0 ? space : 1) + right;
@@ -366,76 +362,76 @@ const formatToGreek = (date: Date | string): string => {
   });
 };
 
-const printRateUs = async (
-  rateUsUrl: string,
-  rateUsStars: string,
-  lang: SupportedLanguages = 'el'
-) => {
-  for (let i = 0; i < printers.length; i += 1) {
-    try {
-      const settings = printers[i]?.[1];
-      const printer = printers[i]?.[0];
-      printer?.clear();
-      if (!settings || !printer) {
-        continue;
-      }
-      if (settings.documentsToPrint !== undefined) {
-        if (!settings.documentsToPrint?.includes('RATEUS')) {
-          console.log('RATEUS is not in documentsToPrint');
-          continue;
-        }
-      }
-      /*if (
-        !settings.logoUtils?.whereToPrint?.includes('rateUs') ||
-        settings.logoUtils?.logoUrl === null
-      ) {
-        console.log('logoUtils are not defined properly');
-        continue;
-      }*/
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.bold(true);
-      printer.setTextSize(1, 0);
-      /* const logo = await axios.get(settings?.logoUtils?.logoUrl || '', {
-        responseType: 'arraybuffer',
-      });*/
-      /* const processedImage = await sharp(logo.data)
-        .resize(334)
-        .threshold(118)
-        .toBuffer();
-      printer.printImageBuffer(processedImage);*/
-      printer.newLine();
-      printer.println('ΚΑΝΤΕ ΜΑΣ,');
-      printer.setTextSize(0, 0);
-      printer.println('ΜΙΑ ΑΞΙΟΛΟΓΗΣΗ ΣΤΟ GOOGLE MAPS');
-
-      const rateUs = await axios.get(rateUsStars, {
-        responseType: 'arraybuffer',
-      });
-      const rateUsImage = await sharp(rateUs.data)
-        .resize(384) // resize width to fit printer
-        .threshold(128) // convert to black and white
-        .toBuffer();
-      printer.printImageBuffer(rateUsImage);
-      printer.printQR(rateUsUrl, {
-        cellSize: 3,
-        model: 3,
-        correction: 'Q',
-      });
-      printer.cut();
-      printer
-        .execute({
-          waitForResponse: false,
-        })
-        .then(() => {
-          printer?.clear();
-          logger.info('Printed payment');
-        });
-    } catch (error) {
-      logger.error('Print failed:', error);
-    }
-  }
-};
+//const printRateUs = async (
+//  rateUsUrl: string,
+//  rateUsStars: string,
+//  lang: SupportedLanguages = 'el'
+//) => {
+//  for (let i = 0; i < printers.length; i += 1) {
+//    try {
+//      const settings = printers[i]?.[1];
+//      const printer = printers[i]?.[0];
+//      printer?.clear();
+//      if (!settings || !printer) {
+//        continue;
+//      }
+//      if (settings.documentsToPrint !== undefined) {
+//        if (!settings.documentsToPrint?.includes('RATEUS')) {
+//          console.log('RATEUS is not in documentsToPrint');
+//          continue;
+//        }
+//      }
+//      /*if (
+//        !settings.logoUtils?.whereToPrint?.includes('rateUs') ||
+//        settings.logoUtils?.logoUrl === null
+//      ) {
+//        console.log('logoUtils are not defined properly');
+//        continue;
+//      }*/
+//      printer.alignCenter();
+//      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+//      printer.bold(true);
+//      printer.setTextSize(1, 0);
+//      /* const logo = await axios.get(settings?.logoUtils?.logoUrl || '', {
+//        responseType: 'arraybuffer',
+//      });*/
+//      /* const processedImage = await sharp(logo.data)
+//        .resize(334)
+//        .threshold(118)
+//        .toBuffer();
+//      printer.printImageBuffer(processedImage);*/
+//      printer.newLine();
+//      printer.println('ΚΑΝΤΕ ΜΑΣ,');
+//      printer.setTextSize(0, 0);
+//      printer.println('ΜΙΑ ΑΞΙΟΛΟΓΗΣΗ ΣΤΟ GOOGLE MAPS');
+//
+//      const rateUs = await axios.get(rateUsStars, {
+//        responseType: 'arraybuffer',
+//      });
+//      const rateUsImage = await sharp(rateUs.data)
+//        .resize(384) // resize width to fit printer
+//        .threshold(128) // convert to black and white
+//        .toBuffer();
+//      printer.printImageBuffer(rateUsImage);
+//      printer.printQR(rateUsUrl, {
+//        cellSize: 3,
+//        model: 3,
+//        correction: 'Q',
+//      });
+//      printer.cut();
+//      printer
+//        .execute({
+//          waitForResponse: false,
+//        })
+//        .then(() => {
+//          printer?.clear();
+//          logger.info('Printed payment');
+//        });
+//    } catch (error) {
+//      logger.error('Print failed:', error);
+//    }
+//  }
+//};
 
 const printPelatologioRecord = async (
   pelatologioRecord: PelatologioRecord,
@@ -796,9 +792,14 @@ const printOrderForm = async (
         `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
       );
       printer.newLine();
-      printer.println(
-        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
-      );
+      if (settings.poweredByQuickord) {
+        printer.println(
+          tr(
+            `${translations.printOrder.poweredBy[lang]}`,
+            settings.transliterate
+          )
+        );
+      }
       printer.newLine();
       printer.println(
         tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
@@ -968,9 +969,14 @@ const printPaymentSlip = async (
         `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
       );
       printer.newLine();
-      printer.println(
-        tr(`${translations.printOrder.poweredBy[lang]}`, settings.transliterate)
-      );
+      if (settings.poweredByQuickord) {
+        printer.println(
+          tr(
+            `${translations.printOrder.poweredBy[lang]}`,
+            settings.transliterate
+          )
+        );
+      }
       printer.newLine();
       printer.println(
         tr(
@@ -1230,12 +1236,14 @@ const printPaymentReceipt = async (
           `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
         );
         printer.newLine();
-        printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(
+              `${translations.printOrder.poweredBy[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         printer.newLine();
         printer.println(
           tr(
@@ -1393,6 +1401,7 @@ export const printOrder = async (
         ]);
         if (order?.orderType === 'DINE_IN') {
           if (order?.tableNumber) {
+            printer.bold(true);
             printer.table([
               tr(
                 `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
@@ -1407,6 +1416,7 @@ export const printOrder = async (
                   ]
                 : []),
             ]);
+            printer.bold(false);
           }
         }
 
@@ -1533,12 +1543,14 @@ export const printOrder = async (
           [];
 
         printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.startOrder[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.startOrder) {
+          printer.println(
+            tr(
+              `${translations.printOrder.startOrder[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         drawLine2(printer);
         printer.alignLeft();
         productsToPrint.forEach((product) => {
@@ -1798,13 +1810,14 @@ export const printOrder = async (
         }
 
         printer.newLine();
-
-        printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(
+              `${translations.printOrder.poweredBy[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         printer.newLine();
         printer.newLine();
         printer.alignCenter();
