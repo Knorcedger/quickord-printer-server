@@ -29,6 +29,7 @@ jobs:
       - name: Install NASM
         if: steps.cache-nasm.outputs.cache-hit != 'true'
         run: choco install nasm -y
-
+      - name: Add NASM to PATH
+        run: echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Check NASM version
         run: nasm -v
