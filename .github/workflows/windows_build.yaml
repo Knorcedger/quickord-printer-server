@@ -15,21 +15,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache NASM
-        id: cache-nasm
-        uses: actions/cache@v3
-        with:
-          path: |
-            C:\ProgramData\chocolatey\lib\nasm
-            C:\ProgramData\chocolatey\bin\nasm.exe
-          key: nasm-Windows-v3
-
-      - name: Install NASM if missing
-        if: steps.cache-nasm.outputs.cache-hit != 'true'
+      - name: Install NASM
         run: choco install nasm -y
 
       - name: Add NASM to PATH
-        run: echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: |
+          echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          echo "C:\ProgramData\chocolatey\lib\nasm\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Check NASM version
         run: nasm -v
