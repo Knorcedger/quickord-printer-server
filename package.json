@@ -60,6 +60,7 @@
     "@types/express-fileupload": "^1.4.4",
     "@types/jest": "^29.5.10",
     "@types/nconf": "^0.10.6",
+    "@types/node-fetch": "^2.6.13",
     "@types/ping": "^0.4.4",
     "@types/signale": "^1.4.7",
     "@types/unzipper": "^0.10.11",
