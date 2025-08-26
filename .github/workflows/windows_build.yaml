@@ -53,6 +53,11 @@ jobs:
         if: steps.cache-nasm.outputs.cache-hit != 'true'
         run: choco install nasm -y
 
+      - name: Install Visual Studio Build Tools
+        run: |
+          choco install visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools --quiet --norestart --includeRecommended"
+        shell: powershell
+
       - name: Install Nexe globally
         run: npm install -g nexe
 
