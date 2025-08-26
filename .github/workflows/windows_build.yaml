@@ -13,9 +13,55 @@ jobs:
     runs-on: windows-latest
     # timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # Checkout the repository
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
+      # Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23.11.0
       - uses: ilammy/setup-nasm@v1
+      # Cache Node modules
+      - name: Cache Node modules
+        id: cache-node
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/node_modules
+            ~/.npm
+          key: node-modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-
 
-      - name: Check NASM version
-        run: nasm -v
+      # Install Node dependencies if cache missed
+      - name: Install dependencies
+        if: steps.cache-node.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # Cache NASM
+      - name: Cache NASM
+        id: cache-nasm
+        uses: actions/cache@v3
+        with:
+          path: C:\ProgramData\chocolatey\lib\nasm
+          key: nasm-${{ runner.os }}-v3
+
+      - name: Install Nexe globally
+        run: npm install -g nexe
+
+      # Cache Nexe compiled Node binaries
+      - name: Cache Nexe
+        id: cache-nexe
+        uses: actions/cache@v3
+        with:
+          path: C:\Users\runneradmin\.nexe
+          key: nexe-${{ runner.os }}-node-23.11.0
+      # Run deploy.sh with MSVC initialized
+      - name: Run deploy.sh with MSVC
+        shell: cmd
+        run: |
+          FOR /F "usebackq tokens=*" %%i IN (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) DO SET VS_PATH=%%i
+          call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          bash ./deploy.sh
