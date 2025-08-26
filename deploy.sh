@@ -1,7 +1,5 @@
 #!/bin/bash
-if [ -n "$OS" ] && [[ "$OS" == *"Windows"* ]]; then
-  cmd.exe /C '"C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64'
-fi
+
 # Create version file
 node ./scripts/create_version_file.js || { echo "Failed to create version file"; exit 1; }
 

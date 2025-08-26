@@ -61,7 +61,17 @@ jobs:
       - name: Install Nexe globally
         run: npm install -g nexe
 
-      # Run deploy.sh
-      - name: Run deploy.sh
-        shell: bash
-        run: ./deploy.sh
+      # Cache Nexe compiled Node binaries
+      - name: Cache Nexe
+        id: cache-nexe
+        uses: actions/cache@v3
+        with:
+          path: C:\Users\runneradmin\.nexe
+          key: nexe-${{ runner.os }}-node-23.11.0
+
+      # Run deploy.sh with MSVC initialized
+      - name: Run deploy.sh with MSVC
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+          bash ./deploy.sh
