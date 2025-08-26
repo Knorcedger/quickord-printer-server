@@ -552,6 +552,7 @@ export const paymentReceipt = (
       req.body.issuerText,
       req.body.discount,
       req.body.tip,
+      req.body.appId,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -1079,6 +1080,7 @@ const printPaymentReceipt = async (
       }
     | {},
   tip: number,
+  appId: string,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1093,6 +1095,10 @@ const printPaymentReceipt = async (
         console.log('ALP is not in documentsToPrint');
         continue;
       }
+    }
+    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+      console.log('skipping because its kiosk printer from desktop');
+      continue;
     }
     for (let copies = 0; copies < settings.copies; copies += 1) {
       console.log('print copies: ', copies);
