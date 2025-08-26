@@ -13,14 +13,19 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      # Checkout the repository
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
+      # Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 23.11.0
 
+      # Cache Node modules
       - name: Cache Node modules
+        id: cache-node
         uses: actions/cache@v3
         with:
           path: |
@@ -30,8 +35,20 @@ jobs:
           restore-keys: |
             node-modules-${{ runner.os }}-
 
+      # Install Node dependencies if cache missed
       - name: Install dependencies
+        if: steps.cache-node.outputs.cache-hit != 'true'
         run: npm ci
 
+      # Cache NASM
+      - name: Cache NASM
+        id: cache-nasm
+        uses: actions/cache@v3
+        with:
+          path: C:\ProgramData\chocolatey\lib\nasm
+          key: nasm-${{ runner.os }}-v3
+
+      # Install NASM if not cached
       - name: Install NASM
+        if: steps.cache-nasm.outputs.cache-hit != 'true'
         run: choco install nasm -y
