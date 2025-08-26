@@ -52,6 +52,10 @@ jobs:
       - name: Install NASM
         if: steps.cache-nasm.outputs.cache-hit != 'true'
         run: choco install nasm -y
+
+      - name: Install Nexe globally
+        run: npm install -g nexe
+
       # Run deploy.sh
       - name: Run deploy.sh
         shell: bash
