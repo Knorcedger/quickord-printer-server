@@ -1,6 +1,9 @@
 name: Create release Windows
 
-on: workflow_call
+on:
+  push:
+    branches:
+      - spike-actions
 
 permissions:
   contents: write
