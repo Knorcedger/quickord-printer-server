@@ -63,6 +63,8 @@ jobs:
         with:
           path: C:\Users\runneradmin\.nexe
           key: nexe-${{ runner.os }}-node-23.11.0
+      - name: Add NASM to PATH
+        run: setx PATH "%PATH%;C:\ProgramData\chocolatey\lib\nasm\tools"
 
       # Run deploy.sh with MSVC initialized
       - name: Run deploy.sh with MSVC
