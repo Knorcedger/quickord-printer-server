@@ -73,5 +73,6 @@ jobs:
       - name: Run deploy.sh with MSVC
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+          FOR /F "usebackq tokens=*" %%i IN (`"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) DO SET VS_PATH=%%i
+          call "%VS_PATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
           bash ./deploy.sh
