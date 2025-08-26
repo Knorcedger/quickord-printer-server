@@ -18,10 +18,10 @@ jobs:
       - name: Install NASM
         run: choco install nasm -y
 
-      - name: Add NASM to PATH
+      - name: Add NASM to PATH dynamically
         run: |
-          echo "C:\ProgramData\chocolatey\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          echo "C:\ProgramData\chocolatey\lib\nasm\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $nasmPath = Get-ChildItem "C:\ProgramData\chocolatey\lib\nasm\tools" | Sort-Object Name -Descending | Select-Object -First 1
+          echo $nasmPath.FullName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Check NASM version
         run: nasm -v
