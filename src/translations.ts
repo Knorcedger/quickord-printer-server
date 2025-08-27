@@ -86,7 +86,7 @@ export default {
         en: 'DINE IN',
       },
       TAKE_AWAY_INSIDE: {
-        el: 'ΚΑΤΑΝΑΛΩΣΗ ΕΝΤΟΣ',
+        el: 'ΚΑΤ/ΣΗ ΕΝΤΟΣ',
         en: 'TAKE AWAY INSIDE',
       },
       TAKE_AWAY_PACKAGE: {

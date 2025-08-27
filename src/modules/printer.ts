@@ -1420,18 +1420,19 @@ export const printOrder = async (
           }
         }
 
-        if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
-          printer.setTextSize(1, 0);
-        } else {
-          changeTextSize(printer, settings?.textSize || 'NORMAL');
-        }
-
+       // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
+        //  printer.setTextSize(1, 0);
+      //  } else {
+      //    changeTextSize(printer, settings?.textSize || 'NORMAL');
+      //  }
+        printer.bold(true);
         printer.print(
           tr(
             `${translations.printOrder.orderType[lang]}:`,
             settings.transliterate
           )
         );
+        printer.bold(false);
         if (
           order.orderType === 'DINE_IN' ||
           order.orderType === 'TAKE_AWAY_INSIDE' ||
@@ -1445,12 +1446,13 @@ export const printOrder = async (
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
+        /*
         printer.println(
           tr(
             `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`,
             settings.transliterate
           )
-        );
+        );*/
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
@@ -1487,7 +1489,9 @@ export const printOrder = async (
               settings.transliterate
             )
           );
+             if (settings.startOrder) {
           drawLine2(printer);
+             }
         }
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
@@ -1550,8 +1554,8 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-        }
         drawLine2(printer);
+        }
         printer.alignLeft();
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
