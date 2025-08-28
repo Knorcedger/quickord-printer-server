@@ -120,6 +120,7 @@ const main = async () => {
   app.route('/print-order-form').post(orderForm);
   app.route('/print-parking-ticket').post(parkingTicket);
   app.route('/print-pelatologio-record').post(pelatologioRecord);
+  app.route('/print-text').post(pelatologioRecord);
   //app.route('/print-rate-us').post(rateUs);
 
   app

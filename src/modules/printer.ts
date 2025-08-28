@@ -242,6 +242,57 @@ export const pelatologioRecord = (
     res.status(400).send(error.message);
   }
 };
+const printTextFunc = async (
+  text: string,
+  alignment: 'left' | 'center' | 'right',
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+      printer?.clear();
+      if (!settings || !printer) {
+        continue;
+      }
+      if (!settings.documentsToPrint?.includes('TEXT')) {
+        console.log('TEXT is not in documentsToPrint');
+        continue;
+      }
+      if (alignment === 'left') {
+        printer.alignLeft();
+      } else if (alignment === 'center') {
+        printer.alignCenter();
+      } else if (alignment === 'right') {
+        printer.alignRight();
+      }
+      printer.println(text);
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          printer?.clear();
+          logger.info('Printed text');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
+export const printText = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printTextFunc(req.body.text, req.body.alignment, req.body.lang || 'el');
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 export const parkingTicket = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -1383,7 +1434,7 @@ const printMyPelatesReceipt = async (
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
         const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
-        const roundedSum = Number(sumAmount )
+        const roundedSum = Number(sumAmount)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
@@ -1607,11 +1658,11 @@ export const printOrder = async (
           }
         }
 
-       // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
+        // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
         //  printer.setTextSize(1, 0);
-      //  } else {
-      //    changeTextSize(printer, settings?.textSize || 'NORMAL');
-      //  }
+        //  } else {
+        //    changeTextSize(printer, settings?.textSize || 'NORMAL');
+        //  }
         printer.bold(true);
         printer.print(
           tr(
@@ -1676,9 +1727,9 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-             if (settings.startOrder) {
-          drawLine2(printer);
-             }
+          if (settings.startOrder) {
+            drawLine2(printer);
+          }
         }
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
@@ -1741,7 +1792,7 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-        drawLine2(printer);
+          drawLine2(printer);
         }
         printer.alignLeft();
        
