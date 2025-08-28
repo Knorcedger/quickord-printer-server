@@ -266,7 +266,77 @@ const printTextFunc = async (
       } else if (alignment === 'right') {
         printer.alignRight();
       }
-      printer.println(text);
+      console.log(`Printing text with alignment ${text}`);
+      let index = 0;
+      let buffer = '';
+      let formatting = { bold: false, italic: false, underline: false };
+
+      while (index < text.length) {
+        if (text[index] === '<') {
+          // Check for tags
+          const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
+          if (tagMatch) {
+            // Print current buffer before changing formatting
+            if (buffer) {
+              printer.bold(formatting.bold);
+              printer.underline(formatting.underline);
+              printer.print(buffer);
+              buffer = '';
+            }
+
+            const [, closing, tag] = tagMatch;
+            if (closing) {
+              // Closing tag
+              if (tag === 'b') formatting.bold = false;
+              if (tag === 'u') formatting.underline = false;
+              if (tag === 's1' || tag === 's2' || tag === 's3') {
+                changeTextSize(printer, 'NORMAL');
+              }
+            } else {
+              // Opening tag
+              if (tag === 'b') formatting.bold = true;
+              if (tag === 'u') formatting.underline = true;
+              if (tag === 's1') {
+                printer.setTextSize(1, 0);
+              }else if (tag === 's2') {
+                printer.setTextSize(1, 1);
+              }
+              else if (tag === 's3') {
+                printer.setTextSize(2, 2);
+              }
+              else if (tag === 's4') {
+                printer.setTextSize(3, 3);
+              }
+            }
+
+            index += tagMatch[0].length;
+            continue;
+          }
+        }
+
+        // Handle newline
+        if (text[index] === '\n') {
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.println(buffer);
+          buffer = '';
+          index++;
+          continue;
+        }
+
+        // Regular character
+        buffer += text[index];
+        index++;
+      }
+
+      // Print any remaining text
+      if (buffer) {
+        printer.bold(formatting.bold);
+
+        printer.underline(formatting.underline);
+        printer.print(buffer);
+      }
+
       printer.cut();
       printer
         .execute({
