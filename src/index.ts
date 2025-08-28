@@ -12,6 +12,7 @@ import logger from './modules/logger';
 import { initModem } from './modules/modem';
 import scanNetworkForConnections from './modules/network';
 import { setupPrinters, paymentReceipt } from './modules/printer';
+import { printText } from './modules/printer';
 import {
   getSettings,
   loadSettings,
@@ -120,6 +121,7 @@ const main = async () => {
   app.route('/print-order-form').post(orderForm);
   app.route('/print-parking-ticket').post(parkingTicket);
   app.route('/print-pelatologio-record').post(pelatologioRecord);
+  app.route('/print-text').post(printText);
   //app.route('/print-rate-us').post(rateUs);
 
   app

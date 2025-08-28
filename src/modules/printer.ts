@@ -242,6 +242,127 @@ export const pelatologioRecord = (
     res.status(400).send(error.message);
   }
 };
+const printTextFunc = async (
+  text: string,
+  alignment: 'left' | 'center' | 'right',
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    try {
+      const settings = printers[i]?.[1];
+      const printer = printers[i]?.[0];
+      printer?.clear();
+      if (!settings || !printer) {
+        continue;
+      }
+      if (!settings.documentsToPrint?.includes('TEXT')) {
+        console.log('TEXT is not in documentsToPrint');
+        continue;
+      }
+      if (alignment === 'left') {
+        printer.alignLeft();
+      } else if (alignment === 'center') {
+        printer.alignCenter();
+      } else if (alignment === 'right') {
+        printer.alignRight();
+      }
+      console.log(`Printing text with alignment ${text}`);
+      let index = 0;
+      let buffer = '';
+      let formatting = { bold: false, italic: false, underline: false };
+
+      while (index < text.length) {
+        if (text[index] === '<') {
+          // Check for tags
+          const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
+          if (tagMatch) {
+            // Print current buffer before changing formatting
+            if (buffer) {
+              printer.bold(formatting.bold);
+              printer.underline(formatting.underline);
+              printer.print(buffer);
+              buffer = '';
+            }
+
+            const [, closing, tag] = tagMatch;
+            if (closing) {
+              // Closing tag
+              if (tag === 'b') formatting.bold = false;
+              if (tag === 'u') formatting.underline = false;
+              if (tag === 's1' || tag === 's2' || tag === 's3') {
+                changeTextSize(printer, 'NORMAL');
+              }
+            } else {
+              // Opening tag
+              if (tag === 'b') formatting.bold = true;
+              if (tag === 'u') formatting.underline = true;
+              if (tag === 's1') {
+                printer.setTextSize(1, 0);
+              }else if (tag === 's2') {
+                printer.setTextSize(1, 1);
+              }
+              else if (tag === 's3') {
+                printer.setTextSize(2, 2);
+              }
+              else if (tag === 's4') {
+                printer.setTextSize(3, 3);
+              }
+            }
+
+            index += tagMatch[0].length;
+            continue;
+          }
+        }
+
+        // Handle newline
+        if (text[index] === '\n') {
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.println(buffer);
+          buffer = '';
+          index++;
+          continue;
+        }
+
+        // Regular character
+        buffer += text[index];
+        index++;
+      }
+
+      // Print any remaining text
+      if (buffer) {
+        printer.bold(formatting.bold);
+
+        printer.underline(formatting.underline);
+        printer.print(buffer);
+      }
+
+      printer.cut();
+      printer
+        .execute({
+          waitForResponse: false,
+        })
+        .then(() => {
+          printer?.clear();
+          logger.info('Printed text');
+        });
+    } catch (error) {
+      logger.error('Print failed:', error);
+    }
+  }
+};
+export const printText = (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    printTextFunc(req.body.text, req.body.alignment, req.body.lang || 'el');
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 export const parkingTicket = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -1383,7 +1504,7 @@ const printMyPelatesReceipt = async (
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
         const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
-        const roundedSum = Number(sumAmount )
+        const roundedSum = Number(sumAmount)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
@@ -1607,11 +1728,11 @@ export const printOrder = async (
           }
         }
 
-       // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
+        // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
         //  printer.setTextSize(1, 0);
-      //  } else {
-      //    changeTextSize(printer, settings?.textSize || 'NORMAL');
-      //  }
+        //  } else {
+        //    changeTextSize(printer, settings?.textSize || 'NORMAL');
+        //  }
         printer.bold(true);
         printer.print(
           tr(
@@ -1676,9 +1797,9 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-             if (settings.startOrder) {
-          drawLine2(printer);
-             }
+          if (settings.startOrder) {
+            drawLine2(printer);
+          }
         }
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
@@ -1741,7 +1862,7 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-        drawLine2(printer);
+          drawLine2(printer);
         }
         printer.alignLeft();
        
