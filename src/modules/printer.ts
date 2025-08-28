@@ -1113,6 +1113,7 @@ const printPaymentReceipt = async (
         continue;
       }
     }
+    console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
       continue;
@@ -1501,6 +1502,7 @@ export const printOrder = async (
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
+     let dontPrint = false;
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
@@ -1742,11 +1744,14 @@ export const printOrder = async (
         drawLine2(printer);
         }
         printer.alignLeft();
+       
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
-          if (appId !== 'kiosk' && settings.printerType === 'KIOSK') {
-            console.log('Skipping product');
+          console.log(order.appId, settings.printerType);
+          console.log("cond", order.appId !== 'kiosk' && settings.printerType === 'KIOSK');
+          if (order.appId !== 'kiosk' && settings.printerType === 'KIOSK') {
+            dontPrint = true;
             return;
           }
           if (isEdit) {
@@ -1785,7 +1790,6 @@ export const printOrder = async (
           } else if (isEdit && product.quantityChanged) {
             productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
           }
-
           let priceStr = '';
           if (
             settings.priceOnOrder === undefined ||
@@ -2017,16 +2021,18 @@ export const printOrder = async (
         printer.cut();
       }
 
-      printer
-        .execute({
-          waitForResponse: false,
-        })
-        .then(() => {
+      if (!dontPrint) {
+        printer
+          .execute({
+            waitForResponse: false,
+          })
+          .then(() => {
           printer.clear();
           logger.info(
             `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
           );
         });
+      }
     } catch (error) {
       logger.error('Print failed:', error);
     }
