@@ -245,109 +245,113 @@ export const pelatologioRecord = (
 const printTextFunc = async (
   text: string,
   alignment: 'left' | 'center' | 'right',
+  copies: number = 1,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
-    try {
-      const settings = printers[i]?.[1];
-      const printer = printers[i]?.[0];
-      printer?.clear();
-      if (!settings || !printer) {
-        continue;
-      }
-      if (!settings.documentsToPrint?.includes('TEXT')) {
-        console.log('TEXT is not in documentsToPrint');
-        continue;
-      }
-      if (alignment === 'left') {
-        printer.alignLeft();
-      } else if (alignment === 'center') {
-        printer.alignCenter();
-      } else if (alignment === 'right') {
-        printer.alignRight();
-      }
-      console.log(`Printing text with alignment ${text}`);
-      let index = 0;
-      let buffer = '';
-      let formatting = { bold: false, italic: false, underline: false };
-
-      while (index < text.length) {
-        if (text[index] === '<') {
-          // Check for tags
-          const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
-          if (tagMatch) {
-            // Print current buffer before changing formatting
-            if (buffer) {
-              printer.bold(formatting.bold);
-              printer.underline(formatting.underline);
-              printer.print(buffer);
-              buffer = '';
-            }
-
-            const [, closing, tag] = tagMatch;
-            if (closing) {
-              // Closing tag
-              if (tag === 'b') formatting.bold = false;
-              if (tag === 'u') formatting.underline = false;
-              if (tag === 's1' || tag === 's2' || tag === 's3') {
-                changeTextSize(printer, 'NORMAL');
-              }
-            } else {
-              // Opening tag
-              if (tag === 'b') formatting.bold = true;
-              if (tag === 'u') formatting.underline = true;
-              if (tag === 's1') {
-                printer.setTextSize(1, 0);
-              }else if (tag === 's2') {
-                printer.setTextSize(1, 1);
-              }
-              else if (tag === 's3') {
-                printer.setTextSize(2, 2);
-              }
-              else if (tag === 's4') {
-                printer.setTextSize(3, 3);
-              }
-            }
-
-            index += tagMatch[0].length;
-            continue;
-          }
-        }
-
-        // Handle newline
-        if (text[index] === '\n') {
-          printer.bold(formatting.bold);
-          printer.underline(formatting.underline);
-          printer.println(buffer);
-          buffer = '';
-          index++;
+    for (let j = 0; j < copies; j += 1) {
+      console.log(`Printing copy ${j + 1} of ${copies} on printer ${i + 1}`);
+      try {
+        const settings = printers[i]?.[1];
+        const printer = printers[i]?.[0];
+        printer?.clear();
+        if (!settings || !printer) {
           continue;
         }
+        if (!settings.documentsToPrint?.includes('TEXT')) {
+          console.log('TEXT is not in documentsToPrint');
+          continue;
+        }
+        if (alignment === 'left') {
+          printer.alignLeft();
+        } else if (alignment === 'center') {
+          printer.alignCenter();
+        } else if (alignment === 'right') {
+          printer.alignRight();
+        }
+        console.log(`Printing text with alignment ${text}`);
+        let index = 0;
+        let buffer = '';
+        let formatting = { bold: false, italic: false, underline: false };
 
-        // Regular character
-        buffer += text[index];
-        index++;
+        while (index < text.length) {
+          if (text[index] === '<') {
+            // Check for tags
+            const tagMatch = text
+              .slice(index)
+              .match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
+            if (tagMatch) {
+              // Print current buffer before changing formatting
+              if (buffer) {
+                printer.bold(formatting.bold);
+                printer.underline(formatting.underline);
+                printer.print(buffer);
+                buffer = '';
+              }
+
+              const [, closing, tag] = tagMatch;
+              if (closing) {
+                // Closing tag
+                if (tag === 'b') formatting.bold = false;
+                if (tag === 'u') formatting.underline = false;
+                if (tag === 's1' || tag === 's2' || tag === 's3') {
+                  changeTextSize(printer, 'NORMAL');
+                }
+              } else {
+                // Opening tag
+                if (tag === 'b') formatting.bold = true;
+                if (tag === 'u') formatting.underline = true;
+                if (tag === 's1') {
+                  printer.setTextSize(1, 0);
+                } else if (tag === 's2') {
+                  printer.setTextSize(1, 1);
+                } else if (tag === 's3') {
+                  printer.setTextSize(2, 2);
+                } else if (tag === 's4') {
+                  printer.setTextSize(3, 3);
+                }
+              }
+
+              index += tagMatch[0].length;
+              continue;
+            }
+          }
+
+          // Handle newline
+          if (text[index] === '\n') {
+            printer.bold(formatting.bold);
+            printer.underline(formatting.underline);
+            printer.println(buffer);
+            buffer = '';
+            index++;
+            continue;
+          }
+
+          // Regular character
+          buffer += text[index];
+          index++;
+        }
+
+        // Print any remaining text
+        if (buffer) {
+          printer.bold(formatting.bold);
+
+          printer.underline(formatting.underline);
+          printer.print(buffer);
+        }
+
+        printer.cut();
+        printer
+          .execute({
+            waitForResponse: false,
+          })
+          .then(() => {
+            printer?.clear();
+            logger.info('Printed text');
+          });
+      } catch (error) {
+        logger.error('Print failed:', error);
       }
-
-      // Print any remaining text
-      if (buffer) {
-        printer.bold(formatting.bold);
-
-        printer.underline(formatting.underline);
-        printer.print(buffer);
-      }
-
-      printer.cut();
-      printer
-        .execute({
-          waitForResponse: false,
-        })
-        .then(() => {
-          printer?.clear();
-          logger.info('Printed text');
-        });
-    } catch (error) {
-      logger.error('Print failed:', error);
     }
   }
 };
@@ -356,7 +360,12 @@ export const printText = (
   res: Response<{}, any>
 ) => {
   try {
-    printTextFunc(req.body.text, req.body.alignment, req.body.lang || 'el');
+    printTextFunc(
+      req.body.text,
+      req.body.alignment,
+      req.body.copies,
+      req.body.lang || 'el'
+    );
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
@@ -1623,7 +1632,7 @@ export const printOrder = async (
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
-     let dontPrint = false;
+    let dontPrint = false;
     try {
       const settings = printers[i]?.[1];
       const printer = printers[i]?.[0];
@@ -1865,12 +1874,15 @@ export const printOrder = async (
           drawLine2(printer);
         }
         printer.alignLeft();
-       
+
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
           const leftAmount = `${product.quantity}x `.length;
           console.log(order.appId, settings.printerType);
-          console.log("cond", order.appId !== 'kiosk' && settings.printerType === 'KIOSK');
+          console.log(
+            'cond',
+            order.appId !== 'kiosk' && settings.printerType === 'KIOSK'
+          );
           if (order.appId !== 'kiosk' && settings.printerType === 'KIOSK') {
             dontPrint = true;
             return;
@@ -2148,11 +2160,11 @@ export const printOrder = async (
             waitForResponse: false,
           })
           .then(() => {
-          printer.clear();
-          logger.info(
-            `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
-          );
-        });
+            printer.clear();
+            logger.info(
+              `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`
+            );
+          });
       }
     } catch (error) {
       logger.error('Print failed:', error);
