@@ -251,10 +251,16 @@ const printTextFunc = async (
   for (let i = 0; i < printers.length; i += 1) {
     for (let j = 0; j < copies; j += 1) {
       console.log(`Printing copy ${j + 1} of ${copies} on printer ${i + 1}`);
+
       try {
+
         const settings = printers[i]?.[1];
         const printer = printers[i]?.[0];
-        printer?.clear();
+        if (printer) {
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+
+          printer.clear();
+        }
         if (!settings || !printer) {
           continue;
         }
@@ -283,6 +289,7 @@ const printTextFunc = async (
             if (tagMatch) {
               // Print current buffer before changing formatting
               if (buffer) {
+                  changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
                 printer.bold(formatting.bold);
                 printer.underline(formatting.underline);
                 printer.print(buffer);
@@ -298,6 +305,7 @@ const printTextFunc = async (
                   changeTextSize(printer, 'NORMAL');
                 }
               } else {
+                  changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
                 // Opening tag
                 if (tag === 'b') formatting.bold = true;
                 if (tag === 'u') formatting.underline = true;
@@ -319,6 +327,7 @@ const printTextFunc = async (
 
           // Handle newline
           if (text[index] === '\n') {
+            changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
             printer.bold(formatting.bold);
             printer.underline(formatting.underline);
             printer.println(buffer);
