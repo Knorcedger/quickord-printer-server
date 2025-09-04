@@ -343,6 +343,7 @@ const printTextFunc = async (
 
         // Print any remaining text
         if (buffer) {
+            changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
 
           printer.underline(formatting.underline);
