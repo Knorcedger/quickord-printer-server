@@ -14,8 +14,7 @@ import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-import { add, set } from 'nconf';
-const DEFAULT_CODE_PAGE = 66;
+const DEFAULT_CODE_PAGE = 7;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
