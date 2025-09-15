@@ -109,6 +109,10 @@ export default {
         el: 'BOX',
         en: 'BOX',
       },
+      GENERIC: {
+        el: 'GENERIC',
+        en: 'GENERIC',
+      },
     },
     orderWaiter: {
       el: 'ΣΕΡΒΙΤ',

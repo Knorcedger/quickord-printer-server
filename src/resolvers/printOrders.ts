@@ -89,6 +89,7 @@ export const OrderType = z.enum([
   'WOLT',
   'FAGI',
   'BOX',
+  'GENERIC',
 ]);
 export const PaymentType = z.enum([
   'DELIVERY_CARD',
@@ -233,7 +234,7 @@ export const Order = z.object({
     })
     .optional(),
   appId: z
-    .enum(['kiosk', 'desktop', 'mobile', 'customer'], {
+    .enum(['kiosk', 'desktop', 'mobile', 'customer', 'tiko'], {
       description: 'The type of the printer.',
       invalid_type_error: 'printerType must be a valid PrinterType.',
       required_error: 'printerType is required.',
