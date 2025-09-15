@@ -677,6 +677,9 @@ export const paymentSlip = (
       req.body.issuerText,
       req.body.orderNumber,
       req.body.discount,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -690,6 +693,7 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
+    console.log(req.headers);
     printPaymentReceipt(
       req.body.aadeInvoice,
       req.body.orderNumber,
@@ -698,6 +702,9 @@ export const paymentReceipt = (
       req.body.discount,
       req.body.tip,
       req.body.appId,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -734,6 +741,9 @@ export const orderForm = (
       req.body.waiter,
       req.body.orderNumber,
       req.body.issuerText,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -853,6 +863,7 @@ const printOrderForm = async (
   waiterName: string,
   orderNumber: number,
   issuerText: string,
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -957,10 +968,7 @@ const printOrderForm = async (
       printer.newLine();
       if (settings.poweredByQuickord) {
         printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
       }
       printer.newLine();
@@ -1004,6 +1012,7 @@ const printPaymentSlip = async (
     amount: number;
     type: 'PERCENTAGE' | 'FIXED' | 'NONE';
   },
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1134,10 +1143,7 @@ const printPaymentSlip = async (
       printer.newLine();
       if (settings.poweredByQuickord) {
         printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
       }
       printer.newLine();
@@ -1253,6 +1259,7 @@ const printPaymentReceipt = async (
     | {},
   tip: number,
   appId: string,
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1456,10 +1463,7 @@ const printPaymentReceipt = async (
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
-            tr(
-              `${translations.printOrder.poweredBy[lang]}`,
-              settings.transliterate
-            )
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
         printer.newLine();
@@ -1693,6 +1697,7 @@ export const checkPrinters = async () => {
 export const printOrder = async (
   order: z.infer<typeof Order>,
   appId: string = 'desktop',
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -2202,10 +2207,7 @@ export const printOrder = async (
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
-            tr(
-              `${translations.printOrder.poweredBy[lang]}`,
-              settings.transliterate
-            )
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
         printer.newLine();
