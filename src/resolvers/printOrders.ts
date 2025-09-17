@@ -102,6 +102,7 @@ export const PaymentType = z.enum([
   'ONLINE_FAGI',
   'ONLINE_BOX',
   'ONLINE_WOLT',
+  'ONLINE_CARD',
 ]);
 
 export const DeliveryInfo = z.object({
