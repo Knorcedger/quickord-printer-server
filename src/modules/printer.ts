@@ -14,8 +14,7 @@ import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-import { add, set } from 'nconf';
-const DEFAULT_CODE_PAGE = 66;
+const DEFAULT_CODE_PAGE = 7;
 
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
@@ -253,7 +252,6 @@ const printTextFunc = async (
       console.log(`Printing copy ${j + 1} of ${copies} on printer ${i + 1}`);
 
       try {
-
         const settings = printers[i]?.[1];
         const printer = printers[i]?.[0];
         if (printer) {
@@ -289,7 +287,10 @@ const printTextFunc = async (
             if (tagMatch) {
               // Print current buffer before changing formatting
               if (buffer) {
-                  changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+                changeCodePage(
+                  printer,
+                  settings?.codePage || DEFAULT_CODE_PAGE
+                );
                 printer.bold(formatting.bold);
                 printer.underline(formatting.underline);
                 printer.print(buffer);
@@ -305,7 +306,10 @@ const printTextFunc = async (
                   changeTextSize(printer, 'NORMAL');
                 }
               } else {
-                  changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+                changeCodePage(
+                  printer,
+                  settings?.codePage || DEFAULT_CODE_PAGE
+                );
                 // Opening tag
                 if (tag === 'b') formatting.bold = true;
                 if (tag === 'u') formatting.underline = true;
@@ -343,7 +347,7 @@ const printTextFunc = async (
 
         // Print any remaining text
         if (buffer) {
-            changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
 
           printer.underline(formatting.underline);
@@ -672,6 +676,9 @@ export const paymentSlip = (
       req.body.issuerText,
       req.body.orderNumber,
       req.body.discount,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -685,6 +692,7 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
+    console.log(req.headers);
     printPaymentReceipt(
       req.body.aadeInvoice,
       req.body.orderNumber,
@@ -693,6 +701,9 @@ export const paymentReceipt = (
       req.body.discount,
       req.body.tip,
       req.body.appId,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -729,6 +740,9 @@ export const orderForm = (
       req.body.waiter,
       req.body.orderNumber,
       req.body.issuerText,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -848,6 +862,7 @@ const printOrderForm = async (
   waiterName: string,
   orderNumber: number,
   issuerText: string,
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -952,10 +967,7 @@ const printOrderForm = async (
       printer.newLine();
       if (settings.poweredByQuickord) {
         printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
       }
       printer.newLine();
@@ -999,6 +1011,7 @@ const printPaymentSlip = async (
     amount: number;
     type: 'PERCENTAGE' | 'FIXED' | 'NONE';
   },
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1129,10 +1142,7 @@ const printPaymentSlip = async (
       printer.newLine();
       if (settings.poweredByQuickord) {
         printer.println(
-          tr(
-            `${translations.printOrder.poweredBy[lang]}`,
-            settings.transliterate
-          )
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
       }
       printer.newLine();
@@ -1167,13 +1177,13 @@ type ServiceType = {
 const SERVICES: Record<string, ServiceType> = {
   wolt: {
     value: 'wolt',
-    label_en: 'Wolt',
-    label_el: 'Wolt',
+    label_en: 'WOLT',
+    label_el: 'WOLT',
   },
   efood: {
     value: 'efood',
-    label_en: 'eFood',
-    label_el: 'eFood',
+    label_en: 'EFOOD',
+    label_el: 'EFOOD',
   },
   box: {
     value: 'box',
@@ -1182,46 +1192,56 @@ const SERVICES: Record<string, ServiceType> = {
   },
   fagi: {
     value: 'fagi',
-    label_en: 'Fagi',
-    label_el: 'Fagi',
+    label_en: 'FAGI',
+    label_el: 'FAGI',
   },
   store: {
     value: 'store',
-    label_en: 'Store',
-    label_el: 'Κατάστημα',
+    label_en: 'STORE',
+    label_el: 'ΚΑΤΑΣΤΗΜΑ',
   },
   phone: {
     value: 'phone',
-    label_en: 'Phone',
-    label_el: 'Τηλέφωνο',
+    label_en: 'PHONE',
+    label_el: 'ΤΗΛΕΦΩΝΟ',
   },
   takeAway: {
     value: 'takeAway',
-    label_en: 'Take Away',
-    label_el: 'Take Away',
+    label_en: 'TAKE AWAY',
+    label_el: 'TAKE AWAY',
   },
   dine_in: {
     value: 'dineIn',
-    label_en: 'Dine In',
-    label_el: 'Dine In',
+    label_en: 'DINE IN',
+    label_el: 'DINE IN',
+  },
+  generic: {
+    value: 'generic',
+    label_en: 'GENERIC',
+    label_el: 'ΓΕΝΙΚΗ',
+  },
+  take_away_inside: {
+    value: 'take_away_inside',
+    label_en: 'TAKE AWAY INSIDE',
+    label_el: 'ΠΑΡΑΛΑΒΗ ΕΝΤΟΣ',
   },
 };
 
 const DISCOUNTTYPES: Record<string, ServiceType> = {
   fixed: {
     value: 'fixed',
-    label_en: 'Fixed',
-    label_el: 'Σταθερή',
+    label_en: 'FIXED',
+    label_el: 'ΣΤΑΘΕΡΗ',
   },
   percent: {
     value: 'percent',
-    label_en: 'Percentage',
-    label_el: 'Ποσοστό',
+    label_en: 'PERCENTAGE',
+    label_el: 'ΠΟΣΟΣΤΟ',
   },
   none: {
     value: 'none',
-    label_en: 'Unknown',
-    label_el: 'Άγνωστη',
+    label_en: 'UNKNOWN',
+    label_el: 'ΑΓΝΩΣΤΗ',
   },
 };
 
@@ -1238,6 +1258,7 @@ const printPaymentReceipt = async (
     | {},
   tip: number,
   appId: string,
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1280,26 +1301,41 @@ const printPaymentReceipt = async (
           printer.println(issuerText);
         }
         printer.alignLeft();
-        const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
-        const day = rawDate.substring(8, 10);
-        const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
-        const year = rawDate.substring(0, 4);
+        const rawDate = new Date(aadeInvoice?.issue_date);
+        const day = rawDate.getDate();
+        const month = rawDate.getMonth() + 1;
+        const year = rawDate.getFullYear();
+        const hours = rawDate.getHours().toString().padStart(2, '0');
+        const minutes = rawDate.getMinutes().toString().padStart(2, '0');
+
         const formattedDate = `${day}/${month}/${year}`;
+        const formattedTime = `${hours}:${minutes}`;
+
         printer.newLine();
         printer.println(`#${orderNumber}`);
-        printer.println(
-          `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
-        );
+        printer.println(`${formattedDate},${formattedTime}`);
 
         printer.alignLeft();
         if (lang === 'el') {
-          printer.println(
-            `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
-          );
+          if (orderType.toLowerCase() !== 'generic') {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
+            );
+          } else {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+            );
+          }
         } else {
-          printer.println(
-            `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
-          );
+          if (orderType.toLowerCase() !== 'generic') {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
+            );
+          } else {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+            );
+          }
         }
         printer.newLine();
         printer.alignLeft();
@@ -1316,19 +1352,42 @@ const printPaymentReceipt = async (
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
-          const name = detail.name;
+          const name = detail.name.toUpperCase();
           const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
           )?.toFixed(2);
           const vat = `${detail.tax.rate}%`; // "24%"
           sumAmount += parseFloat(value);
-          printer.println(
-            name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
-              quantity.padEnd(7) +
-              value.padEnd(7) +
-              vat
-          );
+          const maxNameLength = 17;
+
+          if (name.length > maxNameLength) {
+            // Print wrapped product name in chunks
+            for (let i = 0; i < name.length; i += maxNameLength) {
+              const chunk = name.substring(i, i + maxNameLength);
+
+              if (i === 0) {
+                // First line → print with quantity, value, vat
+                printer.println(
+                  chunk.padEnd(maxNameLength) +
+                    quantity.padEnd(7) +
+                    value.padEnd(7) +
+                    vat
+                );
+              } else {
+                // Subsequent lines → only print name
+                printer.println(chunk);
+              }
+            }
+          } else {
+            // Short name → print normally in one line
+            printer.println(
+              name.padEnd(maxNameLength) +
+                quantity.padEnd(7) +
+                value.padEnd(7) +
+                vat
+            );
+          }
         });
         drawLine2(printer);
         // Line 1: Left-aligned item quantity (small text)
@@ -1375,13 +1434,14 @@ const printPaymentReceipt = async (
         printer.println(`${translations.printOrder.payments[lang]}:`);
         aadeInvoice?.payment_methods.forEach((detail: any) => {
           console.log(detail.code);
-          printer.newLine();
-          const methodDescription =
-            PaymentMethod[detail.code].description ||
-            translations.printOrder.unknown[lang];
-          printer.println(
-            `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
-          );
+          if (detail.amount > 0) {
+            const methodDescription =
+              PaymentMethod[detail.code].description ||
+              translations.printOrder.unknown[lang];
+            printer.println(
+              `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
+            );
+          }
         });
         drawLine2(printer);
         printer.newLine();
@@ -1402,10 +1462,7 @@ const printPaymentReceipt = async (
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
-            tr(
-              `${translations.printOrder.poweredBy[lang]}`,
-              settings.transliterate
-            )
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
         printer.newLine();
@@ -1639,6 +1696,7 @@ export const checkPrinters = async () => {
 export const printOrder = async (
   order: z.infer<typeof Order>,
   appId: string = 'desktop',
+  project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -2148,10 +2206,7 @@ export const printOrder = async (
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
-            tr(
-              `${translations.printOrder.poweredBy[lang]}`,
-              settings.transliterate
-            )
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
         printer.newLine();
