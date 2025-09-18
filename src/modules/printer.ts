@@ -1225,6 +1225,11 @@ const SERVICES: Record<string, ServiceType> = {
     label_en: 'TAKE AWAY INSIDE',
     label_el: 'ΠΑΡΑΛΑΒΗ ΕΝΤΟΣ',
   },
+  kiosk: {
+    value: 'kiosk',
+    label_en: 'KIOSK',
+    label_el: 'KIOSΚ',
+  }
 };
 
 const DISCOUNTTYPES: Record<string, ServiceType> = {
