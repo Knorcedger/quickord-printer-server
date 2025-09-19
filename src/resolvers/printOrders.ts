@@ -86,6 +86,7 @@ export const OrderType = z.enum([
   'TAKE_AWAY_INSIDE',
   'TAKE_AWAY_PACKAGE',
   'EFOOD',
+  'KIOSK',
   'WOLT',
   'FAGI',
   'BOX',

@@ -109,6 +109,10 @@ export default {
         el: 'BOX',
         en: 'BOX',
       },
+      KIOSK: {
+        el: 'KIOSK',
+        en: 'KIOSK',
+      },
       GENERIC: {
         el: 'GENERIC',
         en: 'GENERIC',
