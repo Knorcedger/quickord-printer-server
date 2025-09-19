@@ -918,8 +918,8 @@ const printOrderForm = async (
       printer.newLine();
       printer.alignLeft();
       printer.println(
-        `${translations.printOrder.kind[lang]}`.padEnd(18) +
-          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+          `${translations.printOrder.kind[lang]}`.padEnd(18) +
+         `${translations.printOrder.quantity[lang]}`.padEnd(7) +
           `${translations.printOrder.price[lang]}`.padEnd(7) +
           `${translations.printOrder.vat[lang]}`
       );
@@ -932,7 +932,7 @@ const printOrderForm = async (
         sumQuantity += detail.quantity;
 
         const name = detail.name;
-        const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+        const quantity = detail.quantity.toFixed(0); // "1,000"
         const value = (
           (detail.net_value || 0) + (detail?.tax?.value || 0)
         )?.toFixed(2);
@@ -1075,7 +1075,7 @@ const printPaymentSlip = async (
         sumQuantity += detail.quantity;
 
         const name = detail.name;
-        const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+        const quantity = detail.quantity.toFixed(0); 
         const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
           2
         );
@@ -1284,6 +1284,7 @@ const printPaymentReceipt = async (
       console.log('skipping because its kiosk printer from desktop');
       continue;
     }
+    console.log('printing ALP');
     for (let copies = 0; copies < settings.copies; copies += 1) {
       console.log('print copies: ', copies);
       try {
@@ -1317,7 +1318,12 @@ const printPaymentReceipt = async (
         const formattedTime = `${hours}:${minutes}`;
 
         printer.newLine();
+        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          printer.setTextSize(1, 0);
+        }
+
         printer.println(`#${orderNumber}`);
+         printer.setTextSize(0, 0);
         printer.println(`${formattedDate},${formattedTime}`);
 
         printer.alignLeft();
@@ -1345,20 +1351,19 @@ const printPaymentReceipt = async (
         printer.newLine();
         printer.alignLeft();
         printer.println(
+           `${translations.printOrder.quantity[lang]}`.padEnd(7) +
           `${translations.printOrder.kind[lang]}`.padEnd(18) +
-            `${translations.printOrder.quantity[lang]}`.padEnd(7) +
             `${translations.printOrder.price[lang]}`.padEnd(7) +
             `${translations.printOrder.vat[lang]}`
         );
         drawLine2(printer);
         let sumAmount = 0;
         let sumQuantity = 0;
-
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
           const name = detail.name.toUpperCase();
-          const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+          const quantity = detail.quantity.toFixed(0) // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
           )?.toFixed(2);
@@ -1372,23 +1377,23 @@ const printPaymentReceipt = async (
               const chunk = name.substring(i, i + maxNameLength);
 
               if (i === 0) {
-                // First line → print with quantity, value, vat
+                // First line → quantity first
                 printer.println(
-                  chunk.padEnd(maxNameLength) +
-                    quantity.padEnd(7) +
+                  quantity.padEnd(7) +
+                    chunk.padEnd(maxNameLength) +
                     value.padEnd(7) +
                     vat
                 );
               } else {
-                // Subsequent lines → only print name
-                printer.println(chunk);
+                // Subsequent lines → only print name aligned after quantity
+                printer.println(" ".repeat(7) + chunk); 
               }
             }
           } else {
-            // Short name → print normally in one line
+            // Short name → print in one line with quantity first
             printer.println(
-              name.padEnd(maxNameLength) +
-                quantity.padEnd(7) +
+              quantity.padEnd(7) +
+                name.padEnd(maxNameLength) +
                 value.padEnd(7) +
                 vat
             );
@@ -1563,7 +1568,7 @@ const printMyPelatesReceipt = async (
           sumQuantity += detail.quantity;
 
           const name = detail.name;
-          const quantity = detail.quantity.toFixed(3).replace('.', ','); // "1,000"
+          const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
           )?.toFixed(2);
