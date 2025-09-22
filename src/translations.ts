@@ -286,6 +286,10 @@ export default {
       el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
       en: 'RECEIPT',
     },
+    invoice: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ',
+      en: 'INVOICE',
+    },
     paymentSlip: {
       el: 'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
       en: 'PAYMENT SLIP',

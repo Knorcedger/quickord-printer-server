@@ -712,6 +712,28 @@ export const paymentReceipt = (
     res.status(400).send(error.message);
   }
 };
+export const invoice = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+  try {
+    console.log(req.headers);
+    printInvoice(
+      req.body.aadeInvoice,
+      req.body.orderNumber,
+      req.body.orderType,
+      req.body.issuerText,
+      req.body.discount,
+      req.body.tip,
+      req.body.appId,
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix',
+      req.body.lang || 'el'
+    );
+    res.status(200).send({ status: 'done' });
+  } catch (error) {
+    logger.error('Error printing test page:', error);
+    res.status(400).send(error.message);
+  }
+};
 
 export const paymentMyPelatesReceipt = (
   req: Request<{}, any, any>,
@@ -918,8 +940,8 @@ const printOrderForm = async (
       printer.newLine();
       printer.alignLeft();
       printer.println(
-          `${translations.printOrder.kind[lang]}`.padEnd(18) +
-         `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+        `${translations.printOrder.kind[lang]}`.padEnd(18) +
+          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
           `${translations.printOrder.price[lang]}`.padEnd(7) +
           `${translations.printOrder.vat[lang]}`
       );
@@ -1075,7 +1097,7 @@ const printPaymentSlip = async (
         sumQuantity += detail.quantity;
 
         const name = detail.name;
-        const quantity = detail.quantity.toFixed(0); 
+        const quantity = detail.quantity.toFixed(0);
         const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
           2
         );
@@ -1117,7 +1139,7 @@ const printPaymentSlip = async (
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
         const methodDescription =
-          PaymentMethod[detail.code].description ||
+          PaymentMethod[detail.code]?.description ||
           translations.printOrder.unknown[lang];
         printer.println(
           `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
@@ -1229,7 +1251,7 @@ const SERVICES: Record<string, ServiceType> = {
     value: 'kiosk',
     label_en: 'KIOSK',
     label_el: 'KIOSΚ',
-  }
+  },
 };
 
 const DISCOUNTTYPES: Record<string, ServiceType> = {
@@ -1323,7 +1345,7 @@ const printPaymentReceipt = async (
         }
 
         printer.println(`#${orderNumber}`);
-         printer.setTextSize(0, 0);
+        printer.setTextSize(0, 0);
         printer.println(`${formattedDate},${formattedTime}`);
 
         printer.alignLeft();
@@ -1351,8 +1373,8 @@ const printPaymentReceipt = async (
         printer.newLine();
         printer.alignLeft();
         printer.println(
-           `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-          `${translations.printOrder.kind[lang]}`.padEnd(18) +
+          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+            `${translations.printOrder.kind[lang]}`.padEnd(18) +
             `${translations.printOrder.price[lang]}`.padEnd(7) +
             `${translations.printOrder.vat[lang]}`
         );
@@ -1363,7 +1385,7 @@ const printPaymentReceipt = async (
           sumQuantity += detail.quantity;
 
           const name = detail.name.toUpperCase();
-          const quantity = detail.quantity.toFixed(0) // "1,000"
+          const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
           )?.toFixed(2);
@@ -1386,7 +1408,7 @@ const printPaymentReceipt = async (
                 );
               } else {
                 // Subsequent lines → only print name aligned after quantity
-                printer.println(" ".repeat(7) + chunk); 
+                printer.println(' '.repeat(7) + chunk);
               }
             }
           } else {
@@ -1446,8 +1468,262 @@ const printPaymentReceipt = async (
           console.log(detail.code);
           if (detail.amount > 0) {
             const methodDescription =
-              PaymentMethod[detail.code].description ||
+              PaymentMethod[detail.code]?.description ||
               translations.printOrder.unknown[lang];
+            printer.println(
+              `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
+            );
+          }
+        });
+        drawLine2(printer);
+        printer.newLine();
+        printer.alignLeft();
+        printer.println(`MARK ${aadeInvoice?.mark}`);
+        printer.println(`UID ${aadeInvoice?.uid}`);
+        printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+        printer.alignCenter();
+        printer.printQR(aadeInvoice?.url, {
+          cellSize: 4,
+          model: 4,
+          correction: 'Q',
+        });
+        printer.newLine();
+        printer.println(
+          `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
+        );
+        printer.newLine();
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
+        printer.println(
+          tr(
+            `${translations.printOrder.recieptEnd[lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.newLine();
+        printer.alignCenter();
+        printer.cut();
+        printer
+          .execute({
+            waitForResponse: false,
+          })
+          .then(() => {
+            printer?.clear();
+            logger.info('Printed payment');
+          });
+      } catch (error) {
+        logger.error('Print failed:', error);
+      }
+    }
+  }
+};
+
+const printInvoice = async (
+  aadeInvoice: AadeInvoice,
+  orderNumber: number,
+  orderType: string,
+  issuerText: string,
+  discount:
+    | {
+        amount: number;
+        type: 'PERCENTAGE' | 'FIXED' | 'NONE';
+      }
+    | {},
+  tip: number,
+  appId: string,
+  project: string = 'centrix',
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+    printer?.clear();
+    if (!settings || !printer) {
+      continue;
+    }
+    if (settings.documentsToPrint !== undefined) {
+      if (!settings.documentsToPrint?.includes('ALP')) {
+        console.log(
+          'ALP is not in documentsToPrint (yes its also for invoices)'
+        );
+        continue;
+      }
+    }
+    console.log(appId, settings.printerType);
+    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+      console.log('skipping because its kiosk printer from desktop');
+      continue;
+    }
+    console.log('printing invoice');
+    for (let copies = 0; copies < settings.copies; copies += 1) {
+      console.log('print copies: ', copies);
+      try {
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        printer.alignCenter();
+        printer.println(`${translations.printOrder.invoice[lang]}`);
+        printer.println(aadeInvoice?.issuer.name);
+        printer.println(aadeInvoice?.issuer.activity);
+        printer.println(
+          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+        );
+
+        printer.println(
+          `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
+        );
+        printer.println(
+          `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+        );
+        if (issuerText) {
+          printer.println(issuerText);
+        }
+        printer.alignLeft();
+        const rawDate = new Date(aadeInvoice?.issue_date);
+        const day = rawDate.getDate();
+        const month = rawDate.getMonth() + 1;
+        const year = rawDate.getFullYear();
+        const hours = rawDate.getHours().toString().padStart(2, '0');
+        const minutes = rawDate.getMinutes().toString().padStart(2, '0');
+
+        const formattedDate = `${day}/${month}/${year}`;
+        const formattedTime = `${hours}:${minutes}`;
+
+        printer.newLine();
+        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          printer.setTextSize(1, 0);
+        }
+
+        printer.println(`#${orderNumber}`);
+        printer.setTextSize(0, 0);
+        printer.println(`${formattedDate},${formattedTime}`);
+
+        printer.alignLeft();
+        if (lang === 'el') {
+          if (orderType.toLowerCase() !== 'generic') {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
+            );
+          } else {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+            );
+          }
+        } else {
+          if (orderType.toLowerCase() !== 'generic') {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
+            );
+          } else {
+            printer.println(
+              `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+            );
+          }
+        }
+
+        printer.newLine();
+        printer.alignLeft();
+        printer.println(
+          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
+            `${translations.printOrder.kind[lang]}`.padEnd(18) +
+            `${translations.printOrder.price[lang]}`.padEnd(7) +
+            `${translations.printOrder.vat[lang]}`
+        );
+        drawLine2(printer);
+        let sumAmount = 0;
+        let sumQuantity = 0;
+        aadeInvoice?.details.forEach((detail: any) => {
+          sumQuantity += detail.quantity;
+
+          const name = detail.name.toUpperCase();
+          const quantity = detail.quantity.toFixed(0); // "1,000"
+          const value = (
+            (detail.net_value || 0) + (detail?.tax?.value || 0)
+          )?.toFixed(2);
+          const vat = `${detail.tax.rate}%`; // "24%"
+          sumAmount += parseFloat(value);
+          const maxNameLength = 17;
+
+          if (name.length > maxNameLength) {
+            // Print wrapped product name in chunks
+            for (let i = 0; i < name.length; i += maxNameLength) {
+              const chunk = name.substring(i, i + maxNameLength);
+
+              if (i === 0) {
+                // First line → quantity first
+                printer.println(
+                  quantity.padEnd(7) +
+                    chunk.padEnd(maxNameLength) +
+                    value.padEnd(7) +
+                    vat
+                );
+              } else {
+                // Subsequent lines → only print name aligned after quantity
+                printer.println(' '.repeat(7) + chunk);
+              }
+            }
+          } else {
+            // Short name → print in one line with quantity first
+            printer.println(
+              quantity.padEnd(7) +
+                name.padEnd(maxNameLength) +
+                value.padEnd(7) +
+                vat
+            );
+          }
+        });
+        drawLine2(printer);
+        // Line 1: Left-aligned item quantity (small text)
+        printer.setTextSize(0, 0);
+        let discountAmount = '';
+        if ('amount' in discount && 'type' in discount) {
+          if (discount.type === 'FIXED') {
+            discountAmount = (discount.amount / 100).toString() + '€';
+          } else {
+            discountAmount = discount.amount.toString() + '%';
+          }
+          if (discountAmount !== '') {
+            printer.println(
+              `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+            );
+          }
+        }
+        if (tip > 0) {
+          printer.println(
+            `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
+          );
+        }
+        printer.bold(true);
+        printer.alignLeft();
+
+        const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+        const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+        const roundedSum = Number(sumAmount + tip / 100)
+          .toFixed(2)
+          .replace(/\.?0+$/, '');
+
+        const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+
+        // Calculate spacing
+        const spaceCount = lineWidth - leftText.length - rightText.length;
+        const spacing = ' '.repeat(Math.max(1, spaceCount));
+
+        // Print both on one line
+        printer.println(leftText + spacing + rightText);
+
+        printer.bold(false);
+        printer.alignCenter();
+        drawLine2(printer);
+        printer.println(`${translations.printOrder.payments[lang]}:`);
+        aadeInvoice?.payment_methods.forEach((detail: any) => {
+          console.log('detail', detail.code);
+          if (detail.amount > 0) {
+            const methodDescription =
+              PaymentMethod[detail.code]?.description ||
+              translations.printOrder.unknown[lang];
+            console.log(methodDescription);
             printer.println(
               `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
             );
@@ -1611,7 +1887,7 @@ const printMyPelatesReceipt = async (
           console.log(detail.code);
           printer.newLine();
           const methodDescription =
-            PaymentMethod[detail.code].description ||
+            PaymentMethod[detail.code]?.description ||
             translations.printOrder.unknown[lang];
           printer.println(
             `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
