@@ -48,6 +48,10 @@ export default {
       el: 'ΤΗΛ',
       en: 'TEL',
     },
+    customerInfo: {
+      el: 'ΣΤΟΙΧΕΙΑ ΠΕΛΑΤΗ',
+      en: 'CUSTOMER INFO',
+    },
     notReceiptNotice: {
       el: 'ΠΡΟΣΟΧΗ ΤΟ ΠΑΡΟΝ ΔΕΝ ΑΠΟΤΕΛΕΙ ΑΠΟΔΕΙΞΗ',
       en: 'ATTENTION THIS IS NOT A',
@@ -297,6 +301,10 @@ export default {
     recieptEnd: {
       el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
       en: 'END OF RECEIPT',
+    },
+    invoiceEnd: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ ΛΗΞΗ',
+      en: 'END OF INVOICE',
     },
     paymentSlipEnd: {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',

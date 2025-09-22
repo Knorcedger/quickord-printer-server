@@ -853,6 +853,54 @@ interface AadeInvoice {
     tax_office: string;
     phone: string;
   };
+  counterpart: {
+    activity: {
+      description: 'Activity of the counterpart';
+      type: String;
+    };
+    address: {
+      city: {
+        description: 'City of the counterpart';
+        type: String;
+      };
+      number: {
+        description: 'Street number of the counterpart';
+        type: String;
+      };
+      postal_code: {
+        description: 'Postal code of the counterpart';
+        type: String;
+      };
+      street: {
+        description: 'Street name of the counterpart';
+        type: String;
+      };
+    };
+    branch: {
+      description: 'Branch number of the counterpart';
+      type: Number;
+    };
+    country: {
+      description: 'Country of the counterpart';
+      type: String;
+    };
+    name: {
+      description: 'Name of the counterpart';
+      type: String;
+    };
+    phone: {
+      description: 'Phone number of the counterpart';
+      type: String;
+    };
+    tax_office: {
+      description: 'Tax office of the counterpart';
+      type: String;
+    };
+    vat_number: {
+      description: 'VAT number of the counterpart';
+      type: String;
+    };
+  };
   gross_value: number;
   issue_date: string;
   header: {
@@ -1595,7 +1643,16 @@ const printInvoice = async (
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
           printer.setTextSize(1, 0);
         }
-
+        printer.alignCenter();
+        printer.println(`${translations.printOrder.customerInfo[lang]}`);
+        printer.println(`${aadeInvoice?.counterpart.name}`);
+        printer.println(`${aadeInvoice?.counterpart.activity}`);
+        printer.println(
+          `${aadeInvoice?.counterpart.address.street} ${aadeInvoice?.counterpart.address.city}, ${aadeInvoice?.counterpart.address.postal_code}`
+        );
+        printer.println(`${aadeInvoice?.counterpart.tax_office}`);
+        printer.println(`${aadeInvoice?.counterpart.vat_number}`);
+        printer.alignLeft();
         printer.println(`#${orderNumber}`);
         printer.setTextSize(0, 0);
         printer.println(`${formattedDate},${formattedTime}`);
@@ -1754,7 +1811,7 @@ const printInvoice = async (
         printer.newLine();
         printer.println(
           tr(
-            `${translations.printOrder.recieptEnd[lang]}`,
+            `${translations.printOrder.invoiceEnd[lang]}`,
             settings.transliterate
           )
         );
