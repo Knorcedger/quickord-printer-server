@@ -692,7 +692,6 @@ export const paymentReceipt = (
   res: Response<{}, any>
 ) => {
   try {
-    console.log(req.headers);
     printPaymentReceipt(
       req.body.aadeInvoice,
       req.body.orderNumber,
@@ -704,6 +703,7 @@ export const paymentReceipt = (
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
+      req.body.order || null,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -958,7 +958,7 @@ const printOrderForm = async (
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
       printer.println(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, "ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
       );
 
       printer.println(
@@ -1104,7 +1104,7 @@ const printPaymentSlip = async (
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
       printer.println(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, "ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
       );
 
       printer.println(
@@ -1334,6 +1334,7 @@ const printPaymentReceipt = async (
   tip: number,
   appId: string,
   project: string = 'centrix',
+  order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1349,6 +1350,7 @@ const printPaymentReceipt = async (
         continue;
       }
     }
+
     console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
@@ -1364,7 +1366,7 @@ const printPaymentReceipt = async (
         printer.println(aadeInvoice?.issuer.name);
         printer.println(aadeInvoice?.issuer.activity);
         printer.println(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, "ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
         );
 
         printer.println(
@@ -1433,6 +1435,48 @@ const printPaymentReceipt = async (
           sumQuantity += detail.quantity;
 
           const name = detail.name.toUpperCase();
+          /*   console.log('proion', detail.name, lang);
+          // First, find the product that contains the matchedContent
+          const matchedProduct = order.products?.find((p: any) =>
+            p.content?.some(
+              (c: any) => c.language === lang && c.title === detail.name
+            )
+          );
+
+          if (matchedProduct) {
+            console.log('Matched product:', matchedProduct);
+
+            // Print the product title (from matchedContent)
+            const matchedContent = matchedProduct.content.find(
+              (c: any) => c.language === lang && c.title === detail.name
+            );
+
+            printer.println(tr(matchedContent.title, settings.transliterate));
+
+            // Then loop through its choices (options)
+            matchedProduct.options.choices?.forEach((choice: any) => {
+              console.log('choice', choice);
+              const choiceLine = `- ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
+              let choicePrice = '';
+
+              if (
+                settings.priceOnOrder === undefined ||
+                settings.priceOnOrder === true
+              ) {
+                choicePrice = choice.price
+                  ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
+                  : '';
+              }
+
+              const paddedChoiceLine =
+                choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
+                choicePrice;
+
+              printer.println(tr(paddedChoiceLine, settings.transliterate));
+              console.log('choice', choiceLine, choicePrice);
+            });
+          }
+*/
           const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
@@ -1469,6 +1513,7 @@ const printPaymentReceipt = async (
             );
           }
         });
+
         drawLine2(printer);
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
@@ -1616,7 +1661,7 @@ const printInvoice = async (
         printer.println(aadeInvoice?.issuer.name);
         printer.println(aadeInvoice?.issuer.activity);
         printer.println(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, "ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
         );
 
         printer.println(
@@ -1860,7 +1905,7 @@ const printMyPelatesReceipt = async (
         printer.println(aadeInvoice?.issuer.name);
         printer.println(aadeInvoice?.issuer.activity);
         printer.println(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ${aadeInvoice?.issuer.address.postal_code}`
+          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, "ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
         );
 
         printer.println(
