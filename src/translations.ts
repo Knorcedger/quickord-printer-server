@@ -282,6 +282,14 @@ export default {
       el: 'ΠΟΣΟΤ',
       en: 'QUANTITY',
     },
+    series: {
+      el: 'ΣΕΙΡΑ',
+      en: 'SERIES',
+    },
+    number: {
+      el: 'ΑΡΙΘΜΟΣ',
+      en: 'NUMBER',
+    },
     price: {
       el: 'ΑΞΙΑ',
       en: 'PRICE',
