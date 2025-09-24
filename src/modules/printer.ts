@@ -1503,7 +1503,7 @@ const printProducts = (
 
           // Price (only if > 0)
           const choicePrice =
-            ch.price && ch.price > 0 ? `${ch.price.toFixed(2)} €` : '';
+            ch.price && ch.price > 0 ? `${(ch.price / 100).toFixed(2)} €` : '';
 
           // Add indentation at start (e.g., 5 spaces)
           const indent = '     '; // 5 spaces
