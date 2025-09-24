@@ -24,6 +24,10 @@ export default {
       el: 'ΠΟΣΟΣΤΟ',
       en: 'PERCENTAGE',
     },
+    netValue: {
+      el: 'ΑΞΙΑ ΦΠΑ',
+      en: 'VAT VALUE',
+    },
     netWorth: {
       el: 'ΚΑΘΑΡΗ ΑΞΙΑ',
       en: 'NET WORTH',

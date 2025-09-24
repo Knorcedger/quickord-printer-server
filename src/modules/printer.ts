@@ -726,6 +726,7 @@ export const invoice = (req: Request<{}, any, any>, res: Response<{}, any>) => {
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
+      req.body.order || null,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -1371,7 +1372,7 @@ const receiptData = (
   printer.setTextSize(0, 0);
 
   printer.println(
-    `${translations.printOrder.series[lang]}: ${aadeInvoice?.header.series.code}        ${translations.printOrder.number[lang]}: ${aadeInvoice?.header.serial_number}     ${formattedDate},${formattedTime}`
+    `${translations.printOrder.series[lang]}: ${aadeInvoice?.header.series.code}     ${translations.printOrder.number[lang]}: ${aadeInvoice?.header.serial_number}   ${formattedDate},${formattedTime}`
   );
 
   printer.alignLeft();
@@ -1394,7 +1395,13 @@ const receiptData = (
   }
 };
 
-const printProducts = (printer, aadeInvoice, lang): [number, number] => {
+const printProducts = (
+  printer,
+  aadeInvoice,
+  order,
+  settings,
+  lang
+): [number, number, any[]] => {
   let sumAmount = 0;
   let sumQuantity = 0;
   printer.alignCenter();
@@ -1407,53 +1414,14 @@ const printProducts = (printer, aadeInvoice, lang): [number, number] => {
       `${translations.printOrder.vat[lang]}`
   );
   drawLine2(printer);
-
+  const vatBreakdown = new Map();
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
     const name = detail.name.toUpperCase();
-    /*   console.log('proion', detail.name, lang);
-          // First, find the product that contains the matchedContent
-          const matchedProduct = order.products?.find((p: any) =>
-            p.content?.some(
-              (c: any) => c.language === lang && c.title === detail.name
-            )
-          );
+    console.log('proion', detail.name, lang);
+    // First, find the product that contains the matchedContent
 
-          if (matchedProduct) {
-            console.log('Matched product:', matchedProduct);
-
-            // Print the product title (from matchedContent)
-            const matchedContent = matchedProduct.content.find(
-              (c: any) => c.language === lang && c.title === detail.name
-            );
-
-            printer.println(tr(matchedContent.title, settings.transliterate));
-
-            // Then loop through its choices (options)
-            matchedProduct.options.choices?.forEach((choice: any) => {
-              console.log('choice', choice);
-              const choiceLine = `- ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
-              let choicePrice = '';
-
-              if (
-                settings.priceOnOrder === undefined ||
-                settings.priceOnOrder === true
-              ) {
-                choicePrice = choice.price
-                  ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
-                  : '';
-              }
-
-              const paddedChoiceLine =
-                choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
-                choicePrice;
-
-              printer.println(tr(paddedChoiceLine, settings.transliterate));
-              console.log('choice', choiceLine, choicePrice);
-            });
-          }
-*/
     const quantity = detail.quantity.toFixed(0); // "1,000"
     const value = (
       (detail.net_value || 0) + (detail?.tax?.value || 0)
@@ -1461,7 +1429,24 @@ const printProducts = (printer, aadeInvoice, lang): [number, number] => {
     const vat = `${detail.tax.rate}%`; // "24%"
     sumAmount += parseFloat(value);
     const maxNameLength = 17;
+    const vatRate = Number(detail.tax.rate); // ensure number
 
+    const netValue = detail.net_value;
+    const total = parseFloat(value);
+
+    if (vatBreakdown.has(vatRate)) {
+      const entry = vatBreakdown.get(vatRate);
+      entry.total += total;
+      entry.netValue += netValue;
+      entry.vatAmount = entry.total - entry.netValue; // update VAT
+    } else {
+      vatBreakdown.set(vatRate, {
+        vat: vatRate,
+        total,
+        netValue,
+        vatAmount: total - netValue,
+      });
+    }
     if (name.length > maxNameLength) {
       // Print wrapped product name in chunks
       for (let i = 0; i < name.length; i += maxNameLength) {
@@ -1486,10 +1471,60 @@ const printProducts = (printer, aadeInvoice, lang): [number, number] => {
         quantity.padEnd(7) + name.padEnd(maxNameLength) + value.padEnd(7) + vat
       );
     }
+    const matchedProduct = order.products?.find((p: any) =>
+      p.content?.some(
+        (c: any) => c.language === lang && c.title === detail.name
+      )
+    );
+    function getTitle(content, lang) {
+      const found = content.find((c) => c.language === lang);
+      return found ? found.title : '';
+    }
+
+    if (matchedProduct) {
+      console.log('Matched product:', matchedProduct);
+
+      // Print the product title (from matchedContent)
+      const matchedContent = matchedProduct.content.find(
+        (c: any) => c.language === lang && c.title === detail.name
+      );
+
+      const lineWidth = 32;
+      // Then loop through its choices (options)
+      matchedProduct.options?.forEach((choice: any) => {
+        console.log('choice', choice);
+        choice.choices.forEach((ch) => {
+          const choiceTitle = getTitle(choice.content, lang); // parent title
+          const quantityPrefix =
+            Number(ch.quantity) > 1 ? `${ch.quantity}x ` : '';
+
+          // Build main text
+          const choiceText = `- ${quantityPrefix}${choiceTitle}`;
+
+          // Price (only if > 0)
+          const choicePrice =
+            ch.price && ch.price > 0 ? `${ch.price.toFixed(2)} €` : '';
+
+          // Add indentation at start (e.g., 5 spaces)
+          const indent = '     '; // 5 spaces
+          const paddedChoiceLine =
+            indent + choiceText + (choicePrice ? '   ' + choicePrice : '');
+
+          printer.println(paddedChoiceLine);
+          console.log('choice', paddedChoiceLine);
+        });
+      });
+    }
   });
 
   drawLine2(printer);
-  return [sumAmount, sumQuantity];
+  const fixedBreakdown = [...vatBreakdown.values()].map((entry) => ({
+    ...entry,
+    vatAmount: Number((entry.total - entry.netValue).toFixed(2)),
+  }));
+  console.log(fixedBreakdown);
+
+  return [sumAmount, sumQuantity, fixedBreakdown];
 };
 
 const printDiscountAndTip = (printer, discount, tip, lang) => {
@@ -1514,7 +1549,6 @@ const printDiscountAndTip = (printer, discount, tip, lang) => {
 };
 
 const printMarks = (printer, aadeInvoice, lang) => {
-  drawLine2(printer);
   printer.newLine();
   printer.alignLeft();
   printer.println(`MARK ${aadeInvoice?.mark}`);
@@ -1547,7 +1581,21 @@ const printPayments = (printer, aadeInvoice, lang) => {
         `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
       );
     }
+    drawLine2(printer);
   });
+};
+const printVatBreakdown = (printer, vatBreakdown, lang) => {
+  printer.println(
+    `${translations.printOrder.percentage[lang].padEnd(10)}${translations.printOrder.netWorth[lang].padStart(5)}${translations.printOrder.netValue[lang].padStart(10)}${translations.printOrder.total[lang].padStart(8)}`
+  );
+
+  vatBreakdown.forEach((entry) => {
+    printer.println(
+      `${String(entry.vat).padStart(0)}${String(entry.vatAmount.toFixed(2)).padStart(10)}${String(entry.netValue.toFixed(2)).padStart(12)}${String(entry.total.toFixed(2)).padStart(10)}`
+    );
+  });
+
+  drawLine2(printer);
 };
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
@@ -1601,9 +1649,11 @@ const printPaymentReceipt = async (
           orderType,
           lang
         );
-        const [sumAmount, sumQuantity] = printProducts(
+        const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
           printer,
           aadeInvoice,
+          order,
+          settings,
           lang
         );
         // Line 1: Left-aligned item quantity (small text)
@@ -1628,6 +1678,7 @@ const printPaymentReceipt = async (
         // Print both on one line
         printer.println(leftText + spacing + rightText);
         printPayments(printer, aadeInvoice, lang);
+        printVatBreakdown(printer, fixedBreakdown, lang);
         printMarks(printer, aadeInvoice, lang);
         if (settings.poweredByQuickord) {
           printer.println(
@@ -1673,6 +1724,7 @@ const printInvoice = async (
   tip: number,
   appId: string,
   project: string = 'centrix',
+  order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -1720,15 +1772,16 @@ const printInvoice = async (
           orderType,
           lang
         );
-        const [sumAmount, sumQuantity] = printProducts(
+        const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
           printer,
           aadeInvoice,
+          order,
+          settings,
           lang
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
         printDiscountAndTip(printer, discount, tip, lang);
-
         printer.bold(true);
         printer.alignLeft();
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
@@ -1744,6 +1797,7 @@ const printInvoice = async (
         // Print both on one line
         printer.println(leftText + spacing + rightText);
         printPayments(printer, aadeInvoice, lang);
+        printVatBreakdown(printer, fixedBreakdown, lang);
         printMarks(printer, aadeInvoice, lang);
         printer.newLine();
         if (settings.poweredByQuickord) {
