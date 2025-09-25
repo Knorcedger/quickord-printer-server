@@ -1409,8 +1409,8 @@ const printProducts = (
   printer.alignLeft();
   printer.println(
     `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-      `${translations.printOrder.kind[lang]}`.padEnd(18) +
-      `${translations.printOrder.price[lang]}`.padEnd(7) +
+      `${translations.printOrder.kind[lang]}`.padEnd(20) +
+      `${translations.printOrder.price[lang]}`.padEnd(10) +
       `${translations.printOrder.vat[lang]}`
   );
   drawLine2(printer);
@@ -1468,7 +1468,10 @@ const printProducts = (
     } else {
       // Short name → print in one line with quantity first
       printer.println(
-        quantity.padEnd(7) + name.padEnd(maxNameLength) + value.padEnd(7) + vat
+        quantity.padEnd(7) +
+          name.padEnd(maxNameLength) +
+          value.padStart(7) +
+          vat.padStart(10)
       );
     }
     const matchedProduct = order.products?.find((p: any) =>
@@ -1586,12 +1589,12 @@ const printPayments = (printer, aadeInvoice, lang) => {
 };
 const printVatBreakdown = (printer, vatBreakdown, lang) => {
   printer.println(
-    `${translations.printOrder.percentage[lang].padEnd(10)}${translations.printOrder.netWorth[lang].padStart(5)}${translations.printOrder.netValue[lang].padStart(10)}${translations.printOrder.total[lang].padStart(8)}`
+    `${translations.printOrder.percentage[lang].padEnd(10)}${translations.printOrder.netWorth[lang].padEnd(12)}${translations.printOrder.netValue[lang].padEnd(10)}${translations.printOrder.total[lang].padStart(10)}`
   );
 
   vatBreakdown.forEach((entry) => {
     printer.println(
-      `${String(entry.vat).padStart(0)}${String(entry.vatAmount.toFixed(2)).padStart(10)}${String(entry.netValue.toFixed(2)).padStart(12)}${String(entry.total.toFixed(2)).padStart(10)}`
+      `${String(entry.vat).padEnd(10)}${String(entry.netValue.toFixed(2)).padEnd(12)}${String(entry.vatAmount.toFixed(2)).padEnd(10)}${String(entry.total.toFixed(2)).padStart(10)}`
     );
   });
 
