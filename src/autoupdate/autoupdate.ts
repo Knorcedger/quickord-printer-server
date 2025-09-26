@@ -9,12 +9,12 @@ import * as fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { spawn,exec } from 'node:child_process';
+import { spawn, exec } from 'node:child_process';
+import * as https from 'node:https';
 import * as path from 'node:path';
 import JSZip from 'jszip';
 
 import nconf from 'nconf';
-
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -32,7 +32,7 @@ async function extractZip(zipBuffer, tempCodePath) {
 
     if (entry.dir) {
       await fsp.mkdir(fullPath, { recursive: true });
-      } else {
+    } else {
       await fsp.mkdir(dirname(fullPath), { recursive: true });
       const content = await entry.nodeStream();
       const writeStream = createWriteStream(fullPath);
@@ -49,7 +49,8 @@ export async function copyOnlyFiles(
     skipNestedNodeModules?: boolean;
   } = {}
 ): Promise<void> {
-  const { ignoreFolders = ['snapshot'], skipNestedNodeModules = true } = options;
+  const { ignoreFolders = ['snapshot'], skipNestedNodeModules = true } =
+    options;
   const ignored = new Set(ignoreFolders);
 
   await fs.promises.rm(destDir, { recursive: true, force: true });
@@ -58,11 +59,13 @@ export async function copyOnlyFiles(
   function isNestedBuildsPath(filepath: string): boolean {
     const relativePath = path.relative(srcDir, filepath);
     const segments = relativePath.split(path.sep);
-    return segments.filter(seg => seg === 'builds').length > 1;
+    return segments.filter((seg) => seg === 'builds').length > 1;
   }
 
   async function walk(currentDir: string) {
-    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(currentDir, {
+      withFileTypes: true,
+    });
 
     for (const entry of entries) {
       const entrySrcPath = path.join(currentDir, entry.name);
@@ -102,9 +105,8 @@ export async function copyOnlyFiles(
 export async function relaunchExe(appPath: string, args: string[]) {
   const exePath = path.resolve(appPath); // Ensure absolute path
 
-
   try {
-     const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
+    const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
       detached: true,
       stdio: 'ignore',
       windowsHide: false,
@@ -114,14 +116,18 @@ export async function relaunchExe(appPath: string, args: string[]) {
 
     console.log('Relaunched exe with args. Waiting to exit...');
 
-
-      setTimeout(async () => {process.exit(0)},500);
+    setTimeout(async () => {
+      process.exit(0);
+    }, 500);
     //}, 500); // 500ms delay to ensure safe spawn
   } catch (err) {
     console.error('Failed to relaunch exe:', err);
   }
 }
-export async function deleteFolderRecursive(folderPath: string,silent: boolean = false): Promise<void> {
+export async function deleteFolderRecursive(
+  folderPath: string,
+  silent: boolean = false
+): Promise<void> {
   try {
     const entries = await fsp.readdir(folderPath, { withFileTypes: true });
 
@@ -129,112 +135,128 @@ export async function deleteFolderRecursive(folderPath: string,silent: boolean =
       const fullPath = path.join(folderPath, entry.name);
 
       if (entry.isDirectory()) {
-        await deleteFolderRecursive(fullPath,silent); // recursive for subfolders
+        await deleteFolderRecursive(fullPath, silent); // recursive for subfolders
       } else {
         await fsp.unlink(fullPath); // delete file
       }
     }
 
     await fsp.rmdir(folderPath); // remove empty folder
-    if(!silent) {
-    console.log(`Deleted: ${folderPath}`);
+    if (!silent) {
+      console.log(`Deleted: ${folderPath}`);
     }
   } catch (err: any) {
     if (err.code === 'ENOENT') {
-       if(!silent) {
-      console.warn(`Folder does not exist: ${folderPath}`);
-       }
+      if (!silent) {
+        console.warn(`Folder does not exist: ${folderPath}`);
+      }
     } else {
-      if(!silent) {
-      console.error(`Error deleting ${folderPath}:`, err.message || err);
+      if (!silent) {
+        console.error(`Error deleting ${folderPath}:`, err.message || err);
       }
     }
   }
 }
-async function downloadLatestCode() {
-  console.log('you can start');
+function isLatestVersion(current: string, latest: string): boolean {
+  // Remove leading 'v'
+  const curr = current.startsWith('v') ? current.slice(1) : current;
+  const lat = latest.startsWith('v') ? latest.slice(1) : latest;
+  return curr >= lat; // simple lexicographic comparison works here
+}
 
+export async function downloadLatestCode(): Promise<string | null> {
+  const url = nconf.get('CODE_UPDATE_URL');
+  console.log('Starting download from:', url);
+  console.log('from url:', url);
+
+  const srcDir = await fsp.mkdtemp(tempDirPath);
+  const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
+
+  // Download via curl
+  await new Promise<void>((resolvePromise, reject) => {
+    const cmd = `curl -L "${url}" -o "${zipPath}"`;
+    exec(cmd, (err, stdout, stderr) => {
+      if (err) return reject(err);
+      console.log(stdout || stderr);
+      resolvePromise();
+    });
+  });
+
+  // Extract zip
+  const tempCodePath = path.resolve(srcDir, 'code');
+  await fsp.mkdir(tempCodePath, { recursive: true });
+  const zipBuffer = await fsp.readFile(zipPath);
+  await extractZip(zipBuffer, tempCodePath);
+
+  // Read versions
+  let currentVersion = '';
+  try {
+    currentVersion = (await fsp.readFile('version', 'utf-8')).trim();
+    console.log('Current version:', currentVersion);
+  } catch {
+    console.log('No current version file found, assuming update needed.');
+  }
+
+  let latestVersion = '';
+  try {
+    latestVersion = (
+      await fsp.readFile(
+        path.resolve(tempCodePath, 'builds', 'version'),
+        'utf-8'
+      )
+    ).trim();
+    console.log('Latest version:', latestVersion);
+  } catch {
+    try {
+      // fallback if version is in root of zip
+      latestVersion = (
+        await fsp.readFile(path.resolve(tempCodePath, 'version'), 'utf-8')
+      ).trim();
+      console.log('Latest version (root):', latestVersion);
+    } catch (e) {
+      console.error('Cannot find latest version file. Proceeding with update.');
+    }
+  }
+
+  if (latestVersion && isLatestVersion(currentVersion, latestVersion)) {
+    console.log('Already up to date. Cleaning up temp folder.');
+    await deleteFolderRecursive(srcDir, true);
+    return null; // no update needed
+  }
+  console.log('Update needed. Code ready at:', tempCodePath);
+  console.log('Updating to latest version');
+  console.log(tempCodePath);
   const cwd = process.cwd();
   const parentDir = path.resolve(cwd, '..');
 
-  console.log(`Parent directory: ${parentDir}`);
-
-  try {
-    // logger.info('Downloading latest code');
-      const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-
-    // const res = await fetch(nconf.get('CODE_UPDATE_URL'));
-    const fileData = Buffer.from(await (await res.blob()).arrayBuffer());//await readFile(ZIPPATH); 
-    let currentVersion
-    try {
-        currentVersion = await fs.promises.readFile('version', 'utf-8');
-      } catch (e) {
-        console.log('cannot find current version file', e);
-      }
-   
-    //logger.info('Creating temp dir');
-    srcDir = await fs.promises.mkdtemp(
-      tempDirPath
-      // `${tmpdir()}${sep}quickord-cashier-server-update`
-    );
-    //
-    const zipPath = `${srcDir}${sep}quickord-cashier-server.zip`;
-    //   //logger.info('Writing zip file');
-    await fs.promises.writeFile(zipPath, fileData);
-    //
-    //  // logger.info('Extracting zip file');
-    const tempCodePath = `${srcDir}${sep}code`;
-    await fs.promises.mkdir(tempCodePath);
-    //
-    //
-    const zipBuffer = await fsp.readFile(zipPath);
-    await extractZip(zipBuffer, tempCodePath);
-    const updateArg = tempCodePath;
-    console.log('Current version:', currentVersion);
-    let latestVersion;
-    try {
-     latestVersion = await fs.promises.readFile(
-          `${tempCodePath}${sep}builds${sep}version`,
-        );  
-    }catch (e) {
-      try {
-        latestVersion = await fs.promises.readFile(
-          `${tempCodePath}${sep}version`,
-        );  
-        console.log('v1 update detected!!! skipping...', latestVersion.toString());
-         await deleteFolderRecursive(srcDir,true);
-        return;
-      } catch (e) {
-        console.log('cannot find latest version file', e);
-      }
-    }
-    
-
-   
-    console.log('Latest version:', latestVersion.toString());
-    if (currentVersion.toString() >= latestVersion.toString() && latestVersion.toString() !== '') {
-      console.log('Already up to date');
-      await deleteFolderRecursive(srcDir,true);
-      return;
-    }
-    console.log('Updating to latest version');
-    console.log(updateArg);
-    
-    args[1] = tempCodePath;
-    args[2] = '--parent';
-    args[3] = parentDir;
-    path2 = tempCodePath + '/builds/printerServer.exe';
-    relaunchExe(path2, args);  
-
-    return true;
-  } catch (e) {
-    console.log(e);
-    //  logger.error(e);
-  }
-
-  return false;
+  args[1] = tempCodePath;
+  args[2] = '--parent';
+  args[3] = parentDir;
+  path2 = tempCodePath + '/builds/printerServer.exe';
+  relaunchExe(path2, args);
+  return tempCodePath;
 }
-export async function copyRecursive(sourceFolder: string, destFolder: string): Promise<void> {
+
+export async function safeCleanup(dirPath: string) {
+  try {
+    const resolvedPath = path.resolve(dirPath);
+    const stat = await fsp.stat(resolvedPath).catch(() => null);
+    if (!stat) return; // folder doesn't exist
+
+    // Tiny delay to ensure all streams are closed
+    await new Promise((res) => setTimeout(res, 50));
+
+    await fsp.rm(resolvedPath, { recursive: true, force: true });
+    console.log('✅ Temp folder cleaned up:', resolvedPath);
+  } catch (err: any) {
+    console.error('⚠️ Failed to clean temp folder:', err.message);
+  }
+}
+
+export async function copyRecursive(
+  sourceFolder: string,
+  destFolder: string
+): Promise<void> {
   if (!fs.existsSync(sourceFolder)) {
     throw new Error(`Source folder does not exist: ${sourceFolder}`);
   }
@@ -272,8 +294,10 @@ async function cleanup(dir) {
   await fsp.rmdir(dir); // <-- this must be dir, NOT srcDir
 }
 
-
-export function copyWithCmd(sourceFolder: string, destFolder: string): Promise<void> {
+export function copyWithCmd(
+  sourceFolder: string,
+  destFolder: string
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const src = path.resolve(sourceFolder);
     const dest = path.resolve(destFolder);
@@ -290,7 +314,6 @@ export function copyWithCmd(sourceFolder: string, destFolder: string): Promise<v
     });
   });
 }
-
 
 function copySettingsFile(settingsPath, destDir) {
   return new Promise((resolve, reject) => {
@@ -318,50 +341,50 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-await copySettingsFile(
-  'C:\\Users\\Xristoskrik\\Documents\\projects\\printer2\\quickord-printer-server\\builds\\builds\\settings.json',
-  `${srcDir}`,
-);
-  await deleteFolderRecursive(destDir);
-} catch (err: any) {
-  console.error('cleanupMain failed:', err.message || err);
-}
+      await copySettingsFile(
+        'C:\\Users\\Xristoskrik\\Documents\\projects\\printer2\\quickord-printer-server\\builds\\builds\\settings.json',
+        `${srcDir}`
+      );
+      await deleteFolderRecursive(destDir);
+    } catch (err: any) {
+      console.error('cleanupMain failed:', err.message || err);
+    }
 
     console.log(process.cwd());
     try {
-    await fsp.mkdir(destDir, { recursive: true });
-    console.log(`Created folder: ${destDir}`);
-  } catch (err: any) {
-    console.error(`Failed to create folder "${destDir}":`, err.message || err);
-  }
-    console.log("paths: ",srcDir,destDir)
-   // await copyRecursive(srcDir, 'C:\\Users\\Xristoskrik\\Documents\\projects\\printer2\\quickord-printer-server\\builds');
-    await copyWithCmd(
-  srcDir,
-  destDir
-);
+      await fsp.mkdir(destDir, { recursive: true });
+      console.log(`Created folder: ${destDir}`);
+    } catch (err: any) {
+      console.error(
+        `Failed to create folder "${destDir}":`,
+        err.message || err
+      );
+    }
+    console.log('paths: ', srcDir, destDir);
+
+    await copyWithCmd(srcDir, destDir);
     // await deleteFolderRecursive(`${destDir}${sep}builds${sep}node_modules`);
     path[0] = '--remove';
-    path2 = `${path[3]}${sep}builds${sep}printerServer.exe`|| '';
+    path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
     console.log(path2);
-    console.log(srcDir,destDir)
-   const buildsDir = destDir + '\\builds';
+    console.log(srcDir, destDir);
+    const buildsDir = destDir + '\\builds';
     try {
-    // Change directory to the 'builds' folder inside destDir
-    process.chdir(buildsDir);
-    console.log(`Successfully changed directory to ${buildsDir}`);
-  } catch (err) {
-     console.log(`Failed to change directory: ${err.message}`);
-  }
+      // Change directory to the 'builds' folder inside destDir
+      process.chdir(buildsDir);
+      console.log(`Successfully changed directory to ${buildsDir}`);
+    } catch (err) {
+      console.log(`Failed to change directory: ${err.message}`);
+    }
     relaunchExe(path2, path);
     //
   } else if (path[0] === '--remove') {
-   let srcDir = path[1]?.toString() || '';
-  console.log(`srcDir: ${srcDir}`);
+    let srcDir = path[1]?.toString() || '';
+    console.log(`srcDir: ${srcDir}`);
 
-  const currentDir = process.cwd();
-  const parentDir = dirname(srcDir);
-  console.log(parentDir)
+    const currentDir = process.cwd();
+    const parentDir = dirname(srcDir);
+    console.log(parentDir);
     await deleteFolderRecursive(parentDir);
   }
 }
