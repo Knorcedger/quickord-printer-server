@@ -1,10 +1,5 @@
 name: Create release Windows
 
-on:
-  push:
-    branches:
-      - spike-actions-2
-
 permissions:
   contents: write
 
