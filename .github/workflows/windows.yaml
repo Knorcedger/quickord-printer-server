@@ -45,6 +45,7 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             node-modules-${{ runner.os }}-
+          retention-days: 90
 
       # Cache Nexe builds (Node.js source & binaries)
       - name: Cache Nexe
