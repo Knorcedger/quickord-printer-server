@@ -78,10 +78,12 @@ jobs:
           echo "Using Clang:"
           clang-cl --version
           bash ./deploy.sh
+          ls 
+          ls -la ./builds/
 
       # Upload the built exe as artifact
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: quickord-printer-server
-          path: ./builds/quickord-printer-server.zip
+          path: ./builds/quickord-cashier-server.zip
