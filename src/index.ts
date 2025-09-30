@@ -30,7 +30,6 @@ import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
 const main = async () => {
-  //test
   const SERVER_PORT =
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
