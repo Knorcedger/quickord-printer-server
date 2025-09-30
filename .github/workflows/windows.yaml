@@ -1,7 +1,9 @@
 name: Create release Windows
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
