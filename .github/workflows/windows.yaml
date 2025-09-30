@@ -1,0 +1,89 @@
+name: Create release Windows
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  create:
+    runs-on: windows-latest
+
+    steps:
+      # Checkout repo
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # Setup Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+
+      # Setup NASM (needed for V8 assembly)
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      # Install LLVM/Clang (needed for Node >= 24)
+      - name: Setup LLVM/Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: '15.0.7'
+          directory: C:\llvm
+
+      # Cache Node modules
+      - name: Cache Node modules
+        id: cache-node
+        uses: actions/cache@v3
+        with:
+          path: |
+            **/node_modules
+            ~/.npm
+          key: node-modules-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            node-modules-${{ runner.os }}-
+
+      # Cache Nexe builds (Node.js source & binaries)
+      - name: Cache Nexe
+        id: cache-nexe
+        uses: actions/cache@v3
+        with:
+          path: ~/.nexe
+          key: nexe-${{ runner.os }}-24.8.0
+
+      # Install Node dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Install Nexe globally
+      - name: Install Nexe
+        run: npm install -g nexe
+
+      # Install CMake (needed by Node build system)
+      - name: Install CMake
+        uses: jwlawson/actions-setup-cmake@v1
+        with:
+          cmake-version: '3.27.0'
+
+      - name: Install zip
+        run: choco install zip -y
+
+      # Run deploy script
+      - name: Run deploy.sh
+        shell: bash
+        run: |
+          echo "Using Clang:"
+          clang-cl --version
+          bash ./deploy.sh
+          ls 
+          ls -la ./builds/
+
+      # Upload the built exe as artifact
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: quickord-printer-server
+          path: ./builds/quickord-cashier-server.zip
