@@ -83,5 +83,5 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
-          name: printerServer
-          path: builds/builds/printerServer.zip
+          name: quickord-printer-server
+          path: ./builds/quickord-printer-server.zip
