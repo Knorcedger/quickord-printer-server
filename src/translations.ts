@@ -218,6 +218,10 @@ export default {
       el: 'ΕΠΙΣΤΡΟΦΗ ΕΙΔΟΥΣ',
       en: 'ITEM RETURN',
     },
+    closed: {
+      el: 'ΑΚΥΡΩΜΕΝΟ',
+      en: 'CLOSED',
+    },
     waiter: {
       el: 'ΣΕΡΒ',
       en: 'WTR',

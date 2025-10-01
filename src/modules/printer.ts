@@ -9,36 +9,36 @@ import {
 import { date, z } from 'zod';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
-import { convertToDecimal, leftPad, tr } from './common';
+import {
+  convertToDecimal,
+  leftPad,
+  tr,
+  changeTextSize,
+  PaymentMethod,
+  readMarkdown,
+  formatToGreek,
+  formatLine,
+  drawLine2,
+  DISCOUNTTYPES,
+  SERVICES,
+  printMarks,
+  printProducts,
+  printPayments,
+  printDiscountAndTip,
+  printVatBreakdown,
+  venueData,
+  receiptData,
+} from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-const DEFAULT_CODE_PAGE = 7;
+import { PelatologioRecord, AadeInvoice } from './interfaces';
 
+export const DEFAULT_CODE_PAGE = 7;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
-const changeTextSize = (
-  printer: ThermalPrinter,
-  size: z.infer<typeof PrinterTextSize>
-) => {
-  switch (size) {
-    case 'ONE':
-      printer.setTextSize(1, 1);
-      return;
-    case 'TWO':
-      printer.setTextSize(2, 2);
-      return;
-    case 'THREE':
-      printer.setTextSize(3, 3);
-      return;
-    case 'NORMAL':
-    default:
-      printer.setTextNormal();
-  }
-};
-
-const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
+export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
 
@@ -102,7 +102,8 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 
   return new ThermalPrinter(config);
 };
-function isUsbPrinterOnline(shareName: string): Promise<boolean> {
+
+const isUsbPrinterOnline = (shareName: string): Promise<boolean> => {
   return new Promise((resolve, reject) => {
     const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
 
@@ -116,7 +117,49 @@ function isUsbPrinterOnline(shareName: string): Promise<boolean> {
       resolve(!isOffline); // true if online
     });
   });
-}
+};
+
+export const checkPrinters = async () => {
+  const connectedPrinterIds: { id: string; connected: boolean }[] = [];
+
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+
+    if (!settings || !printer) {
+      continue;
+    }
+    console.log('printer', settings.id);
+    try {
+      //   const connected = await printer.isPrinterConnected();
+      let connected = false;
+      if (settings.ip !== '') {
+        connected = await printer?.isPrinterConnected();
+      } else {
+        try {
+          const shareName = settings.port.split('\\').pop() || '';
+          connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+        } catch (error) {
+          console.error('Error checking printer connection:', error);
+          connected = false;
+        }
+      }
+
+      if (connected) {
+        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
+        // Use printer settings as identifier
+        console.log('Printer connected:', printer);
+      } else {
+        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+        printer?.clear();
+      }
+    } catch (error) {
+      console.error('Error checking printer connection:', error);
+    }
+  }
+  console.log('Connected printers:', connectedPrinterIds);
+  return connectedPrinterIds;
+};
 
 // Example usage
 
@@ -201,31 +244,6 @@ export const printTestPage = async (
   }
 };
 
-const PaymentMethod = Object.freeze({
-  ACC_FOREIGN: {
-    description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής',
-    value: '2',
-  },
-  ACC_NATIVE: {
-    description: 'Επαγ. Λογαριασμός Πληρωμών Ημεδαπής',
-    value: '1',
-  },
-  CASH: { description: 'ΜΕΤΡΗΤΑ', value: '3' },
-  CHECK: { description: 'ΕΠΙΤΑΓΗ', value: '4' },
-  CREDIT: { description: 'ΕΠΙ ΠΙΣΤΩΣΕΙ', value: '5' },
-  IRIS: { description: 'IRIS', value: '8' },
-  POS: { description: 'POS / e-POS', value: '7' },
-  WEB_BANK: { description: 'Web-banking', value: '6' },
-});
-
-const PaymentMethodDescriptions = Object.freeze(
-  Object.fromEntries(
-    Object.values(PaymentMethod).map(({ description, value }) => [
-      value,
-      description,
-    ])
-  )
-);
 export const pelatologioRecord = (
   req: Request<{}, any, any>,
   res: Response<{}, any>
@@ -241,87 +259,7 @@ export const pelatologioRecord = (
     res.status(400).send(error.message);
   }
 };
-const readMarkdown = (text, printer, alignment, settings) => {
-  if (alignment === 'left') {
-    printer.alignLeft();
-  } else if (alignment === 'center') {
-    printer.alignCenter();
-  } else if (alignment === 'right') {
-    printer.alignRight();
-  }
-  console.log(`Printing text with alignment ${text}`);
-  let index = 0;
-  let buffer = '';
-  let formatting = { bold: false, italic: false, underline: false };
 
-  while (index < text.length) {
-    if (text[index] === '<') {
-      // Check for tags
-      const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
-      if (tagMatch) {
-        // Print current buffer before changing formatting
-        if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.bold(formatting.bold);
-          printer.underline(formatting.underline);
-          printer.print(buffer);
-          buffer = '';
-        }
-
-        const [, closing, tag] = tagMatch;
-        if (closing) {
-          // Closing tag
-          if (tag === 'b') formatting.bold = false;
-          if (tag === 'u') formatting.underline = false;
-          if (tag === 's1' || tag === 's2' || tag === 's3') {
-            changeTextSize(printer, 'NORMAL');
-          }
-        } else {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          // Opening tag
-          if (tag === 'b') formatting.bold = true;
-          if (tag === 'u') formatting.underline = true;
-          if (tag === 's1') {
-            printer.setTextSize(1, 0);
-          } else if (tag === 's2') {
-            printer.setTextSize(1, 1);
-          } else if (tag === 's3') {
-            printer.setTextSize(2, 2);
-          } else if (tag === 's4') {
-            printer.setTextSize(3, 3);
-          }
-        }
-
-        index += tagMatch[0].length;
-        continue;
-      }
-    }
-
-    // Handle newline
-    if (text[index] === '\n') {
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.bold(formatting.bold);
-      printer.underline(formatting.underline);
-      printer.println(buffer);
-      buffer = '';
-      index++;
-      continue;
-    }
-
-    // Regular character
-    buffer += text[index];
-    index++;
-  }
-
-  // Print any remaining text
-  if (buffer) {
-    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-    printer.bold(formatting.bold);
-
-    printer.underline(formatting.underline);
-    printer.print(buffer);
-  }
-};
 const printTextFunc = async (
   text: string,
   alignment: 'left' | 'center' | 'right',
@@ -401,24 +339,7 @@ export const parkingTicket = (
     res.status(400).send(error.message);
   }
 };
-//export const rateUs = (req: Request<{}, any, any>, res: Response<{}, any>) => {
-//  try {
-//    printRateUs(
-//      req.body.rateUsUrl,
-//      req.body.rateUsStars,
-//      req.body.lang || 'el'
-//    );
-//    res.status(200).send({ status: 'done' });
-//  } catch (error) {
-//    logger.error('Error printing test page:', error);
-//    res.status(400).send(error.message);
-//  }
-//};
-//
-const formatLine = (left, right) => {
-  const space = 40 - left.length - right.length;
-  return left + ' '.repeat(space > 0 ? space : 1) + right;
-};
+
 const printParkingTicket = async (
   venueName: string,
   license: string,
@@ -487,89 +408,6 @@ const printParkingTicket = async (
     }
   }
 };
-const formatToGreek = (date: Date | string): string => {
-  const entryDate = new Date(date);
-  return entryDate.toLocaleString('el-GR', {
-    timeZone: 'Europe/Athens',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
-};
-
-//const printRateUs = async (
-//  rateUsUrl: string,
-//  rateUsStars: string,
-//  lang: SupportedLanguages = 'el'
-//) => {
-//  for (let i = 0; i < printers.length; i += 1) {
-//    try {
-//      const settings = printers[i]?.[1];
-//      const printer = printers[i]?.[0];
-//      printer?.clear();
-//      if (!settings || !printer) {
-//        continue;
-//      }
-//      if (settings.documentsToPrint !== undefined) {
-//        if (!settings.documentsToPrint?.includes('RATEUS')) {
-//          console.log('RATEUS is not in documentsToPrint');
-//          continue;
-//        }
-//      }
-//      /*if (
-//        !settings.logoUtils?.whereToPrint?.includes('rateUs') ||
-//        settings.logoUtils?.logoUrl === null
-//      ) {
-//        console.log('logoUtils are not defined properly');
-//        continue;
-//      }*/
-//      printer.alignCenter();
-//      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-//      printer.bold(true);
-//      printer.setTextSize(1, 0);
-//      /* const logo = await axios.get(settings?.logoUtils?.logoUrl || '', {
-//        responseType: 'arraybuffer',
-//      });*/
-//      /* const processedImage = await sharp(logo.data)
-//        .resize(334)
-//        .threshold(118)
-//        .toBuffer();
-//      printer.printImageBuffer(processedImage);*/
-//      printer.newLine();
-//      printer.println('ΚΑΝΤΕ ΜΑΣ,');
-//      printer.setTextSize(0, 0);
-//      printer.println('ΜΙΑ ΑΞΙΟΛΟΓΗΣΗ ΣΤΟ GOOGLE MAPS');
-//
-//      const rateUs = await axios.get(rateUsStars, {
-//        responseType: 'arraybuffer',
-//      });
-//      const rateUsImage = await sharp(rateUs.data)
-//        .resize(384) // resize width to fit printer
-//        .threshold(128) // convert to black and white
-//        .toBuffer();
-//      printer.printImageBuffer(rateUsImage);
-//      printer.printQR(rateUsUrl, {
-//        cellSize: 3,
-//        model: 3,
-//        correction: 'Q',
-//      });
-//      printer.cut();
-//      printer
-//        .execute({
-//          waitForResponse: false,
-//        })
-//        .then(() => {
-//          printer?.clear();
-//          logger.info('Printed payment');
-//        });
-//    } catch (error) {
-//      logger.error('Print failed:', error);
-//    }
-//  }
-//};
 
 const printPelatologioRecord = async (
   pelatologioRecord: PelatologioRecord,
@@ -769,159 +607,6 @@ export const orderForm = (
   }
 };
 
-const drawLine2 = (printer: ThermalPrinter) => {
-  printer.println('------------------------------------------');
-};
-
-interface PelatologioRecord {
-  amount?: number;
-  cancellationReason?: string;
-  clientServiceType?: 'rental' | 'garage' | 'parkingcarwash';
-  comments?: string;
-  completionDateTime?: Date | string;
-  contactId?: string; // ObjectId as string
-  cooperatingVatNumber?: string;
-  customerVatNumber?: string;
-  dateTime?: Date | string;
-  dclId?: number;
-  entityVatNumber?: string;
-  entryCompletion?: boolean;
-  exitDateTime?: Date | string;
-  fim?: {
-    fimAA?: number;
-    fimIssueDate?: string; // YYYY-MM-DD
-    fimIssueTime?: string; // HH:mm:ss
-    fimNumber?: string;
-  };
-  foreignVehicleRegNumber?: string;
-  invoiceKind?: 'RECEIPT' | 'INVOICE' | 'FIM_RECEIPT';
-  invoiceMark?: string;
-  isDiffVehReturnLocation?: boolean;
-  nonIssueInvoice?: boolean;
-  offSiteProvidedService?: 'TEMPORARY_EXIT' | 'MOVE_TO_SAME_ENTITY';
-  otherBranch?: number;
-  providedServiceCategory?:
-    | 'CATALOG_WORK'
-    | 'CUSTOM_AGREEMENT'
-    | 'DAMAGE_ASSESSMENT'
-    | 'FREE_SERVICE'
-    | 'OTHER'
-    | 'WARRANTY_COMPENSATION';
-  providedServiceCategoryOther?: string;
-  reasonNonIssueType?:
-    | 'FREE_SERVICE'
-    | 'GUARANTEE_PROVISION_COMPENSATION'
-    | 'SELF_USE';
-  status?: 'active' | 'completed' | 'cancelled' | 'noInvoiceYet';
-  updatesHistory?: {
-    comments?: string;
-    dateTime?: Date | string;
-    updateInfo?: string;
-    userId?: string; // ObjectId as string
-  }[];
-  vehicleCategory?: string;
-  vehicleFactory?: string;
-  vehicleId?: string; // ObjectId as string
-  vehicleMovementPurpose?:
-    | 'RENTAL'
-    | 'REPAIR'
-    | 'PERSONAL_USE'
-    | 'FREE_SERVICE'
-    | 'OTHER';
-  vehicleRegNumber?: string;
-  vehicleReturnLocation?: string;
-  venueId?: string; // ObjectId as string
-  createdAt?: Date | string;
-  updatedAt?: Date | string;
-}
-
-interface AadeInvoice {
-  issuer: {
-    name: string;
-    activity: string;
-    address: {
-      street: string;
-      city: string;
-      postal_code: string;
-    };
-    vat_number: string;
-    tax_office: string;
-    phone: string;
-  };
-  closed: boolean;
-  counterpart: {
-    activity: {
-      description: 'Activity of the counterpart';
-      type: String;
-    };
-    address: {
-      city: {
-        description: 'City of the counterpart';
-        type: String;
-      };
-      number: {
-        description: 'Street number of the counterpart';
-        type: String;
-      };
-      postal_code: {
-        description: 'Postal code of the counterpart';
-        type: String;
-      };
-      street: {
-        description: 'Street name of the counterpart';
-        type: String;
-      };
-    };
-    branch: {
-      description: 'Branch number of the counterpart';
-      type: Number;
-    };
-    country: {
-      description: 'Country of the counterpart';
-      type: String;
-    };
-    name: {
-      description: 'Name of the counterpart';
-      type: String;
-    };
-    phone: {
-      description: 'Phone number of the counterpart';
-      type: String;
-    };
-    tax_office: {
-      description: 'Tax office of the counterpart';
-      type: String;
-    };
-    vat_number: {
-      description: 'VAT number of the counterpart';
-      type: String;
-    };
-  };
-  gross_value: number;
-  issue_date: string;
-  header: {
-    series: {
-      code: string;
-    };
-    serial_number: string;
-    code: string;
-  };
-  details: {
-    name: string;
-    quantity: number;
-    net_value: number;
-  }[];
-  payment_methods: {
-    code: string;
-    amount: number;
-  }[];
-  mark: string;
-  url: string;
-  uid: string;
-  authentication_code: string;
-  qr: string;
-}
-
 const printOrderForm = async (
   aadeInvoice: AadeInvoice,
   tableNumber: string,
@@ -954,6 +639,12 @@ const printOrderForm = async (
       venueData(printer, aadeInvoice, issuerText, settings, lang);
       receiptData(printer, aadeInvoice, settings, orderNumber, 'DINE_IN', lang);
       printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
+      if (aadeInvoice.closed) {
+        printer.setTextSize(1, 0);
+        printer.bold(true);
+        printer.println(`${translations.printOrder.closed[lang]}`);
+        printer.setTextSize(0, 0);
+      }
       drawLine2(printer);
       let sumAmount = 0;
       let sumQuantity = 0;
@@ -1184,369 +875,6 @@ const printPaymentSlip = async (
   }
 };
 
-type ServiceType = {
-  value: string;
-  label_en: string;
-  label_el: string;
-};
-
-const SERVICES: Record<string, ServiceType> = {
-  wolt: {
-    value: 'wolt',
-    label_en: 'WOLT',
-    label_el: 'WOLT',
-  },
-  efood: {
-    value: 'efood',
-    label_en: 'EFOOD',
-    label_el: 'EFOOD',
-  },
-  box: {
-    value: 'box',
-    label_en: 'BOX',
-    label_el: 'BOX',
-  },
-  fagi: {
-    value: 'fagi',
-    label_en: 'FAGI',
-    label_el: 'FAGI',
-  },
-  store: {
-    value: 'store',
-    label_en: 'STORE',
-    label_el: 'ΚΑΤΑΣΤΗΜΑ',
-  },
-  phone: {
-    value: 'phone',
-    label_en: 'PHONE',
-    label_el: 'ΤΗΛΕΦΩΝΟ',
-  },
-  takeAway: {
-    value: 'takeAway',
-    label_en: 'TAKE AWAY',
-    label_el: 'TAKE AWAY',
-  },
-  dine_in: {
-    value: 'dineIn',
-    label_en: 'DINE IN',
-    label_el: 'DINE IN',
-  },
-  generic: {
-    value: 'generic',
-    label_en: 'GENERIC',
-    label_el: 'ΓΕΝΙΚΗ',
-  },
-  take_away_inside: {
-    value: 'take_away_inside',
-    label_en: 'TAKE AWAY INSIDE',
-    label_el: 'ΠΑΡΑΛΑΒΗ ΕΝΤΟΣ',
-  },
-  kiosk: {
-    value: 'kiosk',
-    label_en: 'KIOSK',
-    label_el: 'KIOSΚ',
-  },
-};
-
-const DISCOUNTTYPES: Record<string, ServiceType> = {
-  fixed: {
-    value: 'fixed',
-    label_en: 'FIXED',
-    label_el: 'ΣΤΑΘΕΡΗ',
-  },
-  percent: {
-    value: 'percent',
-    label_en: 'PERCENTAGE',
-    label_el: 'ΠΟΣΟΣΤΟ',
-  },
-  none: {
-    value: 'none',
-    label_en: 'UNKNOWN',
-    label_el: 'ΑΓΝΩΣΤΗ',
-  },
-};
-
-const venueData = (
-  printer,
-  aadeInvoice: AadeInvoice,
-  issuerText: string,
-  settings,
-  lang: SupportedLanguages
-) => {
-  printer.alignCenter();
-  if (issuerText) {
-    readMarkdown(issuerText, printer, 'center', settings);
-  } else {
-    printer.println(aadeInvoice?.issuer.name);
-    printer.println(aadeInvoice?.issuer.activity);
-    printer.println(
-      `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`
-    );
-
-    printer.println(
-      `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
-    );
-    printer.println(
-      `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
-    );
-  }
-};
-
-const receiptData = (
-  printer,
-  aadeInvoice: AadeInvoice,
-  settings,
-  orderNumber: number,
-  orderType: string,
-  lang: SupportedLanguages
-) => {
-  printer.alignLeft();
-  const rawDate = new Date(aadeInvoice?.issue_date);
-  const day = rawDate.getDate();
-  const month = rawDate.getMonth() + 1;
-  const year = rawDate.getFullYear();
-  const hours = rawDate.getHours().toString().padStart(2, '0');
-  const minutes = rawDate.getMinutes().toString().padStart(2, '0');
-
-  const formattedDate = `${day}/${month}/${year}`;
-  const formattedTime = `${hours}:${minutes}`;
-
-  printer.newLine();
-  if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
-    printer.setTextSize(1, 0);
-  }
-
-  printer.setTextSize(0, 0);
-
-  printer.println(
-    `${translations.printOrder.series[lang]}: ${aadeInvoice?.header.series.code}     ${translations.printOrder.number[lang]}: ${aadeInvoice?.header.serial_number}   ${formattedDate},${formattedTime}`
-  );
-
-  printer.alignLeft();
-  if (lang === 'el') {
-    if (orderType.toLowerCase() !== 'generic') {
-      printer.println(
-        `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
-      );
-    } else {
-      printer.println(`#${orderNumber}`);
-    }
-  } else {
-    if (orderType.toLowerCase() !== 'generic') {
-      printer.println(
-        `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
-      );
-    } else {
-      printer.println(`#${orderNumber}`);
-    }
-  }
-};
-
-const printProducts = (
-  printer,
-  aadeInvoice,
-  order,
-  settings,
-  lang
-): [number, number, any[]] => {
-  let sumAmount = 0;
-  let sumQuantity = 0;
-  printer.alignCenter();
-  printer.newLine();
-  printer.alignLeft();
-  printer.println(
-    `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-      `${translations.printOrder.kind[lang]}`.padEnd(20) +
-      `${translations.printOrder.price[lang]}`.padEnd(10) +
-      `${translations.printOrder.vat[lang]}`
-  );
-  drawLine2(printer);
-  const vatBreakdown = new Map();
-  aadeInvoice?.details.forEach((detail: any) => {
-    sumQuantity += detail.quantity;
-
-    const name = detail.name.toUpperCase();
-    console.log('proion', detail.name, lang);
-    // First, find the product that contains the matchedContent
-
-    const quantity = detail.quantity.toFixed(0); // "1,000"
-    const value = (
-      (detail.net_value || 0) + (detail?.tax?.value || 0)
-    )?.toFixed(2);
-    const vat = `${detail.tax.rate}%`; // "24%"
-    sumAmount += parseFloat(value);
-    const maxNameLength = 17;
-    const vatRate = Number(detail.tax.rate); // ensure number
-
-    const netValue = detail.net_value;
-    const total = parseFloat(value);
-
-    if (vatBreakdown.has(vatRate)) {
-      const entry = vatBreakdown.get(vatRate);
-      entry.total += total;
-      entry.netValue += netValue;
-      entry.vatAmount = entry.total - entry.netValue; // update VAT
-    } else {
-      vatBreakdown.set(vatRate, {
-        vat: vatRate,
-        total,
-        netValue,
-        vatAmount: total - netValue,
-      });
-    }
-    if (name.length > maxNameLength) {
-      // Print wrapped product name in chunks
-      for (let i = 0; i < name.length; i += maxNameLength) {
-        const chunk = name.substring(i, i + maxNameLength);
-
-        if (i === 0) {
-          // First line → quantity first
-          printer.println(
-            quantity.padEnd(7) +
-              chunk.padEnd(maxNameLength) +
-              value.padEnd(7) +
-              vat
-          );
-        } else {
-          // Subsequent lines → only print name aligned after quantity
-          printer.println(' '.repeat(7) + chunk);
-        }
-      }
-    } else {
-      // Short name → print in one line with quantity first
-      printer.println(
-        quantity.padEnd(7) +
-          name.padEnd(maxNameLength) +
-          value.padStart(7) +
-          vat.padStart(10)
-      );
-    }
-    const matchedProduct = order.products?.find((p: any) =>
-      p.content?.some(
-        (c: any) => c.language === lang && c.title === detail.name
-      )
-    );
-    function getTitle(content, lang) {
-      const found = content.find((c) => c.language === lang);
-      return found ? found.title : '';
-    }
-
-    if (matchedProduct) {
-      console.log('Matched product:', matchedProduct);
-
-      // Print the product title (from matchedContent)
-      const matchedContent = matchedProduct.content.find(
-        (c: any) => c.language === lang && c.title === detail.name
-      );
-
-      const lineWidth = 32;
-      // Then loop through its choices (options)
-      matchedProduct.options?.forEach((choice: any) => {
-        console.log('choice', choice);
-        choice.choices.forEach((ch) => {
-          const choiceTitle = getTitle(choice.content, lang); // parent title
-          const quantityPrefix =
-            Number(ch.quantity) > 1 ? `${ch.quantity}x ` : '';
-
-          // Build main text
-          const choiceText = `- ${quantityPrefix}${choiceTitle}`;
-
-          // Price (only if > 0)
-          const choicePrice =
-            ch.price && ch.price > 0 ? `${(ch.price / 100).toFixed(2)} €` : '';
-
-          // Add indentation at start (e.g., 5 spaces)
-          const indent = '     '; // 5 spaces
-          const paddedChoiceLine =
-            indent + choiceText + (choicePrice ? '   ' + choicePrice : '');
-
-          printer.println(paddedChoiceLine);
-          console.log('choice', paddedChoiceLine);
-        });
-      });
-    }
-  });
-
-  drawLine2(printer);
-  const fixedBreakdown = [...vatBreakdown.values()].map((entry) => ({
-    ...entry,
-    vatAmount: Number((entry.total - entry.netValue).toFixed(2)),
-  }));
-  console.log(fixedBreakdown);
-
-  return [sumAmount, sumQuantity, fixedBreakdown];
-};
-
-const printDiscountAndTip = (printer, discount, tip, lang) => {
-  let discountAmount = '';
-  if ('amount' in discount && 'type' in discount) {
-    if (discount.type === 'FIXED') {
-      discountAmount = (discount.amount / 100).toString() + '€';
-    } else {
-      discountAmount = discount.amount.toString() + '%';
-    }
-    if (discountAmount !== '') {
-      printer.println(
-        `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
-      );
-    }
-    if (tip > 0) {
-      printer.println(
-        `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
-      );
-    }
-  }
-};
-
-const printMarks = (printer, aadeInvoice, lang) => {
-  printer.newLine();
-  printer.alignLeft();
-  printer.println(`MARK ${aadeInvoice?.mark}`);
-  printer.println(`UID ${aadeInvoice?.uid}`);
-  printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
-  printer.alignCenter();
-  printer.printQR(aadeInvoice?.url, {
-    cellSize: 4,
-    model: 4,
-    correction: 'Q',
-  });
-  printer.newLine();
-  printer.println(
-    `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
-  );
-  printer.newLine();
-};
-const printPayments = (printer, aadeInvoice, lang) => {
-  printer.bold(false);
-  printer.alignCenter();
-  drawLine2(printer);
-  printer.println(`${translations.printOrder.payments[lang]}:`);
-  aadeInvoice?.payment_methods.forEach((detail: any) => {
-    console.log(detail.code);
-    if (detail.amount > 0) {
-      const methodDescription =
-        PaymentMethod[detail.code]?.description ||
-        translations.printOrder.unknown[lang];
-      printer.println(
-        `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
-      );
-    }
-    drawLine2(printer);
-  });
-};
-const printVatBreakdown = (printer, vatBreakdown, lang) => {
-  printer.println(
-    `${translations.printOrder.percentage[lang].padEnd(10)}${translations.printOrder.netWorth[lang].padEnd(12)}${translations.printOrder.netValue[lang].padEnd(10)}${translations.printOrder.total[lang].padStart(10)}`
-  );
-
-  vatBreakdown.forEach((entry) => {
-    printer.println(
-      `${String(entry.vat).padEnd(10)}${String(entry.netValue.toFixed(2)).padEnd(12)}${String(entry.vatAmount.toFixed(2)).padEnd(10)}${String(entry.total.toFixed(2)).padStart(10)}`
-    );
-  });
-
-  drawLine2(printer);
-};
 const printPaymentReceipt = async (
   aadeInvoice: AadeInvoice,
   orderNumber: number,
@@ -1934,47 +1262,6 @@ const printMyPelatesReceipt = async (
     }
   }
 };
-export const checkPrinters = async () => {
-  const connectedPrinterIds: { id: string; connected: boolean }[] = [];
-
-  for (let i = 0; i < printers.length; i += 1) {
-    const settings = printers[i]?.[1];
-    const printer = printers[i]?.[0];
-
-    if (!settings || !printer) {
-      continue;
-    }
-    console.log('printer', settings.id);
-    try {
-      //   const connected = await printer.isPrinterConnected();
-      let connected = false;
-      if (settings.ip !== '') {
-        connected = await printer?.isPrinterConnected();
-      } else {
-        try {
-          const shareName = settings.port.split('\\').pop() || '';
-          connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
-        } catch (error) {
-          console.error('Error checking printer connection:', error);
-          connected = false;
-        }
-      }
-
-      if (connected) {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
-        // Use printer settings as identifier
-        console.log('Printer connected:', printer);
-      } else {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
-        printer?.clear();
-      }
-    } catch (error) {
-      console.error('Error checking printer connection:', error);
-    }
-  }
-  console.log('Connected printers:', connectedPrinterIds);
-  return connectedPrinterIds;
-};
 
 export const printOrder = async (
   order: z.infer<typeof Order>,
@@ -2087,12 +1374,6 @@ export const printOrder = async (
             printer.bold(false);
           }
         }
-
-        // if (settings.textOptions.includes('BOLD_ORDER_TYPE')) {
-        //  printer.setTextSize(1, 0);
-        //  } else {
-        //    changeTextSize(printer, settings?.textSize || 'NORMAL');
-        //  }
         printer.bold(true);
         printer.print(
           tr(
@@ -2114,14 +1395,6 @@ export const printOrder = async (
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
-        /*
-        printer.println(
-          tr(
-            `${translations.printOrder.paymentType[lang]}:${translations.printOrder.paymentTypes[order.paymentType][lang]}`,
-            settings.transliterate
-          )
-        );*/
-
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         drawLine2(printer);
