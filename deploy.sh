@@ -18,6 +18,7 @@ npm run build:exe || { echo "Failed to run npm build:exe"; exit 1; }
 # Create destination directory
 mkdir -p ./builds/node_modules
 
+
 # Copy specific directories from node_modules
 cp -r node_modules/@serialport ./builds/node_modules/
 cp -r node_modules/debug ./builds/node_modules/
