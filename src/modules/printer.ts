@@ -598,6 +598,7 @@ export const orderForm = (
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
+      req.body.order || null,
       req.body.lang || 'el'
     );
     res.status(200).send({ status: 'done' });
@@ -614,6 +615,7 @@ const printOrderForm = async (
   orderNumber: number,
   issuerText: string,
   project: string = 'centrix',
+  order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
   for (let i = 0; i < printers.length; i += 1) {
@@ -645,31 +647,13 @@ const printOrderForm = async (
         printer.println(`${translations.printOrder.closed[lang]}`);
         printer.setTextSize(0, 0);
       }
-      drawLine2(printer);
-      let sumAmount = 0;
-      let sumQuantity = 0;
-
-      aadeInvoice?.details.forEach((detail: any) => {
-        sumAmount += detail.net_value * detail.quantity;
-        sumQuantity += detail.quantity;
-
-        const name = detail.name;
-        const quantity = detail.quantity.toFixed(0); // "1,000"
-        const value = (
-          (detail.net_value || 0) + (detail?.tax?.value || 0)
-        )?.toFixed(2);
-        const vat = `${detail.tax.rate}%`; // "24%"
-        printer.println(
-          name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
-            quantity.padEnd(7) +
-            value.padEnd(7) +
-            vat
-        );
-        if (detail.rec_type === 7) {
-          printer.println(` - ${translations.printOrder.itemRemoval[lang]}`);
-        }
-      });
-      drawLine2(printer);
+      const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
+        printer,
+        aadeInvoice,
+        order,
+        settings,
+        lang
+      );
       printMarks(printer, aadeInvoice, lang);
       if (settings.poweredByQuickord) {
         printer.println(

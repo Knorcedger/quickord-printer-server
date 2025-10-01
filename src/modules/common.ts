@@ -382,10 +382,13 @@ export const printProducts = (
         (c: any) => c.language === lang && c.title === detail.name
       )
     );
-    function getTitle(content, lang) {
-      const found = content.find((c) => c.language === lang);
-      return found ? found.title : '';
-    }
+    const getTitle = (content, lang) => {
+      return (
+        content.find((c) => c.language === lang)?.title ||
+        content.find((c) => c.language === 'en')?.title ||
+        ''
+      );
+    };
 
     if (matchedProduct) {
       console.log('Matched product:', matchedProduct);
