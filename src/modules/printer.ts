@@ -848,6 +848,7 @@ interface AadeInvoice {
     tax_office: string;
     phone: string;
   };
+  closed: boolean;
   counterpart: {
     activity: {
       description: 'Activity of the counterpart';
@@ -950,44 +951,9 @@ const printOrderForm = async (
       printer.println(
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
-      printer.println(aadeInvoice?.issuer.name);
-      printer.println(aadeInvoice?.issuer.activity);
-      printer.println(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`
-      );
-
-      printer.println(
-        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
-      );
-      printer.println(
-        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
-      );
-      printer.println(issuerText);
-      printer.alignLeft();
-      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
-      const day = rawDate.substring(8, 10);
-      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
-      const year = rawDate.substring(0, 4);
-      const formattedDate = `${day}/${month}/${year}`;
-      printer.newLine();
-      printer.println(`#${orderNumber}`);
-      printer.println(
-        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
-      );
-      // Second line: table and server
+      venueData(printer, aadeInvoice, issuerText, settings, lang);
+      receiptData(printer, aadeInvoice, settings, orderNumber, 'DINE_IN', lang);
       printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
-      printer.println(
-        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
-      );
-      printer.alignCenter();
-      printer.newLine();
-      printer.alignLeft();
-      printer.println(
-        `${translations.printOrder.kind[lang]}`.padEnd(18) +
-          `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-          `${translations.printOrder.price[lang]}`.padEnd(7) +
-          `${translations.printOrder.vat[lang]}`
-      );
       drawLine2(printer);
       let sumAmount = 0;
       let sumQuantity = 0;
@@ -1013,23 +979,7 @@ const printOrderForm = async (
         }
       });
       drawLine2(printer);
-      printer.alignRight();
-      printer.newLine();
-      printer.alignLeft();
-      printer.println(`MARK ${aadeInvoice?.mark}`);
-      printer.println(`UID ${aadeInvoice?.uid}`);
-      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
-      printer.alignCenter();
-      printer.printQR(aadeInvoice?.url, {
-        cellSize: 4,
-        model: 4,
-        correction: 'Q',
-      });
-      printer.newLine();
-      printer.println(
-        `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
-      );
-      printer.newLine();
+      printMarks(printer, aadeInvoice, lang);
       if (settings.poweredByQuickord) {
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -1093,6 +1043,7 @@ const printPaymentSlip = async (
           continue;
         }
       }
+
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(`${translations.printOrder.paymentSlip[lang]}`);
