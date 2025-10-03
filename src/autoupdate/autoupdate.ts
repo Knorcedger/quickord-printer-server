@@ -341,10 +341,7 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-      await copySettingsFile(
-        'C:\\Users\\Xristoskrik\\Documents\\projects\\printer2\\quickord-printer-server\\builds\\builds\\settings.json',
-        `${srcDir}`
-      );
+      await copySettingsFile(destDir, `${srcDir}`);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
       console.error('cleanupMain failed:', err.message || err);
