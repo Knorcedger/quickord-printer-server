@@ -11,7 +11,12 @@ import { homepage } from './homepage';
 import logger from './modules/logger';
 import { initModem } from './modules/modem';
 import scanNetworkForConnections from './modules/network';
-import { setupPrinters, paymentReceipt, invoice } from './modules/printer';
+import {
+  setupPrinters,
+  paymentReceipt,
+  invoice,
+  invoiceMyPelates,
+} from './modules/printer';
 import { printText } from './modules/printer';
 import {
   getSettings,
@@ -29,6 +34,7 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
+
 const main = async () => {
   const SERVER_PORT =
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
@@ -116,6 +122,7 @@ const main = async () => {
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(paymentReceipt);
   app.route('/print-alp-mypelates').post(paymentMyPelatesReceipt);
+  app.route('/print-invoice-mypelates').post(invoiceMyPelates);
 
   app.route('/print-payment-slip').post(paymentSlip);
   app.route('/print-order-form').post(orderForm);
