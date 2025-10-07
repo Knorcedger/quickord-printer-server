@@ -527,21 +527,23 @@ export const receiptData = (
   );
 
   printer.alignLeft();
-  if (lang === 'el') {
-    if (orderType.toLowerCase() !== 'generic') {
-      printer.println(
-        `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
-      );
+  if (orderType !== 'MYPELATES') {
+    if (lang === 'el') {
+      if (orderType.toLowerCase() !== 'generic') {
+        printer.println(
+          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
+        );
+      } else {
+        printer.println(`#${orderNumber}`);
+      }
     } else {
-      printer.println(`#${orderNumber}`);
-    }
-  } else {
-    if (orderType.toLowerCase() !== 'generic') {
-      printer.println(
-        `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
-      );
-    } else {
-      printer.println(`#${orderNumber}`);
+      if (orderType.toLowerCase() !== 'generic') {
+        printer.println(
+          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
+        );
+      } else {
+        printer.println(`#${orderNumber}`);
+      }
     }
   }
 };
