@@ -573,7 +573,7 @@ export const invoiceMyPelates = (
   res: Response<{}, any>
 ) => {
   try {
-    printMyPelatesReceipt(
+    printMyPelatesInvoice(
       req.body.aadeInvoice,
       req.body.issuerText,
       req.body.lang || 'el'
