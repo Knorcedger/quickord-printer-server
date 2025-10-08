@@ -157,11 +157,26 @@ export async function deleteFolderRecursive(
     }
   }
 }
+
 function isLatestVersion(current: string, latest: string): boolean {
-  // Remove leading 'v'
-  const curr = current.startsWith('v') ? current.slice(1) : current;
-  const lat = latest.startsWith('v') ? latest.slice(1) : latest;
-  return curr >= lat; // simple lexicographic comparison works here
+  // Remove leading 'v' and split into numeric parts
+  const parse = (v: string) =>
+    v
+      .replace(/^v/, '')
+      .split('.')
+      .map((x) => parseInt(x, 10));
+
+  const c = parse(current);
+  const l = parse(latest);
+
+  // Compare each part numerically
+  for (let i = 0; i < Math.max(c.length, l.length); i++) {
+    const a = c[i] || 0;
+    const b = l[i] || 0;
+    if (a < b) return false;
+    if (a > b) return true;
+  }
+  return true; // equal versions
 }
 
 export async function downloadLatestCode(): Promise<string | null> {
@@ -341,10 +356,7 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-      await copySettingsFile(
-        'C:\\Users\\Xristoskrik\\Documents\\projects\\printer2\\quickord-printer-server\\builds\\builds\\settings.json',
-        `${srcDir}`
-      );
+      await copySettingsFile(`${srcDir}\\builds\\settings.json`, `${srcDir}`);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
       console.error('cleanupMain failed:', err.message || err);
