@@ -259,19 +259,20 @@ export const Order = z.object({
 
 const Orders = z.array(Order);
 
-const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     const orders = Orders.parse(req.body);
 
     logger.info('orders to print:', orders);
 
-    printerPrintOrders(orders);
+    await printerPrintOrders(orders);
     console.log(orders[0]?.products);
 
     res.status(200).send({ status: 'updated' });
   } catch (error) {
     logger.error('Error printing orders:', error);
-    res.status(400).send({ error: error.message });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    res.status(500).send({ error: errorMessage });
   }
 };
 
