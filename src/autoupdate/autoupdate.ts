@@ -345,6 +345,12 @@ function copySettingsFile(settingsPath, destDir) {
 }
 export default async function autoUpdate(path: string[]) {
   console.log('AutoUpdate path:', path);
+  // Check if running on Windows
+  if (process.platform !== 'win32') {
+    console.log('Skipping auto-update: non-Windows OS detected.');
+    return;
+  }
+
   if (path.length === 0) {
     await downloadLatestCode();
   } else if (path[0] === '--update') {
