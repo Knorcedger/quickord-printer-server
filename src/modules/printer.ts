@@ -426,6 +426,10 @@ const printTextFunc = async (
       logger.warn(
         `Skipping text print: missing settings or printer instance for ${printerIdentifier}`
       );
+      errors.push({
+        printerIdentifier,
+        error: 'Printer not configured or missing settings',
+      });
       continue;
     }
 
@@ -433,6 +437,10 @@ const printTextFunc = async (
       logger.warn(
         `Skipping text print: TEXT not in documentsToPrint for ${printerIdentifier}`
       );
+      errors.push({
+        printerIdentifier,
+        error: 'Printer not configured to print TEXT documents',
+      });
       continue;
     }
 
@@ -627,6 +635,10 @@ const printParkingTicket = async (
         logger.warn(
           `Skipping parking ticket print: missing settings or printer instance for ${printerIdentifier}`
         );
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured or missing settings',
+        });
         continue;
       }
 
@@ -734,6 +746,10 @@ const printPelatologioRecord = async (
         logger.warn(
           `Skipping pelatologio record print: missing settings or printer instance for ${printerIdentifier}`
         );
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured or missing settings',
+        });
         continue;
       }
 
@@ -1162,11 +1178,19 @@ const printOrderForm = async (
     try {
       printer?.clear();
       if (!settings || !printer) {
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured or missing settings',
+        });
         continue;
       }
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ORDERFORM')) {
           console.log('ORDERFORM is not in documentsToPrint');
+          errors.push({
+            printerIdentifier,
+            error: 'Printer not configured to print ORDERFORM documents',
+          });
           continue;
         }
       }
@@ -1282,11 +1306,19 @@ const printPaymentSlip = async (
     try {
       printer?.clear();
       if (!settings || !printer) {
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured or missing settings',
+        });
         continue;
       }
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('PAYMENT-SLIP')) {
           console.log('PAYMENT-SLIP is not in documentsToPrint');
+          errors.push({
+            printerIdentifier,
+            error: 'Printer not configured to print PAYMENT-SLIP documents',
+          });
           continue;
         }
       }
@@ -1479,13 +1511,28 @@ const printPaymentReceipt = async (
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
     printer?.clear();
     if (!settings || !printer) {
+      errors.push({
+        printerIdentifier,
+        error: 'Printer not configured or missing settings',
+      });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
       if (!settings.documentsToPrint?.includes('ALP')) {
         console.log('ALP is not in documentsToPrint');
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured to print ALP documents',
+        });
         continue;
       }
     }
@@ -1493,6 +1540,10 @@ const printPaymentReceipt = async (
     console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
+      errors.push({
+        printerIdentifier,
+        error: 'Printer is configured as KIOSK printer only',
+      });
       continue;
     }
     console.log('printing ALP');
@@ -1647,8 +1698,19 @@ const printInvoice = async (
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
     printer?.clear();
     if (!settings || !printer) {
+      errors.push({
+        printerIdentifier,
+        error: 'Printer not configured or missing settings',
+      });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
@@ -1656,12 +1718,20 @@ const printInvoice = async (
         console.log(
           'ALP is not in documentsToPrint (yes its also for invoices)'
         );
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured to print ALP documents',
+        });
         continue;
       }
     }
     console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
+      errors.push({
+        printerIdentifier,
+        error: 'Printer is configured as KIOSK printer only',
+      });
       continue;
     }
     console.log('printing invoice');
@@ -1795,13 +1865,28 @@ const printMyPelatesReceipt = async (
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
     printer?.clear();
     if (!settings || !printer) {
+      errors.push({
+        printerIdentifier,
+        error: 'Printer not configured or missing settings',
+      });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
       if (!settings.documentsToPrint?.includes('ALP')) {
         console.log('ALP is not in documentsToPrint');
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured to print ALP documents',
+        });
         continue;
       }
     }
