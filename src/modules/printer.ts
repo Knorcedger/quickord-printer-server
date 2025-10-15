@@ -1847,6 +1847,7 @@ export const printOrder = async (
             waitForResponse: false,
           })
           .then(() => {
+            console.log('here');
             printer.clear();
             logger.info(
               `Printed order ${order._id} to ${settings?.name || settings?.networkName || ''}: ${settings?.ip || settings?.port}`

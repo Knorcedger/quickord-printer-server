@@ -293,21 +293,6 @@ export async function copyRecursive(
     }
   }
 }
-async function cleanup(dir) {
-  console.log(`Cleaning up: ${dir}`);
-  const entries = await fsp.readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await cleanup(fullPath);
-    } else {
-      await fsp.unlink(fullPath);
-    }
-  }
-
-  await fsp.rmdir(dir); // <-- this must be dir, NOT srcDir
-}
 
 export function copyWithCmd(
   sourceFolder: string,
@@ -345,6 +330,12 @@ function copySettingsFile(settingsPath, destDir) {
 }
 export default async function autoUpdate(path: string[]) {
   console.log('AutoUpdate path:', path);
+  // Check if running on Windows
+  if (process.platform !== 'win32') {
+    console.log('Skipping auto-update: non-Windows OS detected.');
+    return;
+  }
+
   if (path.length === 0) {
     await downloadLatestCode();
   } else if (path[0] === '--update') {
@@ -356,7 +347,7 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-      await copySettingsFile(`${srcDir}\\builds\\settings.json`, `${srcDir}`);
+      await copySettingsFile(destDir, `${srcDir}`);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
       console.error('cleanupMain failed:', err.message || err);

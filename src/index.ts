@@ -3,7 +3,8 @@ import cors from 'cors';
 
 import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
-
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import { Request, Response } from 'express';
 
@@ -89,7 +90,43 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send(getSettings());
     });
+  function getPrinterVersion(): string {
+    const versionFilePath = path.join(__dirname, '../version');
+    try {
+      const version = fs.readFileSync(versionFilePath, 'utf-8').trim();
+      return version;
+    } catch (error) {
+      console.error('Error reading version file:', error);
+      return 'unknown';
+    }
+  }
+  async function fetchLatestTitle(): Promise<string> {
+    const url = nconf.get('CODE_VERSION_URL');
+    console.log('Fetching latest version from URL:', url);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      throw new Error(`GitHub API error: ${resp.status}`);
+    }
+    const json = (await resp.json()) as { name?: string; tag_name?: string };
+    return json.name || json.tag_name || 'unknown';
+  }
+  app
+    .route('/printer-version')
+    .post(settings)
+    .get((req: Request, res: Response) => {
+      const version = getPrinterVersion();
+      res.status(200).json({ version });
+    });
 
+  app.get('/request-latest-version', async (req, res) => {
+    try {
+      const title = await fetchLatestTitle();
+      res.status(200).json({ version: title });
+    } catch (err) {
+      console.error('Error fetching version:', err);
+      res.status(500).json({ version: 'unknown' });
+    }
+  });
   app
     .route('/status')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
