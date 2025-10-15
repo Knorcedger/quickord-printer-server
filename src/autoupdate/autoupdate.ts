@@ -158,18 +158,18 @@ export async function deleteFolderRecursive(
   }
 }
 
-function isLatestVersion(current: string, latest: string): boolean {
-  // Remove leading 'v' and split into numeric parts
-  const parse = (v: string) =>
-    v
-      .replace(/^v/, '')
-      .split('.')
-      .map((x) => parseInt(x, 10));
+function isLatestVersion(current, latest) {
+  const parse = (v) => {
+    const [datePart, counterPart] = v.replace(/^v/, '').split('-');
+    const nums = datePart.split('.').map((x) => parseInt(x, 10));
+    const counter = counterPart ? parseInt(counterPart, 10) : 0;
+    nums.push(counter); // add counter as last number
+    return nums;
+  };
 
   const c = parse(current);
   const l = parse(latest);
 
-  // Compare each part numerically
   for (let i = 0; i < Math.max(c.length, l.length); i++) {
     const a = c[i] || 0;
     const b = l[i] || 0;
