@@ -2201,6 +2201,10 @@ export const printOrder = async (
   project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
+  const successes: string[] = [];
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     let dontPrint = false;
     const settings = printers[i]?.[1];
@@ -2216,11 +2220,19 @@ export const printOrder = async (
       printer?.clear();
       if (!settings || !printer) {
         printer?.clear();
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured or missing settings',
+        });
         continue;
       }
       if (settings.orderMethodsToPrint !== undefined) {
         if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
           console.log('orderType is not in orderMethodsToPrint');
+          skipped.push({
+            printerIdentifier,
+            reason: `Order method ${order.orderType} not in printer's orderMethodsToPrint configuration`,
+          });
           continue;
         }
       }
@@ -2236,11 +2248,19 @@ export const printOrder = async (
       console.log(productsToPrint);
       if (!productsToPrint?.length) {
         printer?.clear();
+        skipped.push({
+          printerIdentifier,
+          reason: 'No products match printer\'s categories to print',
+        });
         continue;
       }
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ORDER')) {
           console.log('ORDER is not in documentsToPrint');
+          skipped.push({
+            printerIdentifier,
+            reason: 'Printer not configured to print ORDER documents',
+          });
           continue;
         }
       }
