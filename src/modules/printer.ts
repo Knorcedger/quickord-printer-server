@@ -955,6 +955,9 @@ const printOrderForm = async (
   order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1029,7 +1032,9 @@ const printOrderForm = async (
         orderNumber,
         tableNumber,
       });
+      successCount++;
     } catch (error) {
+      errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
         logger.error(
           `Cannot print order form - printer ${printerIdentifier} is not connected or unreachable`
@@ -1043,6 +1048,17 @@ const printOrderForm = async (
       }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print order form to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
 };
 const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
@@ -1055,6 +1071,9 @@ const printPaymentSlip = async (
   project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1208,7 +1227,9 @@ const printPaymentSlip = async (
         orderNumber,
         mark: aadeInvoice?.mark,
       });
+      successCount++;
     } catch (error) {
+      errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
         logger.error(
           `Cannot print payment slip - printer ${printerIdentifier} is not connected or unreachable`
@@ -1222,6 +1243,17 @@ const printPaymentSlip = async (
         });
       }
     }
+  }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print payment slip to any printer. Errors: ${errorMessages.join('; ')}`
+    );
   }
 };
 
@@ -1242,6 +1274,9 @@ const printPaymentReceipt = async (
   order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1342,6 +1377,7 @@ const printPaymentReceipt = async (
             totalCopies: settings.copies,
           }
         );
+        successCount++;
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1350,6 +1386,7 @@ const printPaymentReceipt = async (
           settings?.port ||
           `printer-${i}`;
 
+        errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print payment receipt - printer ${printerIdentifier} is not connected or unreachable`
@@ -1368,6 +1405,17 @@ const printPaymentReceipt = async (
         }
       }
     }
+  }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print payment receipt to any printer. Errors: ${errorMessages.join('; ')}`
+    );
   }
 };
 
@@ -1388,6 +1436,9 @@ const printInvoice = async (
   order: any = null,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1483,6 +1534,7 @@ const printInvoice = async (
           copy: copies + 1,
           totalCopies: settings.copies,
         });
+        successCount++;
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1491,6 +1543,7 @@ const printInvoice = async (
           settings?.port ||
           `printer-${i}`;
 
+        errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print invoice - printer ${printerIdentifier} is not connected or unreachable`
@@ -1507,6 +1560,17 @@ const printInvoice = async (
       }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print invoice to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
 };
 
 const printMyPelatesReceipt = async (
@@ -1514,6 +1578,9 @@ const printMyPelatesReceipt = async (
   issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1624,6 +1691,7 @@ const printMyPelatesReceipt = async (
             totalCopies: settings.copies,
           }
         );
+        successCount++;
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1632,6 +1700,7 @@ const printMyPelatesReceipt = async (
           settings?.port ||
           `printer-${i}`;
 
+        errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print MyPelates receipt - printer ${printerIdentifier} is not connected or unreachable`
@@ -1650,6 +1719,17 @@ const printMyPelatesReceipt = async (
       }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print MyPelates receipt to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
 };
 
 const printMyPelatesInvoice = async (
@@ -1657,6 +1737,9 @@ const printMyPelatesInvoice = async (
   issuerText: string,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -1770,6 +1853,7 @@ const printMyPelatesInvoice = async (
             totalCopies: settings.copies,
           }
         );
+        successCount++;
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1778,6 +1862,7 @@ const printMyPelatesInvoice = async (
           settings?.port ||
           `printer-${i}`;
 
+        errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print MyPelates invoice - printer ${printerIdentifier} is not connected or unreachable`
@@ -1795,6 +1880,17 @@ const printMyPelatesInvoice = async (
         }
       }
     }
+  }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print MyPelates invoice to any printer. Errors: ${errorMessages.join('; ')}`
+    );
   }
 };
 
