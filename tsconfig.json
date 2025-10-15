@@ -4,7 +4,7 @@
     "tsBuildInfoFile": "./.tsbuildinfo",
     "target": "ES2022",
     "lib": ["ES2022", "ES2023"],
-    "module": "CommonJS",
+    "module": "es2022",
     "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,

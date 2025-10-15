@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import { Request, Response } from 'express';
+import https from 'https';
 
 import { homepage } from './homepage';
 import logger from './modules/logger';
@@ -35,6 +36,7 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
+import { execSync, spawn } from 'child_process';
 
 const main = async () => {
   const SERVER_PORT =
@@ -90,6 +92,19 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send(getSettings());
     });
+  function getBaseDir() {
+    if ((process as NodeJS.Process & { pkg?: boolean }).pkg) {
+      // running as exe (pkg/nexe)
+      return path.dirname(process.execPath);
+    } else {
+      // normal node
+      return path.resolve(
+        path.dirname(new URL(import.meta.url).pathname),
+        '..'
+      );
+    }
+  }
+
   function getPrinterVersion(): string {
     const versionFilePath = path.join(__dirname, '../version');
     try {
@@ -100,16 +115,23 @@ const main = async () => {
       return 'unknown';
     }
   }
-  async function fetchLatestTitle(): Promise<string> {
-    const url = nconf.get('CODE_VERSION_URL');
-    console.log('Fetching latest version from URL:', url);
-    const resp = await fetch(url);
-    if (!resp.ok) {
-      throw new Error(`GitHub API error: ${resp.status}`);
+
+  // Simple HTTPS request (works inside exe)
+
+  async function fetchLatestVersion() {
+    try {
+      const cmd = `curl -s -L https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest`;
+      const output = execSync(cmd, { encoding: 'utf-8' });
+      const json = JSON.parse(output);
+      return json.name || json.tag_name || 'unknown';
+    } catch (err) {
+      console.error('curl failed:', err);
+      return 'unknown';
     }
-    const json = (await resp.json()) as { name?: string; tag_name?: string };
-    return json.name || json.tag_name || 'unknown';
   }
+
+  // ------------------ ROUTES ------------------
+
   app
     .route('/printer-version')
     .post(settings)
@@ -120,13 +142,14 @@ const main = async () => {
 
   app.get('/request-latest-version', async (req, res) => {
     try {
-      const title = await fetchLatestTitle();
-      res.status(200).json({ version: title });
+      const version = await fetchLatestVersion();
+      res.status(200).json({ version });
     } catch (err) {
       console.error('Error fetching version:', err);
       res.status(500).json({ version: 'unknown' });
     }
   });
+
   app
     .route('/status')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
