@@ -371,11 +371,22 @@ export const pelatologioRecord = async (
       );
     }
 
-    await printPelatologioRecord(
+    const result = await printPelatologioRecord(
       req.body.pelatologioRecord as PelatologioRecord,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for pelatologio record: ${error.message}`, {
@@ -387,7 +398,7 @@ export const pelatologioRecord = async (
     logger.error('Error printing pelatologio record:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -397,6 +408,10 @@ const printTextFunc = async (
   copies: number = 1,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -442,11 +457,40 @@ const printTextFunc = async (
           copy: j + 1,
           totalCopies: copies,
         });
+        successCount++;
+        if (j === 0) {
+          successes.push(printerIdentifier);
+        }
       } catch (error) {
-        throw new PrinterExecutionError('text print', printerIdentifier, error);
+        errors.push({ printerIdentifier, error });
+        if (error instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print text - printer ${printerIdentifier} is not connected or unreachable`
+          );
+        } else {
+          logger.error(`Failed to print text to ${printerIdentifier}:`, {
+            error: error instanceof Error ? error.message : String(error),
+            copy: j + 1,
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+        }
+        break; // Skip remaining copies for this printer
       }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print text to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
+
+  return { successes, errors };
 };
 export const printText = async (
   req: Request<{}, any, any>,
@@ -465,13 +509,24 @@ export const printText = async (
       );
     }
 
-    await printTextFunc(
+    const result = await printTextFunc(
       req.body.text,
       req.body.alignment || 'left',
       req.body.copies || 1,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for print text: ${error.message}`, {
@@ -483,7 +538,7 @@ export const printText = async (
     logger.error('Error printing text:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 export const parkingTicket = async (
@@ -506,7 +561,7 @@ export const parkingTicket = async (
       }
     }
 
-    await printParkingTicket(
+    const result = await printParkingTicket(
       req.body.venueName,
       req.body.license,
       req.body.address,
@@ -516,7 +571,18 @@ export const parkingTicket = async (
       req.body.operatingHours,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for parking ticket: ${error.message}`, {
@@ -528,7 +594,7 @@ export const parkingTicket = async (
     logger.error('Error printing parking ticket:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -542,6 +608,10 @@ const printParkingTicket = async (
   operatingHours: string,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -606,20 +676,49 @@ const printParkingTicket = async (
         `Successfully printed parking ticket to ${printerIdentifier}`,
         { license }
       );
+      successCount++;
+      successes.push(printerIdentifier);
     } catch (error) {
-      throw new PrinterExecutionError(
-        'parking ticket print',
-        printerIdentifier,
-        error
-      );
+      errors.push({ printerIdentifier, error });
+      if (error instanceof PrinterConnectionError) {
+        logger.error(
+          `Cannot print parking ticket - printer ${printerIdentifier} is not connected or unreachable`
+        );
+      } else {
+        logger.error(
+          `Failed to print parking ticket to ${printerIdentifier}:`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+            license,
+            stack: error instanceof Error ? error.stack : undefined,
+          }
+        );
+      }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print parking ticket to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
+
+  return { successes, errors };
 };
 
 const printPelatologioRecord = async (
   pelatologioRecord: PelatologioRecord,
   lang: SupportedLanguages = 'el'
 ) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
+
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
@@ -717,14 +816,39 @@ const printPelatologioRecord = async (
         `Successfully printed pelatologio record to ${printerIdentifier}`,
         { dclId: pelatologioRecord.dclId }
       );
+      successCount++;
+      successes.push(printerIdentifier);
     } catch (error) {
-      throw new PrinterExecutionError(
-        'pelatologio record print',
-        printerIdentifier,
-        error
-      );
+      errors.push({ printerIdentifier, error });
+      if (error instanceof PrinterConnectionError) {
+        logger.error(
+          `Cannot print pelatologio record - printer ${printerIdentifier} is not connected or unreachable`
+        );
+      } else {
+        logger.error(
+          `Failed to print pelatologio record to ${printerIdentifier}:`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+            dclId: pelatologioRecord.dclId,
+            stack: error instanceof Error ? error.stack : undefined,
+          }
+        );
+      }
     }
   }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print pelatologio record to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
+
+  return { successes, errors };
 };
 export const paymentSlip = async (
   req: Request<{}, any, any>,
@@ -957,6 +1081,7 @@ const printOrderForm = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1033,6 +1158,7 @@ const printOrderForm = async (
         tableNumber,
       });
       successCount++;
+      successes.push(printerIdentifier);
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1059,6 +1185,8 @@ const printOrderForm = async (
       `Failed to print order form to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors };
 };
 const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
@@ -1073,6 +1201,7 @@ const printPaymentSlip = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1228,6 +1357,7 @@ const printPaymentSlip = async (
         mark: aadeInvoice?.mark,
       });
       successCount++;
+      successes.push(printerIdentifier);
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1255,6 +1385,8 @@ const printPaymentSlip = async (
       `Failed to print payment slip to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors };
 };
 
 const printPaymentReceipt = async (
