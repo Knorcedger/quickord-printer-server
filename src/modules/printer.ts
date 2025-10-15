@@ -862,7 +862,7 @@ export const paymentSlip = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
-    await printPaymentSlip(
+    const result = await printPaymentSlip(
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.orderNumber,
@@ -872,7 +872,18 @@ export const paymentSlip = async (
         : req.headers.project) || 'centrix',
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for payment slip: ${error.message}`, {
@@ -884,7 +895,7 @@ export const paymentSlip = async (
     logger.error('Error printing payment slip:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 export const paymentReceipt = async (
@@ -899,7 +910,7 @@ export const paymentReceipt = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
-    await printPaymentReceipt(
+    const result = await printPaymentReceipt(
       req.body.aadeInvoice,
       req.body.orderNumber,
       req.body.orderType || '',
@@ -913,7 +924,18 @@ export const paymentReceipt = async (
       req.body.order || null,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for payment receipt: ${error.message}`, {
@@ -925,7 +947,7 @@ export const paymentReceipt = async (
     logger.error('Error printing payment receipt:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 export const invoice = async (
@@ -940,7 +962,7 @@ export const invoice = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
-    await printInvoice(
+    const result = await printInvoice(
       req.body.aadeInvoice,
       req.body.orderNumber,
       req.body.orderType || '',
@@ -954,7 +976,18 @@ export const invoice = async (
       req.body.order || null,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for invoice: ${error.message}`, {
@@ -966,7 +999,7 @@ export const invoice = async (
     logger.error('Error printing invoice:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -979,12 +1012,23 @@ export const invoiceMyPelates = async (
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
 
-    await printMyPelatesReceipt(
+    const result = await printMyPelatesReceipt(
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for MyPelates invoice: ${error.message}`, {
@@ -996,7 +1040,7 @@ export const invoiceMyPelates = async (
     logger.error('Error printing MyPelates invoice:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -1009,12 +1053,23 @@ export const paymentMyPelatesReceipt = async (
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
 
-    await printMyPelatesReceipt(
+    const result = await printMyPelatesReceipt(
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for MyPelates receipt: ${error.message}`, {
@@ -1026,7 +1081,7 @@ export const paymentMyPelatesReceipt = async (
     logger.error('Error printing MyPelates receipt:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 export const orderForm = async (
@@ -1041,7 +1096,7 @@ export const orderForm = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
-    await printOrderForm(
+    const result = await printOrderForm(
       req.body.aadeInvoice,
       req.body.table || '',
       req.body.waiter || '',
@@ -1053,7 +1108,18 @@ export const orderForm = async (
       req.body.order || null,
       req.body.lang || 'el'
     );
-    res.status(200).send({ status: 'done' });
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for order form: ${error.message}`, {
@@ -1065,7 +1131,7 @@ export const orderForm = async (
     logger.error('Error printing order form:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ error: errorMessage });
+    res.status(500).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -1408,6 +1474,7 @@ const printPaymentReceipt = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1510,6 +1577,9 @@ const printPaymentReceipt = async (
           }
         );
         successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1549,6 +1619,8 @@ const printPaymentReceipt = async (
       `Failed to print payment receipt to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors };
 };
 
 const printInvoice = async (
@@ -1570,6 +1642,7 @@ const printInvoice = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1667,6 +1740,9 @@ const printInvoice = async (
           totalCopies: settings.copies,
         });
         successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1703,6 +1779,8 @@ const printInvoice = async (
       `Failed to print invoice to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors };
 };
 
 const printMyPelatesReceipt = async (
@@ -1712,6 +1790,7 @@ const printMyPelatesReceipt = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1824,6 +1903,9 @@ const printMyPelatesReceipt = async (
           }
         );
         successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
       } catch (error) {
         const printerIdentifier =
           settings?.name ||
@@ -1862,6 +1944,8 @@ const printMyPelatesReceipt = async (
       `Failed to print MyPelates receipt to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors };
 };
 
 const printMyPelatesInvoice = async (
