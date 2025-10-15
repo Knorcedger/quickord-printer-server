@@ -293,21 +293,6 @@ export async function copyRecursive(
     }
   }
 }
-async function cleanup(dir) {
-  console.log(`Cleaning up: ${dir}`);
-  const entries = await fsp.readdir(dir, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await cleanup(fullPath);
-    } else {
-      await fsp.unlink(fullPath);
-    }
-  }
-
-  await fsp.rmdir(dir); // <-- this must be dir, NOT srcDir
-}
 
 export function copyWithCmd(
   sourceFolder: string,
