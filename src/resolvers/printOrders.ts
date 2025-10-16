@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 
 import logger from '../modules/logger';
-import { printOrders as printerPrintOrders } from '../modules/printer';
+import { printOrders as printerPrintOrders, determinePrintStatus } from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',
   'NEW',
@@ -259,19 +259,41 @@ export const Order = z.object({
 
 const Orders = z.array(Order);
 
-const printOrders = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     const orders = Orders.parse(req.body);
 
     logger.info('orders to print:', orders);
 
-    printerPrintOrders(orders);
+    const result = await printerPrintOrders(orders);
     console.log(orders[0]?.products);
 
-    res.status(200).send({ status: 'updated' });
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status,
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
+    };
+
+    res.status(httpCode).send(response);
   } catch (error) {
     logger.error('Error printing orders:', error);
-    res.status(400).send({ error: error.message });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    res.status(500).send({ error: errorMessage });
   }
 };
 
