@@ -10,7 +10,7 @@
     "ci": "sh ./scripts/ci.sh",
     "start": "npm run start:test",
     "start:dev": "tsx watch src/index.ts --noupdate",
-    "start:test": "tsx watch src/index.ts --noupdate",
+    "start:test": "tsx watch src/index.ts",
     "start:ci": "node ./dist/index.js",
     "test": "npm run lint && npm run jest",
     "dev": "npm run start:test",

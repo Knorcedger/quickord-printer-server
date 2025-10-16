@@ -3,9 +3,11 @@ import cors from 'cors';
 
 import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
-
+import fs from 'fs';
+import path from 'path';
 import express from 'express';
 import { Request, Response } from 'express';
+import https from 'https';
 
 import { homepage } from './homepage';
 import logger from './modules/logger';
@@ -34,6 +36,7 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
+import { execSync, spawn } from 'child_process';
 
 const main = async () => {
   const SERVER_PORT =
@@ -89,6 +92,63 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send(getSettings());
     });
+  function getBaseDir() {
+    if ((process as NodeJS.Process & { pkg?: boolean }).pkg) {
+      // running as exe (pkg/nexe)
+      return path.dirname(process.execPath);
+    } else {
+      // normal node
+      return path.resolve(
+        path.dirname(new URL(import.meta.url).pathname),
+        '..'
+      );
+    }
+  }
+
+  function getPrinterVersion(): string {
+    const versionFilePath = path.join(__dirname, '../version');
+    try {
+      const version = fs.readFileSync(versionFilePath, 'utf-8').trim();
+      return version;
+    } catch (error) {
+      console.error('Error reading version file:', error);
+      return 'unknown';
+    }
+  }
+
+  // Simple HTTPS request (works inside exe)
+
+  async function fetchLatestVersion() {
+    try {
+      const cmd = `curl -s -L https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest`;
+      const output = execSync(cmd, { encoding: 'utf-8' });
+      const json = JSON.parse(output);
+      return json.name || json.tag_name || 'unknown';
+    } catch (err) {
+      console.error('curl failed:', err);
+      return 'unknown';
+    }
+  }
+
+  // ------------------ ROUTES ------------------
+
+  app
+    .route('/printer-version')
+    .post(settings)
+    .get((req: Request, res: Response) => {
+      const version = getPrinterVersion();
+      res.status(200).json({ version });
+    });
+
+  app.get('/request-latest-version', async (req, res) => {
+    try {
+      const version = await fetchLatestVersion();
+      res.status(200).json({ version });
+    } catch (err) {
+      console.error('Error fetching version:', err);
+      res.status(500).json({ version: 'unknown' });
+    }
+  });
 
   app
     .route('/status')
