@@ -1085,7 +1085,7 @@ export const invoiceMyPelates = async (
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
 
-    const result = await printMyPelatesReceipt(
+    const result = await printMyPelatesInvoice(
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.lang || 'el'
@@ -2122,17 +2122,34 @@ const printMyPelatesInvoice = async (
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
     const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
     printer?.clear();
     if (!settings || !printer) {
+      skipped.push({
+        printerIdentifier,
+        reason: 'Printer not configured or missing settings',
+      });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
       if (!settings.documentsToPrint?.includes('ALP')) {
         console.log('ALP is not in documentsToPrint');
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured to print ALP documents',
+        });
         continue;
       }
     }
@@ -2219,13 +2236,6 @@ const printMyPelatesInvoice = async (
         printer.alignCenter();
         printer.cut();
 
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         await executePrinter(
           printer,
           printerIdentifier,
@@ -2237,14 +2247,8 @@ const printMyPelatesInvoice = async (
           }
         );
         successCount++;
+        successes.push(printerIdentifier);
       } catch (error) {
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
           logger.error(
@@ -2265,8 +2269,8 @@ const printMyPelatesInvoice = async (
     }
   }
 
-  // If no printers succeeded, throw an error
-  if (successCount === 0 && errors.length > 0) {
+  // If no printers succeeded and none were skipped, throw an error
+  if (successCount === 0 && errors.length > 0 && skipped.length === 0) {
     const errorMessages = errors.map(
       (e) =>
         `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
@@ -2275,6 +2279,8 @@ const printMyPelatesInvoice = async (
       `Failed to print MyPelates invoice to any printer. Errors: ${errorMessages.join('; ')}`
     );
   }
+
+  return { successes, errors, skipped };
 };
 
 export const printOrder = async (
@@ -2332,7 +2338,10 @@ export const printOrder = async (
         printer?.clear();
 
         // Find which categories caused the filtering
-        if (settings.categoriesToPrint !== undefined && order.orderType !== 'EFOOD') {
+        if (
+          settings.categoriesToPrint !== undefined &&
+          order.orderType !== 'EFOOD'
+        ) {
           const orderCategories = Array.from(
             new Set(order.products.flatMap((product) => product.categories))
           );
@@ -2352,7 +2361,7 @@ export const printOrder = async (
 
         skipped.push({
           printerIdentifier,
-          reason: 'No products match printer\'s categories to print',
+          reason: "No products match printer's categories to print",
         });
         continue;
       }
