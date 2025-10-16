@@ -265,10 +265,24 @@ const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) =
 
     logger.info('orders to print:', orders);
 
-    await printerPrintOrders(orders);
+    const result = await printerPrintOrders(orders);
     console.log(orders[0]?.products);
 
-    res.status(200).send({ status: 'updated' });
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
+    };
+
+    res.status(200).send(response);
   } catch (error) {
     logger.error('Error printing orders:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

@@ -2248,6 +2248,26 @@ export const printOrder = async (
       console.log(productsToPrint);
       if (!productsToPrint?.length) {
         printer?.clear();
+
+        // Find which categories caused the filtering
+        if (settings.categoriesToPrint !== undefined && order.orderType !== 'EFOOD') {
+          const orderCategories = Array.from(
+            new Set(order.products.flatMap((product) => product.categories))
+          );
+
+          const missingCategories = orderCategories.filter(
+            (category) => !settings.categoriesToPrint?.includes(category)
+          );
+
+          if (missingCategories.length > 0) {
+            skipped.push({
+              printerIdentifier,
+              reason: `No products match printer's categories to print. Missing categories: ${missingCategories.join(', ')}`,
+            });
+            continue;
+          }
+        }
+
         skipped.push({
           printerIdentifier,
           reason: 'No products match printer\'s categories to print',
@@ -2741,12 +2761,13 @@ export const printOrder = async (
             orderNumber: order.number,
             orderType: order.orderType,
           });
+          successes.push(printerIdentifier);
         } catch (execError) {
           if (execError instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
             );
-            throw execError; // Re-throw to propagate to caller
+            errors.push({ printerIdentifier, error: execError });
           } else {
             logger.error(`Failed to print order to ${printerIdentifier}:`, {
               error:
@@ -2757,7 +2778,7 @@ export const printOrder = async (
               orderNumber: order.number,
               stack: execError instanceof Error ? execError.stack : undefined,
             });
-            throw execError; // Re-throw to propagate to caller
+            errors.push({ printerIdentifier, error: execError });
           }
         }
       }
@@ -2768,13 +2789,24 @@ export const printOrder = async (
         orderNumber: order.number,
         stack: error instanceof Error ? error.stack : undefined,
       });
-      throw error; // Re-throw to propagate to caller
+      errors.push({ printerIdentifier, error });
     }
   }
+
+  return { successes, errors, skipped };
 };
 
 export const printOrders = async (orders: z.infer<typeof Order>[]) => {
+  const allSuccesses: string[] = [];
+  const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
   for (const order of orders) {
-    await printOrder(order);
+    const result = await printOrder(order);
+    allSuccesses.push(...result.successes);
+    allErrors.push(...result.errors);
+    allSkipped.push(...result.skipped);
   }
+
+  return { successes: allSuccesses, errors: allErrors, skipped: allSkipped };
 };
