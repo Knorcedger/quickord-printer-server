@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 
 import logger from '../modules/logger';
-import { printOrders as printerPrintOrders } from '../modules/printer';
+import { printOrders as printerPrintOrders, determinePrintStatus } from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',
   'NEW',
@@ -268,9 +268,16 @@ const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) =
     const result = await printerPrintOrders(orders);
     console.log(orders[0]?.products);
 
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
     // Format the response with detailed printer status
     const response: any = {
-      status: 'success',
+      status,
       successfulPrinters: result.successes,
       failedPrinters: result.errors.map((e) => ({
         printer: e.printerIdentifier,
@@ -282,7 +289,7 @@ const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) =
       })),
     };
 
-    res.status(200).send(response);
+    res.status(httpCode).send(response);
   } catch (error) {
     logger.error('Error printing orders:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

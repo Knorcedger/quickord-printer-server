@@ -78,6 +78,41 @@ export class InvalidInputError extends Error {
   }
 }
 
+// Helper function to determine status and HTTP code based on print results
+export const determinePrintStatus = (
+  successes: string[],
+  errors: Array<{ printerIdentifier: string; error: unknown }>,
+  skipped: Array<{ printerIdentifier: string; reason: string }>
+): { status: string; httpCode: number } => {
+  const hasSuccesses = successes.length > 0;
+  const hasErrors = errors.length > 0;
+  const hasSkipped = skipped.length > 0;
+
+  // At least one printer succeeded → 200
+  if (hasSuccesses) {
+    if (!hasErrors && !hasSkipped) {
+      return { status: 'success', httpCode: 200 };
+    } else if (hasErrors) {
+      return { status: 'partial_failure', httpCode: 200 };
+    } else {
+      return { status: 'partial_success', httpCode: 200 };
+    }
+  }
+
+  // All printers skipped (nothing succeeded, nothing failed) → 204
+  if (!hasSuccesses && !hasErrors && hasSkipped) {
+    return { status: 'no_action', httpCode: 204 };
+  }
+
+  // All printers failed (no successes) → 500
+  if (hasErrors && !hasSuccesses) {
+    return { status: 'failed', httpCode: 500 };
+  }
+
+  // Fallback: no printers at all
+  return { status: 'no_action', httpCode: 204 };
+};
+
 export const DEFAULT_CODE_PAGE = 7;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
@@ -941,17 +976,28 @@ export const paymentReceipt = async (
       req.body.lang || 'el'
     );
 
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
     // Format the response with detailed printer status
     const response: any = {
-      status: 'success',
+      status,
       successfulPrinters: result.successes,
       failedPrinters: result.errors.map((e) => ({
         printer: e.printerIdentifier,
         error: e.error instanceof Error ? e.error.message : String(e.error),
       })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
     };
 
-    res.status(200).send(response);
+    res.status(httpCode).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for payment receipt: ${error.message}`, {
@@ -993,17 +1039,28 @@ export const invoice = async (
       req.body.lang || 'el'
     );
 
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
     // Format the response with detailed printer status
     const response: any = {
-      status: 'success',
+      status,
       successfulPrinters: result.successes,
       failedPrinters: result.errors.map((e) => ({
         printer: e.printerIdentifier,
         error: e.error instanceof Error ? e.error.message : String(e.error),
       })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
     };
 
-    res.status(200).send(response);
+    res.status(httpCode).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for invoice: ${error.message}`, {
@@ -1034,17 +1091,28 @@ export const invoiceMyPelates = async (
       req.body.lang || 'el'
     );
 
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
     // Format the response with detailed printer status
     const response: any = {
-      status: 'success',
+      status,
       successfulPrinters: result.successes,
       failedPrinters: result.errors.map((e) => ({
         printer: e.printerIdentifier,
         error: e.error instanceof Error ? e.error.message : String(e.error),
       })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
     };
 
-    res.status(200).send(response);
+    res.status(httpCode).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for MyPelates invoice: ${error.message}`, {
@@ -1075,17 +1143,28 @@ export const paymentMyPelatesReceipt = async (
       req.body.lang || 'el'
     );
 
+    // Determine the appropriate status and HTTP code
+    const { status, httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
     // Format the response with detailed printer status
     const response: any = {
-      status: 'success',
+      status,
       successfulPrinters: result.successes,
       failedPrinters: result.errors.map((e) => ({
         printer: e.printerIdentifier,
         error: e.error instanceof Error ? e.error.message : String(e.error),
       })),
+      skippedPrinters: result.skipped.map((s) => ({
+        printer: s.printerIdentifier,
+        reason: s.reason,
+      })),
     };
 
-    res.status(200).send(response);
+    res.status(httpCode).send(response);
   } catch (error) {
     if (error instanceof InvalidInputError) {
       logger.error(`Invalid input for MyPelates receipt: ${error.message}`, {
@@ -1507,6 +1586,7 @@ const printPaymentReceipt = async (
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const successes: string[] = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1520,18 +1600,18 @@ const printPaymentReceipt = async (
 
     printer?.clear();
     if (!settings || !printer) {
-      errors.push({
+      skipped.push({
         printerIdentifier,
-        error: 'Printer not configured or missing settings',
+        reason: 'Printer not configured or missing settings',
       });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
       if (!settings.documentsToPrint?.includes('ALP')) {
         console.log('ALP is not in documentsToPrint');
-        errors.push({
+        skipped.push({
           printerIdentifier,
-          error: 'Printer not configured to print ALP documents',
+          reason: 'Printer not configured to print ALP documents',
         });
         continue;
       }
@@ -1540,9 +1620,9 @@ const printPaymentReceipt = async (
     console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
-      errors.push({
+      skipped.push({
         printerIdentifier,
-        error: 'Printer is configured as KIOSK printer only',
+        reason: 'Printer is configured as KIOSK printer only',
       });
       continue;
     }
@@ -1660,8 +1740,8 @@ const printPaymentReceipt = async (
     }
   }
 
-  // If no printers succeeded, throw an error
-  if (successCount === 0 && errors.length > 0) {
+  // If no printers succeeded and none were skipped, throw an error
+  if (successCount === 0 && errors.length > 0 && skipped.length === 0) {
     const errorMessages = errors.map(
       (e) =>
         `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
@@ -1671,7 +1751,7 @@ const printPaymentReceipt = async (
     );
   }
 
-  return { successes, errors };
+  return { successes, errors, skipped };
 };
 
 const printInvoice = async (
@@ -1694,6 +1774,7 @@ const printInvoice = async (
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const successes: string[] = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1707,9 +1788,9 @@ const printInvoice = async (
 
     printer?.clear();
     if (!settings || !printer) {
-      errors.push({
+      skipped.push({
         printerIdentifier,
-        error: 'Printer not configured or missing settings',
+        reason: 'Printer not configured or missing settings',
       });
       continue;
     }
@@ -1718,9 +1799,9 @@ const printInvoice = async (
         console.log(
           'ALP is not in documentsToPrint (yes its also for invoices)'
         );
-        errors.push({
+        skipped.push({
           printerIdentifier,
-          error: 'Printer not configured to print ALP documents',
+          reason: 'Printer not configured to print ALP documents',
         });
         continue;
       }
@@ -1728,9 +1809,9 @@ const printInvoice = async (
     console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
-      errors.push({
+      skipped.push({
         printerIdentifier,
-        error: 'Printer is configured as KIOSK printer only',
+        reason: 'Printer is configured as KIOSK printer only',
       });
       continue;
     }
@@ -1839,8 +1920,8 @@ const printInvoice = async (
     }
   }
 
-  // If no printers succeeded, throw an error
-  if (successCount === 0 && errors.length > 0) {
+  // If no printers succeeded and none were skipped, throw an error
+  if (successCount === 0 && errors.length > 0 && skipped.length === 0) {
     const errorMessages = errors.map(
       (e) =>
         `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
@@ -1850,7 +1931,7 @@ const printInvoice = async (
     );
   }
 
-  return { successes, errors };
+  return { successes, errors, skipped };
 };
 
 const printMyPelatesReceipt = async (
@@ -1861,6 +1942,7 @@ const printMyPelatesReceipt = async (
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const successes: string[] = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (let i = 0; i < printers.length; i += 1) {
     const settings = printers[i]?.[1];
@@ -1874,18 +1956,18 @@ const printMyPelatesReceipt = async (
 
     printer?.clear();
     if (!settings || !printer) {
-      errors.push({
+      skipped.push({
         printerIdentifier,
-        error: 'Printer not configured or missing settings',
+        reason: 'Printer not configured or missing settings',
       });
       continue;
     }
     if (settings.documentsToPrint !== undefined) {
       if (!settings.documentsToPrint?.includes('ALP')) {
         console.log('ALP is not in documentsToPrint');
-        errors.push({
+        skipped.push({
           printerIdentifier,
-          error: 'Printer not configured to print ALP documents',
+          reason: 'Printer not configured to print ALP documents',
         });
         continue;
       }
@@ -2019,8 +2101,8 @@ const printMyPelatesReceipt = async (
     }
   }
 
-  // If no printers succeeded, throw an error
-  if (successCount === 0 && errors.length > 0) {
+  // If no printers succeeded and none were skipped, throw an error
+  if (successCount === 0 && errors.length > 0 && skipped.length === 0) {
     const errorMessages = errors.map(
       (e) =>
         `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
@@ -2030,7 +2112,7 @@ const printMyPelatesReceipt = async (
     );
   }
 
-  return { successes, errors };
+  return { successes, errors, skipped };
 };
 
 const printMyPelatesInvoice = async (
