@@ -177,6 +177,34 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
         continue;
       }
 
+      // Check for qr tag
+      const qrMatch = text.slice(index).match(/^<qr>(.*?)<\/qr>/);
+      if (qrMatch) {
+        // Print current buffer before processing QR code
+        if (buffer) {
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.print(buffer);
+          buffer = '';
+        }
+
+        const qrUrl = qrMatch[1].trim();
+        try {
+          console.log(`Printing QR code for: ${qrUrl}`);
+          printer.printQR(qrUrl, {
+            cellSize: 4,
+            model: 4,
+            correction: 'Q',
+          });
+        } catch (error) {
+          console.error(`Failed to print QR code for ${qrUrl}:`, error);
+        }
+
+        index += qrMatch[0].length;
+        continue;
+      }
+
       // Check for other tags
       const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
       if (tagMatch) {
