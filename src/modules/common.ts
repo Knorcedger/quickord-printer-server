@@ -8,6 +8,9 @@ import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { date, z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
+import https from 'https';
+import http from 'http';
+import sharp from 'sharp';
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -50,6 +53,64 @@ export const changeTextSize = (
   }
 };
 
+const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+    const urlObj = new URL(url);
+
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port,
+      path: urlObj.pathname + urlObj.search,
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'identity',
+      }
+    };
+
+    protocol
+      .get(options, (response) => {
+        // Handle redirects
+        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 307 || response.statusCode === 308) {
+          const redirectUrl = response.headers.location;
+          if (redirectUrl) {
+            console.log(`Following redirect to: ${redirectUrl}`);
+            downloadAndProcessImage(redirectUrl).then(resolve).catch(reject);
+            return;
+          }
+        }
+
+        if (response.statusCode !== 200) {
+          reject(new Error(`Failed to download image: ${response.statusCode}`));
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', async () => {
+          try {
+            const imageBuffer = Buffer.concat(chunks);
+            // Process image with sharp: resize to 384px width and convert to black/white PNG
+            const processedImage = await sharp(imageBuffer)
+              .resize(384)
+              .grayscale()
+              .threshold(128)
+              .png()
+              .toBuffer();
+            resolve(processedImage);
+          } catch (error) {
+            reject(error);
+          }
+        });
+        response.on('error', reject);
+      })
+      .on('error', reject);
+  });
+};
+
 export const PaymentMethod = Object.freeze({
   ACC_FOREIGN: {
     description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής',
@@ -76,7 +137,7 @@ const PaymentMethodDescriptions = Object.freeze(
   )
 );
 
-export const readMarkdown = (text, printer, alignment, settings) => {
+export const readMarkdown = async (text, printer, alignment, settings) => {
   if (alignment === 'left') {
     printer.alignLeft();
   } else if (alignment === 'center') {
@@ -91,7 +152,32 @@ export const readMarkdown = (text, printer, alignment, settings) => {
 
   while (index < text.length) {
     if (text[index] === '<') {
-      // Check for tags
+      // Check for img tag first
+      const imgMatch = text.slice(index).match(/^<img>(.*?)<\/img>/);
+      if (imgMatch) {
+        // Print current buffer before processing image
+        if (buffer) {
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.print(buffer);
+          buffer = '';
+        }
+
+        const imageUrl = imgMatch[1].trim();
+        try {
+          console.log(`Downloading and processing image from: ${imageUrl}`);
+          const processedImageBuffer = await downloadAndProcessImage(imageUrl);
+          printer.printImageBuffer(processedImageBuffer);
+        } catch (error) {
+          console.error(`Failed to download/process image from ${imageUrl}:`, error);
+        }
+
+        index += imgMatch[0].length;
+        continue;
+      }
+
+      // Check for other tags
       const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
       if (tagMatch) {
         // Print current buffer before changing formatting
@@ -470,7 +556,7 @@ export const printVatBreakdown = (printer, vatBreakdown, lang) => {
 
   drawLine2(printer);
 };
-export const venueData = (
+export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
   issuerText: string,
@@ -479,7 +565,7 @@ export const venueData = (
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    readMarkdown(issuerText, printer, 'center', settings);
+    await readMarkdown(issuerText, printer, 'center', settings);
   } else {
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);

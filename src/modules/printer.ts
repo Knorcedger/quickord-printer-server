@@ -482,7 +482,7 @@ const printTextFunc = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.clear();
 
-        readMarkdown(text, printer, alignment, settings);
+        await readMarkdown(text, printer, alignment, settings);
         printer.cut();
 
         await printer.execute({
@@ -1273,7 +1273,7 @@ const printOrderForm = async (
       printer.println(
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
-      venueData(printer, aadeInvoice, issuerText, settings, lang);
+      await venueData(printer, aadeInvoice, issuerText, settings, lang);
       receiptData(printer, aadeInvoice, settings, orderNumber, 'DINE_IN', lang);
       printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
       if (aadeInvoice.closed) {
@@ -1627,7 +1627,7 @@ const printPaymentReceipt = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(`${translations.printOrder.reciept[lang]}`);
-        venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
           printer,
           aadeInvoice,
@@ -1814,7 +1814,7 @@ const printInvoice = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
         printer.println(`${translations.printOrder.customerInfo[lang]}`);
         printer.println(`${aadeInvoice?.counterpart.name}`);
@@ -1972,7 +1972,7 @@ const printMyPelatesReceipt = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(`${translations.printOrder.reciept[lang]}`);
-        venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(printer, aadeInvoice, settings, 0, 'MYPELATES', lang);
         printer.alignLeft();
 
@@ -2152,7 +2152,7 @@ const printMyPelatesInvoice = async (
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
-        venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
         printer.println(`${translations.printOrder.customerInfo[lang]}`);
         printer.println(`${aadeInvoice?.counterpart.name}`);
