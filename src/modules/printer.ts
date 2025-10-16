@@ -90,27 +90,21 @@ export const determinePrintStatus = (
 
   // At least one printer succeeded → 200
   if (hasSuccesses) {
-    if (!hasErrors && !hasSkipped) {
-      return { status: 'success', httpCode: 200 };
-    } else if (hasErrors) {
-      return { status: 'partial_failure', httpCode: 200 };
-    } else {
-      return { status: 'partial_success', httpCode: 200 };
-    }
+    return { status: 'success', httpCode: 200 };
   }
 
-  // All printers skipped (nothing succeeded, nothing failed) → 204
+  // All printers skipped (nothing succeeded, nothing failed) → 200
   if (!hasSuccesses && !hasErrors && hasSkipped) {
-    return { status: 'no_action', httpCode: 204 };
+    return { status: 'skipped', httpCode: 200 };
   }
 
-  // All printers failed (no successes) → 500
+  // All printers failed (no successes) → 200
   if (hasErrors && !hasSuccesses) {
-    return { status: 'failed', httpCode: 500 };
+    return { status: 'failed', httpCode: 200 };
   }
 
   // Fallback: no printers at all
-  return { status: 'no_action', httpCode: 204 };
+  return { status: 'skipped', httpCode: 200 };
 };
 
 export const DEFAULT_CODE_PAGE = 7;
@@ -433,7 +427,7 @@ export const pelatologioRecord = async (
     logger.error('Error printing pelatologio record:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -581,7 +575,7 @@ export const printText = async (
     logger.error('Error printing text:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 export const parkingTicket = async (
@@ -637,7 +631,7 @@ export const parkingTicket = async (
     logger.error('Error printing parking ticket:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -946,7 +940,7 @@ export const paymentSlip = async (
     logger.error('Error printing payment slip:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 export const paymentReceipt = async (
@@ -1009,7 +1003,7 @@ export const paymentReceipt = async (
     logger.error('Error printing payment receipt:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 export const invoice = async (
@@ -1072,7 +1066,7 @@ export const invoice = async (
     logger.error('Error printing invoice:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -1124,7 +1118,7 @@ export const invoiceMyPelates = async (
     logger.error('Error printing MyPelates invoice:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 
@@ -1176,7 +1170,7 @@ export const paymentMyPelatesReceipt = async (
     logger.error('Error printing MyPelates receipt:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 export const orderForm = async (
@@ -1226,7 +1220,7 @@ export const orderForm = async (
     logger.error('Error printing order form:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
-    res.status(500).send({ status: 'failed', error: errorMessage });
+    res.status(200).send({ status: 'failed', error: errorMessage });
   }
 };
 
