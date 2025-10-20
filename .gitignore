@@ -9,3 +9,4 @@ builds
 data-dir
 testcode
 .DS_Store
+.image-cache
