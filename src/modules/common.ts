@@ -8,6 +8,13 @@ import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { date, z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
+import https from 'https';
+import http from 'http';
+import sharp from 'sharp';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -50,6 +57,95 @@ export const changeTextSize = (
   }
 };
 
+// Cache configuration
+const CACHE_DIR = path.join(process.cwd(), '.image-cache');
+const CACHE_EXPIRY_DAYS = 3; // Cache images for 3 days
+
+// Create cache directory if it doesn't exist
+const ensureCacheDir = () => {
+  if (!fs.existsSync(CACHE_DIR)) {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+  }
+};
+
+// Generate a cache key from URL
+const getCacheKey = (url: string): string => {
+  return crypto.createHash('md5').update(url).digest('hex');
+};
+
+// Get cached image if it exists and is not expired
+const getCachedImage = (url: string): Buffer | null => {
+  try {
+    ensureCacheDir();
+    const cacheKey = getCacheKey(url);
+    const cachePath = path.join(CACHE_DIR, `${cacheKey}.png`);
+
+    if (fs.existsSync(cachePath)) {
+      const stats = fs.statSync(cachePath);
+      const ageInDays = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (ageInDays < CACHE_EXPIRY_DAYS) {
+        console.log(`Using cached image for: ${url}`);
+        return fs.readFileSync(cachePath);
+      } else {
+        // Cache expired, delete it
+        console.log(`Cache expired for: ${url}`);
+        fs.unlinkSync(cachePath);
+      }
+    }
+  } catch (err) {
+    console.error('Error reading cache:', err);
+  }
+  return null;
+};
+
+// Save image to cache
+const saveCachedImage = (url: string, buffer: Buffer): void => {
+  try {
+    ensureCacheDir();
+    const cacheKey = getCacheKey(url);
+    const cachePath = path.join(CACHE_DIR, `${cacheKey}.png`);
+    fs.writeFileSync(cachePath, buffer);
+    console.log(`Cached image for: ${url}`);
+  } catch (err) {
+    console.error('Error saving cache:', err);
+  }
+};
+
+const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
+  // Check cache first
+  const cachedImage = getCachedImage(url);
+  if (cachedImage) {
+    return cachedImage;
+  }
+
+  try {
+    // Use curl with flags:
+    // -s = silent
+    // -L = follow redirects
+    // -A = custom User-Agent
+    // --fail = exit non-zero if HTTP error
+    const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
+    const imageBuffer = execSync(cmd);
+
+    // Process the image with sharp
+    const processedImage = await sharp(imageBuffer)
+      .resize(384)
+      .grayscale()
+      .threshold(128)
+      .png()
+      .toBuffer();
+
+    // Save to cache
+    saveCachedImage(url, processedImage);
+
+    return processedImage;
+  } catch (err: any) {
+    console.error('Failed to download or process image:', err.message || err);
+    throw new Error('Image download or processing failed');
+  }
+};
+
 export const PaymentMethod = Object.freeze({
   ACC_FOREIGN: {
     description: 'Επαγ. Λογαριασμός Πληρωμών Αλλοδαπής',
@@ -76,7 +172,7 @@ const PaymentMethodDescriptions = Object.freeze(
   )
 );
 
-export const readMarkdown = (text, printer, alignment, settings) => {
+export const readMarkdown = async (text, printer, alignment, settings) => {
   if (alignment === 'left') {
     printer.alignLeft();
   } else if (alignment === 'center') {
@@ -91,7 +187,63 @@ export const readMarkdown = (text, printer, alignment, settings) => {
 
   while (index < text.length) {
     if (text[index] === '<') {
-      // Check for tags
+      // Check for img tag first
+      const imgMatch = text.slice(index).match(/^<img>(.*?)<\/img>/);
+      if (imgMatch) {
+        // Print current buffer before processing image
+        if (buffer) {
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.print(buffer);
+          buffer = '';
+        }
+
+        const imageUrl = imgMatch[1].trim();
+        try {
+          console.log(`Downloading and processing image from: ${imageUrl}`);
+          const processedImageBuffer = await downloadAndProcessImage(imageUrl);
+          printer.printImageBuffer(processedImageBuffer);
+        } catch (error) {
+          console.error(
+            `Failed to download/process image from ${imageUrl}:`,
+            error
+          );
+        }
+
+        index += imgMatch[0].length;
+        continue;
+      }
+
+      // Check for qr tag
+      const qrMatch = text.slice(index).match(/^<qr>(.*?)<\/qr>/);
+      if (qrMatch) {
+        // Print current buffer before processing QR code
+        if (buffer) {
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.bold(formatting.bold);
+          printer.underline(formatting.underline);
+          printer.print(buffer);
+          buffer = '';
+        }
+
+        const qrUrl = qrMatch[1].trim();
+        try {
+          console.log(`Printing QR code for: ${qrUrl}`);
+          printer.printQR(qrUrl, {
+            cellSize: 4,
+            model: 4,
+            correction: 'Q',
+          });
+        } catch (error) {
+          console.error(`Failed to print QR code for ${qrUrl}:`, error);
+        }
+
+        index += qrMatch[0].length;
+        continue;
+      }
+
+      // Check for other tags
       const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
       if (tagMatch) {
         // Print current buffer before changing formatting
@@ -470,7 +622,7 @@ export const printVatBreakdown = (printer, vatBreakdown, lang) => {
 
   drawLine2(printer);
 };
-export const venueData = (
+export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
   issuerText: string,
@@ -479,7 +631,7 @@ export const venueData = (
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    readMarkdown(issuerText, printer, 'center', settings);
+    await readMarkdown(issuerText, printer, 'center', settings);
   } else {
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);
