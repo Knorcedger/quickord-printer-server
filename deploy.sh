@@ -25,6 +25,7 @@ cp -r node_modules/debug ./builds/node_modules/
 cp -r node_modules/ms ./builds/node_modules/
 cp -r node_modules/node-gyp-build ./builds/node_modules/
 cp -r node_modules/serialport ./builds/node_modules/
+cp -r node_modules/@img ./builds/node_modules/
 
 # Copy package-lock.json (if you meant package-lock.json from the root)
 
@@ -40,6 +41,7 @@ cp  stop_printer_service.bat ./builds/builds/ || { echo "Failed to copy stop_pri
 cp  uninstall_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
 cp  install_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
 cp  force_autoupdate.bat ./builds/builds/ || { echo "Failed to copy force_autoupdate.bat"; exit 1; }
+
 # Run the updater build command
 #npm run build:updater || { echo "Failed to run npm build:updater"; exit 1; }
 
