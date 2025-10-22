@@ -2676,7 +2676,7 @@ export const printOrder = async (
             let choicesTotal = 0;
             if (product.choices) {
               product.choices.forEach((choice) => {
-                choicesTotal += (choice.price || 0) * (product.quantity || 1);
+                choicesTotal += (choice.price || 0) * (choice.quantity || 1);
               });
             }
 
