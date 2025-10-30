@@ -512,8 +512,9 @@ export const printProducts = (
           printer.println(
             quantity.padEnd(7) +
               chunk.padEnd(maxNameLength) +
-              value.padEnd(7) +
-              vat
+              '  ' +
+              value.padStart(7) +
+              vat.padStart(10)
           );
         } else {
           // Subsequent lines → only print name aligned after quantity
@@ -525,6 +526,7 @@ export const printProducts = (
       printer.println(
         quantity.padEnd(7) +
           name.padEnd(maxNameLength) +
+          '  ' +
           value.padStart(7) +
           vat.padStart(10)
       );
