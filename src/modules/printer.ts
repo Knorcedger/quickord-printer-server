@@ -29,12 +29,37 @@ import {
   venueData,
   receiptData,
 } from './common';
-import logger from './logger';
+import logger, { createLogger, Logger } from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
 import settings from '../resolvers/settings';
+
+// Map to store printer-specific loggers
+const printerLoggers = new Map<string, Logger>();
+
+// Helper function to sanitize printer identifier for use as filename
+const sanitizePrinterIdentifier = (identifier: string): string => {
+  return identifier.replace(/[^a-zA-Z0-9]/g, '_');
+};
+
+// Helper function to get or create a logger for a specific printer
+const getPrinterLogger = (printerIdentifier: string): Logger => {
+  const sanitizedId = sanitizePrinterIdentifier(printerIdentifier);
+  const loggerKey = `printer_${sanitizedId}`;
+
+  if (!printerLoggers.has(loggerKey)) {
+    const printerLogger = createLogger(loggerKey);
+    // Initialize the logger (creates the log file)
+    printerLogger.init().catch((err) => {
+      logger.error(`Failed to initialize logger for ${printerIdentifier}:`, err);
+    });
+    printerLoggers.set(loggerKey, printerLogger);
+  }
+
+  return printerLoggers.get(loggerKey)!;
+};
 
 // Custom error classes for better error handling
 export class PrinterError extends Error {
@@ -121,11 +146,13 @@ const executePrinter = async (
   operation: string,
   context?: Record<string, any>
 ): Promise<void> => {
+  const printerLogger = getPrinterLogger(printerIdentifier);
+
   try {
     await printer.execute({ waitForResponse: false });
     printer?.clear();
-    logger.info(
-      `Successfully executed ${operation} on ${printerIdentifier}`,
+    printerLogger.info(
+      `Successfully executed ${operation}`,
       context
     );
   } catch (error) {
@@ -140,19 +167,17 @@ const executePrinter = async (
       errorMessage.toLowerCase().includes('econnrefused');
 
     if (isConnectionError) {
-      logger.error(`Printer connection error on ${printerIdentifier}:`, {
+      printerLogger.error(`Printer connection error:`, {
         operation,
         error: errorMessage,
-        printerIdentifier,
         ...context,
       });
       throw new PrinterConnectionError(printerIdentifier, error);
     } else {
-      logger.error(`Printer execution error on ${printerIdentifier}:`, {
+      printerLogger.error(`Printer execution error:`, {
         operation,
         error: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
-        printerIdentifier,
         ...context,
       });
       throw new PrinterExecutionError(operation, printerIdentifier, error);
@@ -254,25 +279,27 @@ export const checkPrinters = async () => {
 
     const printerIdentifier =
       settings.name || settings.id || settings.ip || settings.port;
-    logger.info(`Checking printer connection: ${printerIdentifier}`);
+    const printerLogger = getPrinterLogger(printerIdentifier);
+
+    printerLogger.info(`Checking printer connection`);
 
     try {
       let connected = false;
       if (settings.ip !== '') {
         connected = await printer?.isPrinterConnected();
-        logger.info(
-          `Network printer ${printerIdentifier} connection status: ${connected}`
+        printerLogger.info(
+          `Network printer connection status: ${connected}`
         );
       } else {
         try {
           const shareName = settings.port.split('\\').pop() || '';
           connected = await isUsbPrinterOnline(shareName);
-          logger.info(
-            `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
+          printerLogger.info(
+            `USB printer (${shareName}) connection status: ${connected}`
           );
         } catch (error) {
-          logger.error(
-            `Error checking USB printer ${printerIdentifier} connection:`,
+          printerLogger.error(
+            `Error checking USB printer connection:`,
             {
               error: error instanceof Error ? error.message : String(error),
               shareName: settings.port,
@@ -284,14 +311,14 @@ export const checkPrinters = async () => {
 
       if (connected) {
         connectedPrinterIds.push({ id: settings?.id || '', connected: true });
-        logger.info(`Printer ${printerIdentifier} is online`);
+        printerLogger.info(`Printer is online`);
       } else {
         connectedPrinterIds.push({ id: settings?.id || '', connected: false });
         printer?.clear();
-        logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
+        printerLogger.warn(`Printer is offline, clearing buffer`);
       }
     } catch (error) {
-      logger.error(`Error checking printer ${printerIdentifier} connection:`, {
+      printerLogger.error(`Error checking printer connection:`, {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
@@ -315,19 +342,22 @@ export const printTestPage = async (
 ): Promise<string> => {
   let interfaceString = port;
   let device = `usb printer: ${port}`;
+  let printerIdentifier = port;
   if (ip !== '') {
     interfaceString = `tcp://${ip}`;
     device = `ip printer: ${ip}`;
+    printerIdentifier = ip;
   }
 
-  console.log(interfaceString);
+  const printerLogger = getPrinterLogger(printerIdentifier);
+
+  printerLogger.info(`Testing printer with interface: ${interfaceString}`);
   const printer = new ThermalPrinter({
     characterSet: charset || CharacterSet.WPC1253_GREEK,
     interface: interfaceString,
     type: PrinterTypes.EPSON,
   });
 
-  console.log(printers);
   let connected = false;
   if (ip !== '') {
     connected = await printer?.isPrinterConnected();
@@ -336,12 +366,12 @@ export const printTestPage = async (
       const shareName = interfaceString.split('\\').pop() || '';
       connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
     } catch (error) {
-      console.error('Error checking printer connection:', error);
+      printerLogger.error('Error checking printer connection:', error);
       connected = false;
     }
   }
   if (!connected) {
-    console.log('Printer not connected');
+    printerLogger.warn('Printer not connected');
     printer?.clear();
     return 'Printer not connected';
   }
@@ -377,11 +407,11 @@ export const printTestPage = async (
 
   try {
     await printer.execute();
-    logger.info(`Printed test page to ${device}`);
+    printerLogger.info(`Printed test page successfully`);
 
     return 'success';
   } catch (error) {
-    logger.error('Print failed:', error);
+    printerLogger.error('Print failed:', error);
     const err = new Error('print failed');
     (err as any).cause = error;
     throw err;
@@ -451,9 +481,11 @@ const printTextFunc = async (
       settings?.port ||
       `printer-${i}`;
 
+    const printerLogger = getPrinterLogger(printerIdentifier);
+
     if (!settings || !printer) {
-      logger.warn(
-        `Skipping text print: missing settings or printer instance for ${printerIdentifier}`
+      printerLogger.warn(
+        `Skipping text print: missing settings or printer instance`
       );
       errors.push({
         printerIdentifier,
@@ -463,8 +495,8 @@ const printTextFunc = async (
     }
 
     if (!settings.documentsToPrint?.includes('TEXT')) {
-      logger.warn(
-        `Skipping text print: TEXT not in documentsToPrint for ${printerIdentifier}`
+      printerLogger.warn(
+        `Skipping text print: TEXT not in documentsToPrint`
       );
       errors.push({
         printerIdentifier,
@@ -474,8 +506,8 @@ const printTextFunc = async (
     }
 
     for (let j = 0; j < copies; j += 1) {
-      logger.info(
-        `Printing text copy ${j + 1} of ${copies} on ${printerIdentifier}`
+      printerLogger.info(
+        `Printing text copy ${j + 1} of ${copies}`
       );
 
       try {
@@ -489,7 +521,7 @@ const printTextFunc = async (
           waitForResponse: false,
         });
 
-        logger.info(`Successfully printed text to ${printerIdentifier}`, {
+        printerLogger.info(`Successfully printed text`, {
           copy: j + 1,
           totalCopies: copies,
         });
@@ -506,11 +538,11 @@ const printTextFunc = async (
       } catch (error) {
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
-          logger.error(
-            `Cannot print text - printer ${printerIdentifier} is not connected or unreachable`
+          printerLogger.error(
+            `Cannot print text - printer is not connected or unreachable`
           );
         } else {
-          logger.error(`Failed to print text to ${printerIdentifier}:`, {
+          printerLogger.error(`Failed to print text:`, {
             error: error instanceof Error ? error.message : String(error),
             copy: j + 1,
             stack: error instanceof Error ? error.stack : undefined,
@@ -664,10 +696,12 @@ const printParkingTicket = async (
       settings?.port ||
       `printer-${i}`;
 
+    const printerLogger = getPrinterLogger(printerIdentifier);
+
     try {
       if (!settings || !printer) {
-        logger.warn(
-          `Skipping parking ticket print: missing settings or printer instance for ${printerIdentifier}`
+        printerLogger.warn(
+          `Skipping parking ticket print: missing settings or printer instance`
         );
         errors.push({
           printerIdentifier,
@@ -677,7 +711,7 @@ const printParkingTicket = async (
       }
 
       printer.clear();
-      logger.info(`Printing parking ticket to ${printerIdentifier}`, {
+      printerLogger.info(`Printing parking ticket`, {
         license,
         venueName,
       });
@@ -718,8 +752,8 @@ const printParkingTicket = async (
       });
 
       printer?.clear();
-      logger.info(
-        `Successfully printed parking ticket to ${printerIdentifier}`,
+      printerLogger.info(
+        `Successfully printed parking ticket`,
         { license }
       );
       successCount++;
@@ -727,12 +761,12 @@ const printParkingTicket = async (
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
-        logger.error(
-          `Cannot print parking ticket - printer ${printerIdentifier} is not connected or unreachable`
+        printerLogger.error(
+          `Cannot print parking ticket - printer is not connected or unreachable`
         );
       } else {
-        logger.error(
-          `Failed to print parking ticket to ${printerIdentifier}:`,
+        printerLogger.error(
+          `Failed to print parking ticket:`,
           {
             error: error instanceof Error ? error.message : String(error),
             license,
@@ -774,11 +808,12 @@ const printPelatologioRecord = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     try {
       if (!settings || !printer) {
-        logger.warn(
-          `Skipping pelatologio record print: missing settings or printer instance for ${printerIdentifier}`
+        printerLogger.warn(
+          `Skipping pelatologio record print: missing settings or printer instance`
         );
         errors.push({
           printerIdentifier,
@@ -788,7 +823,7 @@ const printPelatologioRecord = async (
       }
 
       printer.clear();
-      logger.info(`Printing pelatologio record to ${printerIdentifier}`, {
+      printerLogger.info(`Printing pelatologio record`, {
         dclId: pelatologioRecord.dclId,
         status: pelatologioRecord.status,
       });
@@ -862,8 +897,8 @@ const printPelatologioRecord = async (
       });
 
       printer?.clear();
-      logger.info(
-        `Successfully printed pelatologio record to ${printerIdentifier}`,
+      printerLogger.info(
+        `Successfully printed pelatologio record`,
         { dclId: pelatologioRecord.dclId }
       );
       successCount++;
@@ -871,12 +906,12 @@ const printPelatologioRecord = async (
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
-        logger.error(
-          `Cannot print pelatologio record - printer ${printerIdentifier} is not connected or unreachable`
+        printerLogger.error(
+          `Cannot print pelatologio record - printer is not connected or unreachable`
         );
       } else {
-        logger.error(
-          `Failed to print pelatologio record to ${printerIdentifier}:`,
+        printerLogger.error(
+          `Failed to print pelatologio record:`,
           {
             error: error instanceof Error ? error.message : String(error),
             dclId: pelatologioRecord.dclId,
@@ -1252,6 +1287,7 @@ const printOrderForm = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     try {
       printer?.clear();
@@ -1330,11 +1366,11 @@ const printOrderForm = async (
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
-        logger.error(
-          `Cannot print order form - printer ${printerIdentifier} is not connected or unreachable`
+        printerLogger.error(
+          `Cannot print order form - printer is not connected or unreachable`
         );
       } else {
-        logger.error(`Failed to print order form to ${printerIdentifier}:`, {
+        printerLogger.error(`Failed to print order form:`, {
           error: error instanceof Error ? error.message : String(error),
           orderNumber,
           stack: error instanceof Error ? error.stack : undefined,
@@ -1380,6 +1416,7 @@ const printPaymentSlip = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     try {
       printer?.clear();
@@ -1537,11 +1574,11 @@ const printPaymentSlip = async (
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
-        logger.error(
-          `Cannot print payment slip - printer ${printerIdentifier} is not connected or unreachable`
+        printerLogger.error(
+          `Cannot print payment slip - printer is not connected or unreachable`
         );
       } else {
-        logger.error(`Failed to print payment slip to ${printerIdentifier}:`, {
+        printerLogger.error(`Failed to print payment slip:`, {
           error: error instanceof Error ? error.message : String(error),
           orderNumber,
           mark: aadeInvoice?.mark,
@@ -1596,6 +1633,7 @@ const printPaymentReceipt = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     printer?.clear();
     if (!settings || !printer) {
@@ -1688,13 +1726,6 @@ const printPaymentReceipt = async (
         printer.alignCenter();
         printer.cut();
 
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         await executePrinter(
           printer,
           printerIdentifier,
@@ -1711,21 +1742,14 @@ const printPaymentReceipt = async (
           successes.push(printerIdentifier);
         }
       } catch (error) {
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
-          logger.error(
-            `Cannot print payment receipt - printer ${printerIdentifier} is not connected or unreachable`
+          printerLogger.error(
+            `Cannot print payment receipt - printer is not connected or unreachable`
           );
         } else {
-          logger.error(
-            `Failed to print payment receipt to ${printerIdentifier}:`,
+          printerLogger.error(
+            `Failed to print payment receipt:`,
             {
               error: error instanceof Error ? error.message : String(error),
               orderNumber,
@@ -1784,6 +1808,7 @@ const printInvoice = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     printer?.clear();
     if (!settings || !printer) {
@@ -1876,13 +1901,6 @@ const printInvoice = async (
         printer.alignCenter();
         printer.cut();
 
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         await executePrinter(printer, printerIdentifier, 'invoice print', {
           orderNumber,
           mark: aadeInvoice?.mark,
@@ -1894,20 +1912,13 @@ const printInvoice = async (
           successes.push(printerIdentifier);
         }
       } catch (error) {
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
-          logger.error(
-            `Cannot print invoice - printer ${printerIdentifier} is not connected or unreachable`
+          printerLogger.error(
+            `Cannot print invoice - printer is not connected or unreachable`
           );
         } else {
-          logger.error(`Failed to print invoice to ${printerIdentifier}:`, {
+          printerLogger.error(`Failed to print invoice:`, {
             error: error instanceof Error ? error.message : String(error),
             orderNumber,
             mark: aadeInvoice?.mark,
@@ -1952,6 +1963,7 @@ const printMyPelatesReceipt = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     printer?.clear();
     if (!settings || !printer) {
@@ -2051,13 +2063,6 @@ const printMyPelatesReceipt = async (
         printer.alignCenter();
         printer.cut();
 
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         await executePrinter(
           printer,
           printerIdentifier,
@@ -2073,21 +2078,14 @@ const printMyPelatesReceipt = async (
           successes.push(printerIdentifier);
         }
       } catch (error) {
-        const printerIdentifier =
-          settings?.name ||
-          settings?.id ||
-          settings?.ip ||
-          settings?.port ||
-          `printer-${i}`;
-
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
-          logger.error(
-            `Cannot print MyPelates receipt - printer ${printerIdentifier} is not connected or unreachable`
+          printerLogger.error(
+            `Cannot print MyPelates receipt - printer is not connected or unreachable`
           );
         } else {
-          logger.error(
-            `Failed to print MyPelates receipt to ${printerIdentifier}:`,
+          printerLogger.error(
+            `Failed to print MyPelates receipt:`,
             {
               error: error instanceof Error ? error.message : String(error),
               mark: aadeInvoice?.mark,
@@ -2133,6 +2131,7 @@ const printMyPelatesInvoice = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     printer?.clear();
     if (!settings || !printer) {
@@ -2250,12 +2249,12 @@ const printMyPelatesInvoice = async (
       } catch (error) {
         errors.push({ printerIdentifier, error });
         if (error instanceof PrinterConnectionError) {
-          logger.error(
-            `Cannot print MyPelates invoice - printer ${printerIdentifier} is not connected or unreachable`
+          printerLogger.error(
+            `Cannot print MyPelates invoice - printer is not connected or unreachable`
           );
         } else {
-          logger.error(
-            `Failed to print MyPelates invoice to ${printerIdentifier}:`,
+          printerLogger.error(
+            `Failed to print MyPelates invoice:`,
             {
               error: error instanceof Error ? error.message : String(error),
               mark: aadeInvoice?.mark,
@@ -2302,6 +2301,7 @@ export const printOrder = async (
       settings?.ip ||
       settings?.port ||
       `printer-${i}`;
+    const printerLogger = getPrinterLogger(printerIdentifier);
 
     try {
       printer?.clear();
@@ -2854,12 +2854,12 @@ export const printOrder = async (
           successes.push(printerIdentifier);
         } catch (execError) {
           if (execError instanceof PrinterConnectionError) {
-            logger.error(
-              `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
+            printerLogger.error(
+              `Cannot print order - printer is not connected or unreachable`
             );
             errors.push({ printerIdentifier, error: execError });
           } else {
-            logger.error(`Failed to print order to ${printerIdentifier}:`, {
+            printerLogger.error(`Failed to print order:`, {
               error:
                 execError instanceof Error
                   ? execError.message
@@ -2873,7 +2873,7 @@ export const printOrder = async (
         }
       }
     } catch (error) {
-      logger.error(`Error preparing order print for ${printerIdentifier}:`, {
+      printerLogger.error(`Error preparing order print:`, {
         error: error instanceof Error ? error.message : String(error),
         orderId: order._id,
         orderNumber: order.number,

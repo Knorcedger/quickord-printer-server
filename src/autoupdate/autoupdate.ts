@@ -15,6 +15,14 @@ import * as path from 'node:path';
 import JSZip from 'jszip';
 
 import nconf from 'nconf';
+import { createLogger } from '../modules/logger';
+
+// Create a dedicated logger for autoupdate
+const autoupdateLogger = createLogger('autoupdate');
+// Initialize the logger
+autoupdateLogger.init().catch((err) => {
+  console.error('Failed to initialize autoupdate logger:', err);
+});
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -74,7 +82,7 @@ export async function copyOnlyFiles(
 
       // Skip explicitly ignored folders
       if (entry.isDirectory() && ignored.has(entry.name)) {
-        console.log(`🚫 Ignoring folder: ${relativePath}`);
+        autoupdateLogger.info(`🚫 Ignoring folder: ${relativePath}`);
         continue;
       }
 
@@ -85,7 +93,7 @@ export async function copyOnlyFiles(
         entry.name === 'node_modules' &&
         isNestedBuildsPath(entrySrcPath)
       ) {
-        console.log(`🚫 Skipping nested node_modules: ${relativePath}`);
+        autoupdateLogger.info(`🚫 Skipping nested node_modules: ${relativePath}`);
         continue;
       }
 
@@ -94,13 +102,13 @@ export async function copyOnlyFiles(
         await walk(entrySrcPath);
       } else if (entry.isFile()) {
         await fs.promises.copyFile(entrySrcPath, entryDestPath);
-        console.log(`✅ Copied: ${relativePath}`);
+        autoupdateLogger.info(`✅ Copied: ${relativePath}`);
       }
     }
   }
 
   await walk(srcDir);
-  console.log('🎉 Copy completed.');
+  autoupdateLogger.info('🎉 Copy completed.');
 }
 export async function relaunchExe(appPath: string, args: string[]) {
   const exePath = path.resolve(appPath); // Ensure absolute path
@@ -114,14 +122,14 @@ export async function relaunchExe(appPath: string, args: string[]) {
 
     child.unref();
 
-    console.log('Relaunched exe with args. Waiting to exit...');
+    autoupdateLogger.info('Relaunched exe with args. Waiting to exit...');
 
     setTimeout(async () => {
       process.exit(0);
     }, 500);
     //}, 500); // 500ms delay to ensure safe spawn
   } catch (err) {
-    console.error('Failed to relaunch exe:', err);
+    autoupdateLogger.error('Failed to relaunch exe:', err);
   }
 }
 export async function deleteFolderRecursive(
@@ -143,16 +151,16 @@ export async function deleteFolderRecursive(
 
     await fsp.rmdir(folderPath); // remove empty folder
     if (!silent) {
-      console.log(`Deleted: ${folderPath}`);
+      autoupdateLogger.info(`Deleted: ${folderPath}`);
     }
   } catch (err: any) {
     if (err.code === 'ENOENT') {
       if (!silent) {
-        console.warn(`Folder does not exist: ${folderPath}`);
+        autoupdateLogger.warn(`Folder does not exist: ${folderPath}`);
       }
     } else {
       if (!silent) {
-        console.error(`Error deleting ${folderPath}:`, err.message || err);
+        autoupdateLogger.error(`Error deleting ${folderPath}:`, err.message || err);
       }
     }
   }
@@ -181,8 +189,8 @@ function isLatestVersion(current, latest) {
 
 export async function downloadLatestCode(): Promise<string | null> {
   const url = nconf.get('CODE_UPDATE_URL');
-  console.log('Starting download from:', url);
-  console.log('from url:', url);
+  autoupdateLogger.info('Starting download from:', url);
+  autoupdateLogger.info('from url:', url);
 
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
@@ -192,7 +200,7 @@ export async function downloadLatestCode(): Promise<string | null> {
     const cmd = `curl -L "${url}" -o "${zipPath}"`;
     exec(cmd, (err, stdout, stderr) => {
       if (err) return reject(err);
-      console.log(stdout || stderr);
+      autoupdateLogger.info(stdout || stderr);
       resolvePromise();
     });
   });
@@ -207,9 +215,9 @@ export async function downloadLatestCode(): Promise<string | null> {
   let currentVersion = '';
   try {
     currentVersion = (await fsp.readFile('version', 'utf-8')).trim();
-    console.log('Current version:', currentVersion);
+    autoupdateLogger.info('Current version:', currentVersion);
   } catch {
-    console.log('No current version file found, assuming update needed.');
+    autoupdateLogger.info('No current version file found, assuming update needed.');
   }
 
   let latestVersion = '';
@@ -220,27 +228,27 @@ export async function downloadLatestCode(): Promise<string | null> {
         'utf-8'
       )
     ).trim();
-    console.log('Latest version:', latestVersion);
+    autoupdateLogger.info('Latest version:', latestVersion);
   } catch {
     try {
       // fallback if version is in root of zip
       latestVersion = (
         await fsp.readFile(path.resolve(tempCodePath, 'version'), 'utf-8')
       ).trim();
-      console.log('Latest version (root):', latestVersion);
+      autoupdateLogger.info('Latest version (root):', latestVersion);
     } catch (e) {
-      console.error('Cannot find latest version file. Proceeding with update.');
+      autoupdateLogger.error('Cannot find latest version file. Proceeding with update.');
     }
   }
 
   if (latestVersion && isLatestVersion(currentVersion, latestVersion)) {
-    console.log('Already up to date. Cleaning up temp folder.');
+    autoupdateLogger.info('Already up to date. Cleaning up temp folder.');
     await deleteFolderRecursive(srcDir, true);
     return null; // no update needed
   }
-  console.log('Update needed. Code ready at:', tempCodePath);
-  console.log('Updating to latest version');
-  console.log(tempCodePath);
+  autoupdateLogger.info('Update needed. Code ready at:', tempCodePath);
+  autoupdateLogger.info('Updating to latest version');
+  autoupdateLogger.info(tempCodePath);
   const cwd = process.cwd();
   const parentDir = path.resolve(cwd, '..');
 
@@ -262,9 +270,9 @@ export async function safeCleanup(dirPath: string) {
     await new Promise((res) => setTimeout(res, 50));
 
     await fsp.rm(resolvedPath, { recursive: true, force: true });
-    console.log('✅ Temp folder cleaned up:', resolvedPath);
+    autoupdateLogger.info('✅ Temp folder cleaned up:', resolvedPath);
   } catch (err: any) {
-    console.error('⚠️ Failed to clean temp folder:', err.message);
+    autoupdateLogger.error('⚠️ Failed to clean temp folder:', err.message);
   }
 }
 
@@ -306,10 +314,10 @@ export function copyWithCmd(
 
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Error: ${stderr}`);
+        autoupdateLogger.error(`Error: ${stderr}`);
         return reject(error);
       }
-      console.log(stdout);
+      autoupdateLogger.info(stdout);
       resolve(undefined);
     });
   });
@@ -320,19 +328,19 @@ function copySettingsFile(settingsPath, destDir) {
     const command = `xcopy "${settingsPath}" "${path.join(destDir, 'builds')}\\" /Y`;
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Error copying settings: ${stderr}`);
+        autoupdateLogger.error(`Error copying settings: ${stderr}`);
         return reject(error);
       }
-      console.log('Settings file copied with xcopy.');
+      autoupdateLogger.info('Settings file copied with xcopy.');
       resolve(undefined);
     });
   });
 }
 export default async function autoUpdate(path: string[]) {
-  console.log('AutoUpdate path:', path);
+  autoupdateLogger.info('AutoUpdate path:', path);
   // Check if running on Windows
   if (process.platform !== 'win32') {
-    console.log('Skipping auto-update: non-Windows OS detected.');
+    autoupdateLogger.info('Skipping auto-update: non-Windows OS detected.');
     return;
   }
 
@@ -341,53 +349,53 @@ export default async function autoUpdate(path: string[]) {
   } else if (path[0] === '--update') {
     srcDir = path[1]?.toString() || '';
     destDir = path[3]?.toString() || '';
-    console.log(`srcDir: ${srcDir}`);
-    console.log(`destDir: ${destDir}`);
-    console.log(process.cwd());
+    autoupdateLogger.info(`srcDir: ${srcDir}`);
+    autoupdateLogger.info(`destDir: ${destDir}`);
+    autoupdateLogger.info(process.cwd());
     process.chdir(srcDir + '\\builds');
-    console.log(process.cwd());
+    autoupdateLogger.info(process.cwd());
     try {
       await copySettingsFile(destDir, `${srcDir}`);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
-      console.error('cleanupMain failed:', err.message || err);
+      autoupdateLogger.error('cleanupMain failed:', err.message || err);
     }
 
-    console.log(process.cwd());
+    autoupdateLogger.info(process.cwd());
     try {
       await fsp.mkdir(destDir, { recursive: true });
-      console.log(`Created folder: ${destDir}`);
+      autoupdateLogger.info(`Created folder: ${destDir}`);
     } catch (err: any) {
-      console.error(
+      autoupdateLogger.error(
         `Failed to create folder "${destDir}":`,
         err.message || err
       );
     }
-    console.log('paths: ', srcDir, destDir);
+    autoupdateLogger.info('paths: ', srcDir, destDir);
 
     await copyWithCmd(srcDir, destDir);
     // await deleteFolderRecursive(`${destDir}${sep}builds${sep}node_modules`);
     path[0] = '--remove';
     path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
-    console.log(path2);
-    console.log(srcDir, destDir);
+    autoupdateLogger.info(path2);
+    autoupdateLogger.info(srcDir, destDir);
     const buildsDir = destDir + '\\builds';
     try {
       // Change directory to the 'builds' folder inside destDir
       process.chdir(buildsDir);
-      console.log(`Successfully changed directory to ${buildsDir}`);
+      autoupdateLogger.info(`Successfully changed directory to ${buildsDir}`);
     } catch (err) {
-      console.log(`Failed to change directory: ${err.message}`);
+      autoupdateLogger.error(`Failed to change directory: ${err.message}`);
     }
     relaunchExe(path2, path);
     //
   } else if (path[0] === '--remove') {
     let srcDir = path[1]?.toString() || '';
-    console.log(`srcDir: ${srcDir}`);
+    autoupdateLogger.info(`srcDir: ${srcDir}`);
 
     const currentDir = process.cwd();
     const parentDir = dirname(srcDir);
-    console.log(parentDir);
+    autoupdateLogger.info(parentDir);
     await deleteFolderRecursive(parentDir);
   }
 }
