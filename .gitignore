@@ -10,3 +10,4 @@ data-dir
 testcode
 .DS_Store
 .image-cache
+.claude
