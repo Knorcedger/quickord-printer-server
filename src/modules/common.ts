@@ -82,7 +82,8 @@ const getCachedImage = (url: string): Buffer | null => {
 
     if (fs.existsSync(cachePath)) {
       const stats = fs.statSync(cachePath);
-      const ageInDays = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
+      const ageInDays =
+        (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
 
       if (ageInDays < CACHE_EXPIRY_DAYS) {
         console.log(`Using cached image for: ${url}`);
@@ -558,11 +559,13 @@ export const printProducts = (
         console.log('choice', choice);
         choice.choices.forEach((ch) => {
           const choiceTitle = getTitle(choice.content, lang); // parent title
+          const amountLevel =
+            translations.printOrder.amountLevel?.[lang]?.[ch.amountLevel] || '';
           const quantityPrefix =
             Number(ch.quantity) > 1 ? `${ch.quantity}x ` : '';
 
           // Build main text
-          const choiceText = `- ${quantityPrefix}${choiceTitle}`;
+          const choiceText = `- ${amountLevel} ${quantityPrefix}${choiceTitle}`;
 
           // Price (only if > 0)
           const choicePrice =
