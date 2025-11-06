@@ -199,11 +199,18 @@ export const ModemSettings = z.object({
   venueId: z.string({ required_error: 'the modem venueId is required' }),
 });
 
+export const DirectSendConfig = z.object({
+  enabled: z.boolean().default(false),
+  localIp: z.string().optional().default(''),
+});
+
 export type IModemSettings = z.infer<typeof ModemSettings>;
+export type IDirectSendConfig = z.infer<typeof DirectSendConfig>;
 
 export const Settings = z.object({
   modem: ModemSettings.optional(),
   printers: z.array(PrinterSettings),
+  directSend: DirectSendConfig.optional(),
 });
 
 export type ISettings = z.infer<typeof Settings>;
@@ -211,6 +218,7 @@ export type ISettings = z.infer<typeof Settings>;
 let settings: ISettings = {
   modem: { port: '', venueId: '' },
   printers: [],
+  directSend: { enabled: false, localIp: '' },
 };
 
 const migrateToV2 = (settings: ISettings): [ISettings, boolean] => {

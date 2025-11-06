@@ -1,6 +1,6 @@
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
-
+import os from 'os';
 import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
 import fs from 'fs';
@@ -105,6 +105,21 @@ const main = async () => {
     }
   }
 
+  function getLocalIp(): string | null {
+    const networkInterfaces = os.networkInterfaces();
+
+    for (const name of Object.keys(networkInterfaces)) {
+      for (const net of networkInterfaces[name] ?? []) {
+        // Skip over internal (i.e. 127.0.0.1) and non-IPv4 addresses
+        if (net.family === 'IPv4' && !net.internal) {
+          return net.address;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function getPrinterVersion(): string {
     const versionFilePath = path.join(__dirname, '../version');
     try {
@@ -154,6 +169,17 @@ const main = async () => {
     .route('/status')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
+    });
+
+  app
+    .route('/local-ip')
+    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
+      const localIp = getLocalIp();
+      if (localIp) {
+        res.status(200).send({ localIp });
+      } else {
+        res.status(404).send({ error: 'No local IP address found' });
+      }
     });
   app.route('/available').get(async (req: Request, res: Response) => {
     try {
@@ -243,6 +269,11 @@ const main = async () => {
       'API listening at port',
       (server?.address?.() as { port: number })?.port
     );
+
+    const localIp = getLocalIp();
+    if (localIp) {
+      console.log(`Local IP address: ${localIp}`);
+    }
   });
 };
 
