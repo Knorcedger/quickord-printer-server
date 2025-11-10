@@ -1627,7 +1627,6 @@ const printPaymentReceipt = async (
     }
     console.log('printing ALP');
     for (let copies = 0; copies < settings.copies; copies += 1) {
-      console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
@@ -2634,7 +2633,16 @@ export const printOrder = async (
           // Handle product choices
           product.choices?.forEach((choice) => {
             total += (choice.price || 0) * (choice.quantity || 1);
-            const choiceLine = `- ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
+            const amountLevel =
+              choice.amountLevel != null &&
+              translations.printOrder.amountLevel?.[lang]
+                ? (translations.printOrder.amountLevel[lang][
+                    choice.amountLevel as any
+                  ] ?? '')
+                : '';
+
+            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
+
             let choicePrice = '';
             if (
               settings.priceOnOrder === undefined ||

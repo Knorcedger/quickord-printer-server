@@ -4,6 +4,16 @@ export default {
       el: 'ΣΧΟΛΙΑ ΠΕΛΑΤΗ',
       en: 'CUSTOMER COMMENTS',
     },
+    amountLevel: {
+      en: {
+        MUCH: 'much',
+        LITTLE: 'little',
+      },
+      el: {
+        MUCH: 'πολύ',
+        LITTLE: 'λίγο',
+      },
+    },
     customerEmail: {
       el: 'EMAIL',
       en: 'EMAIL',

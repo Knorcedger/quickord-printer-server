@@ -2,7 +2,10 @@ import { Request, Response } from 'express';
 import { z } from 'zod';
 
 import logger from '../modules/logger';
-import { printOrders as printerPrintOrders, determinePrintStatus } from '../modules/printer';
+import {
+  printOrders as printerPrintOrders,
+  determinePrintStatus,
+} from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',
   'NEW',
@@ -51,6 +54,11 @@ export const Product = z.object({
         price: z
           .number({
             invalid_type_error: 'choice price must be a number.',
+          })
+          .optional(),
+        amountLevel: z
+          .enum(['MUCH', 'LITTLE'], {
+            invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
           })
           .optional(),
         quantity: z
@@ -259,7 +267,10 @@ export const Order = z.object({
 
 const Orders = z.array(Order);
 
-const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const printOrders = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
   try {
     const orders = Orders.parse(req.body);
 
@@ -292,7 +303,8 @@ const printOrders = async (req: Request<{}, any, any>, res: Response<{}, any>) =
     res.status(httpCode).send(response);
   } catch (error) {
     logger.error('Error printing orders:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     res.status(500).send({ error: errorMessage });
   }
 };
