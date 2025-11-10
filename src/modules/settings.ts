@@ -16,33 +16,6 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
   required_error: 'textSize is required.',
 });
 
-const logoUtilsSchema = z
-  .object({
-    whereToPrint: z
-      .array(
-        z.enum(['receipt', 'rateUs'], {
-          description: 'Allowed features to enable logo for.',
-          invalid_type_error:
-            'Each item in whereToPrint must be "receipt" or "rateUs".',
-        })
-      )
-      .nonempty({
-        message:
-          'whereToPrint must be a non-empty array containing "receipt" or "rateUs".',
-      }),
-    logoUrl: z
-      .string({
-        description: 'The URL of the logo to print on the receipt.',
-        invalid_type_error: 'logoUrl must be a string.',
-        required_error: 'logoUrl is required.',
-      })
-      .url('logoUrl must be a valid URL')
-      .nullable()
-      .optional(),
-  })
-  .optional()
-  .nullable();
-
 export const PrinterTextOptions = z.enum(
   ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
   {
@@ -211,28 +184,6 @@ export type ISettings = z.infer<typeof Settings>;
 let settings: ISettings = {
   modem: { port: '', venueId: '' },
   printers: [],
-};
-
-const migrateToV2 = (settings: ISettings): [ISettings, boolean] => {
-  let updated = false;
-  //i want to add id to printers like "1" "2" "3" etc when they dont have and also make categoriesToNotPrint categoriesToPrint
-  settings.printers = settings.printers.map((printer, index) => {
-    if (!printer.id) {
-      console.log('updated printer id', index + 1);
-      updated = true;
-      printer.id = (index + 1).toString();
-    }
-
-    if (printer.categoriesToNotPrint) {
-      updated = true;
-      console.log('updated printer categories');
-      printer.categoriesToPrint = printer.categoriesToNotPrint;
-      delete printer.categoriesToNotPrint;
-    }
-
-    return printer;
-  });
-  return [settings, updated];
 };
 
 export const loadSettings = async () => {

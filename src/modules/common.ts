@@ -1,15 +1,9 @@
 import { transliterate } from 'transliteration';
-import {
-  CharacterSet,
-  printer as ThermalPrinter,
-  types as PrinterTypes,
-} from 'node-thermal-printer';
-import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
-import { date, z } from 'zod';
+import { printer as ThermalPrinter } from 'node-thermal-printer';
+import { PrinterTextSize } from './settings';
+import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
-import https from 'https';
-import http from 'http';
 import sharp from 'sharp';
 import { execSync } from 'child_process';
 import fs from 'fs';

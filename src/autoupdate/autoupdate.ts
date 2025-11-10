@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { spawn, exec } from 'node:child_process';
-import * as https from 'node:https';
 import * as path from 'node:path';
 import JSZip from 'jszip';
 
