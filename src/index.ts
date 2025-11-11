@@ -1,14 +1,11 @@
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
-
 import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import { Request, Response } from 'express';
-import https from 'https';
-
 import { homepage } from './homepage';
 import logger from './modules/logger';
 import { initModem } from './modules/modem';
@@ -36,7 +33,7 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 
 const main = async () => {
   const SERVER_PORT =
@@ -92,18 +89,6 @@ const main = async () => {
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send(getSettings());
     });
-  function getBaseDir() {
-    if ((process as NodeJS.Process & { pkg?: boolean }).pkg) {
-      // running as exe (pkg/nexe)
-      return path.dirname(process.execPath);
-    } else {
-      // normal node
-      return path.resolve(
-        path.dirname(new URL(import.meta.url).pathname),
-        '..'
-      );
-    }
-  }
 
   function getPrinterVersion(): string {
     const versionFilePath = path.join(__dirname, '../version');
@@ -190,7 +175,6 @@ const main = async () => {
   app.route('/print-pelatologio-record').post(pelatologioRecord);
   app.route('/print-text').post(printText);
   app.route('/print-invoice').post(invoice);
-  //app.route('/print-rate-us').post(rateUs);
 
   app
     .route('/logs')

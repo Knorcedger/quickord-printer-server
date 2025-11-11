@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { spawn, exec } from 'node:child_process';
-import * as https from 'node:https';
 import * as path from 'node:path';
 import JSZip from 'jszip';
 
@@ -347,7 +346,8 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-      await copySettingsFile(destDir, `${srcDir}`);
+      const settingsPath = `${destDir}\\builds\\settings.json`;
+      await copySettingsFile(settingsPath, srcDir);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
       console.error('cleanupMain failed:', err.message || err);
@@ -366,7 +366,6 @@ export default async function autoUpdate(path: string[]) {
     console.log('paths: ', srcDir, destDir);
 
     await copyWithCmd(srcDir, destDir);
-    // await deleteFolderRecursive(`${destDir}${sep}builds${sep}node_modules`);
     path[0] = '--remove';
     path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
     console.log(path2);

@@ -6,12 +6,11 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
-import { date, z } from 'zod';
+import { z } from 'zod';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
   convertToDecimal,
-  leftPad,
   tr,
   changeTextSize,
   PaymentMethod,
@@ -20,7 +19,6 @@ import {
   formatLine,
   drawLine2,
   DISCOUNTTYPES,
-  SERVICES,
   printMarks,
   printProducts,
   printPayments,
@@ -34,7 +32,6 @@ import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
-import settings from '../resolvers/settings';
 
 // Custom error classes for better error handling
 export class PrinterError extends Error {
