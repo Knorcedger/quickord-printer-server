@@ -178,10 +178,70 @@ function isLatestVersion(current, latest) {
   return true; // equal versions
 }
 
+async function fetchLatestReleaseVersion(): Promise<string | null> {
+  const versionUrl = nconf.get('CODE_VERSION_URL');
+  if (!versionUrl) {
+    console.warn('CODE_VERSION_URL not configured. Skipping version check.');
+    return null;
+  }
+
+  try {
+    console.log('Fetching latest release info from:', versionUrl);
+
+    // Download via curl
+    const jsonData = await new Promise<string>((resolve, reject) => {
+      const cmd = `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`;
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) return reject(err);
+        resolve(stdout);
+      });
+    });
+
+    const releaseData = JSON.parse(jsonData) as { tag_name?: string };
+    const tagName = releaseData.tag_name;
+
+    if (!tagName) {
+      console.warn('No tag_name found in release data');
+      return null;
+    }
+
+    console.log('Latest release version:', tagName);
+    return tagName;
+  } catch (err: any) {
+    console.error('Error fetching latest release version:', err.message || err);
+    return null;
+  }
+}
+
 export async function downloadLatestCode(): Promise<string | null> {
+  // Read current version
+  let currentVersion = '';
+  try {
+    currentVersion = (await fsp.readFile('version', 'utf-8')).trim();
+    console.log('Current version:', currentVersion);
+  } catch {
+    console.log('No current version file found, assuming update needed.');
+  }
+
+  // Fetch latest version from GitHub API (without downloading)
+  const latestVersion = await fetchLatestReleaseVersion();
+
+  if (latestVersion) {
+    // Compare versions before downloading
+    if (isLatestVersion(currentVersion, latestVersion)) {
+      console.log('Already up to date. No download needed.');
+      console.log(`Current: ${currentVersion}, Latest: ${latestVersion}`);
+      return null; // no update needed
+    }
+    console.log('Update available!');
+    console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
+  } else {
+    console.log('Could not fetch latest version from API. Proceeding with download to check...');
+  }
+
+  // Proceed with download
   const url = nconf.get('CODE_UPDATE_URL');
   console.log('Starting download from:', url);
-  console.log('from url:', url);
 
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
@@ -202,41 +262,6 @@ export async function downloadLatestCode(): Promise<string | null> {
   const zipBuffer = await fsp.readFile(zipPath);
   await extractZip(zipBuffer, tempCodePath);
 
-  // Read versions
-  let currentVersion = '';
-  try {
-    currentVersion = (await fsp.readFile('version', 'utf-8')).trim();
-    console.log('Current version:', currentVersion);
-  } catch {
-    console.log('No current version file found, assuming update needed.');
-  }
-
-  let latestVersion = '';
-  try {
-    latestVersion = (
-      await fsp.readFile(
-        path.resolve(tempCodePath, 'builds', 'version'),
-        'utf-8'
-      )
-    ).trim();
-    console.log('Latest version:', latestVersion);
-  } catch {
-    try {
-      // fallback if version is in root of zip
-      latestVersion = (
-        await fsp.readFile(path.resolve(tempCodePath, 'version'), 'utf-8')
-      ).trim();
-      console.log('Latest version (root):', latestVersion);
-    } catch (e) {
-      console.error('Cannot find latest version file. Proceeding with update.');
-    }
-  }
-
-  if (latestVersion && isLatestVersion(currentVersion, latestVersion)) {
-    console.log('Already up to date. Cleaning up temp folder.');
-    await deleteFolderRecursive(srcDir, true);
-    return null; // no update needed
-  }
   console.log('Update needed. Code ready at:', tempCodePath);
   console.log('Updating to latest version');
   console.log(tempCodePath);
