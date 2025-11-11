@@ -346,7 +346,8 @@ export default async function autoUpdate(path: string[]) {
     process.chdir(srcDir + '\\builds');
     console.log(process.cwd());
     try {
-      await copySettingsFile(destDir, `${srcDir}`);
+      const settingsPath = `${destDir}\\builds\\settings.json`;
+      await copySettingsFile(settingsPath, srcDir);
       await deleteFolderRecursive(destDir);
     } catch (err: any) {
       console.error('cleanupMain failed:', err.message || err);
