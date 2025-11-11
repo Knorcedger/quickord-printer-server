@@ -365,7 +365,6 @@ export default async function autoUpdate(path: string[]) {
     console.log('paths: ', srcDir, destDir);
 
     await copyWithCmd(srcDir, destDir);
-    // await deleteFolderRecursive(`${destDir}${sep}builds${sep}node_modules`);
     path[0] = '--remove';
     path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
     console.log(path2);

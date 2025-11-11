@@ -6,7 +6,7 @@ import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
-import { date, z } from 'zod';
+import { z } from 'zod';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
