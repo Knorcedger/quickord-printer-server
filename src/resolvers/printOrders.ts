@@ -60,7 +60,8 @@ export const Product = z.object({
           .enum(['MUCH', 'LITTLE'], {
             invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
           })
-          .optional(),
+          .optional()
+          .nullable(),
         quantity: z
           .number({
             invalid_type_error: 'choice quantity must be a number.',
