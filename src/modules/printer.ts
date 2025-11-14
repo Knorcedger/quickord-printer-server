@@ -2311,7 +2311,9 @@ export const printOrder = async (
       }
       if (settings.orderMethodsToPrint !== undefined) {
         if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
-          console.log('orderType is not in orderMethodsToPrint');
+          console.log(
+            `orderType ${order.orderType} is not in orderMethodsToPrint`
+          );
           skipped.push({
             printerIdentifier,
             reason: `Order method ${order.orderType} not in printer's orderMethodsToPrint configuration`,
@@ -2346,6 +2348,10 @@ export const printOrder = async (
           );
 
           if (missingCategories.length > 0) {
+            console.log(
+              'No products match printer categoriesToPrint',
+              missingCategories
+            );
             skipped.push({
               printerIdentifier,
               reason: `No products match printer's categories to print. Missing categories: ${missingCategories.join(', ')}`,
