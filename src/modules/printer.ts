@@ -592,7 +592,7 @@ export const parkingTicket = async (
       'phone',
       'date',
       'entryTime',
-      'operatingHours',
+      //'operatingHours',
     ];
     for (const field of requiredFields) {
       if (!req.body[field]) {
@@ -607,7 +607,7 @@ export const parkingTicket = async (
       req.body.phone,
       req.body.date,
       req.body.entryTime,
-      req.body.operatingHours,
+      //  req.body.operatingHours,
       req.body.lang || 'el'
     );
 
@@ -644,7 +644,7 @@ const printParkingTicket = async (
   phone: string,
   date: string,
   entryTime: string,
-  operatingHours: string,
+  // operatingHours: string,
   lang: SupportedLanguages = 'el'
 ) => {
   let successCount = 0;
@@ -697,7 +697,7 @@ const printParkingTicket = async (
       printer.println(formatLine('DATE:', date));
       printer.println(formatLine('ENTRY TIME:', entryTime));
       printer.alignLeft();
-      printer.println(formatLine('Operating Hours:', operatingHours));
+      //   printer.println(formatLine('Operating Hours:', operatingHours));
       printer.bold(true);
       printer.alignCenter();
       printer.newLine();
