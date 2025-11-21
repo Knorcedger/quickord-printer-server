@@ -2691,7 +2691,7 @@ export const printOrder = async (
               });
             }
 
-            const rawTotal = product.total * product.quantity + choicesTotal;
+            const rawTotal = product.quantity * (product.total + choicesTotal);
             const rawNet = rawTotal / (1 + (vatRate || 0) / 100);
 
             const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
@@ -2720,7 +2720,7 @@ export const printOrder = async (
             printer.alignRight();
             printer.println(
               tr(
-                `${convertToDecimal(total + (product.quantity - 1) * product.total).toFixed(2)} €`,
+                `${convertToDecimal(total * product.quantity).toFixed(2)} €`,
                 settings.transliterate
               )
             );
