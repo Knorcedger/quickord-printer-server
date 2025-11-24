@@ -450,7 +450,8 @@ export const printProducts = (
   aadeInvoice,
   order,
   settings,
-  lang
+  lang,
+  discounts: any[] = []
 ): [number, number, any[]] => {
   let sumAmount = 0;
   let sumQuantity = 0;
@@ -574,6 +575,50 @@ export const printProducts = (
           console.log('choice', paddedChoiceLine);
         });
       });
+
+      // Print per-product discount if exists
+      console.log('Checking for product discount');
+      console.log('All discounts:', JSON.stringify(discounts));
+      console.log('matchedProduct.productId:', matchedProduct.productId);
+      console.log('matchedProduct._id:', matchedProduct._id);
+
+      // Check if discount matches by productId (template), _id (instance), or content _id
+      const productDiscount = discounts.find((d: any) => {
+        if (!d.productId) return false;
+
+        // Match by product template ID
+        if (d.productId === matchedProduct.productId) return true;
+
+        // Match by product instance ID
+        if (d.productId === matchedProduct._id) return true;
+
+        // Match by content item _id
+        const matchingContent = matchedProduct.content?.find(
+          (c: any) => c._id === d.productId
+        );
+        if (matchingContent) return true;
+
+        return false;
+      });
+      console.log('Found productDiscount:', productDiscount);
+
+      if (productDiscount && productDiscount.amount && productDiscount.type) {
+        console.log('Printing product discount!');
+        const indent = '     '; // 5 spaces for consistency
+        let discountText = '';
+        if (productDiscount.type === 'FIXED') {
+          discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
+        } else if (productDiscount.type === 'PERCENTAGE' || productDiscount.type === 'PERCENT') {
+          discountText = `${productDiscount.amount}%`;
+        }
+        if (discountText) {
+          printer.println(
+            `${indent}${translations.printOrder.discount[lang]}: -${discountText}`
+          );
+        }
+      } else {
+        console.log('No product discount to print - productDiscount:', productDiscount);
+      }
     }
   });
 
@@ -587,24 +632,33 @@ export const printProducts = (
   return [sumAmount, sumQuantity, fixedBreakdown];
 };
 
-export const printDiscountAndTip = (printer, discount, tip, lang) => {
-  let discountAmount = '';
-  if ('amount' in discount && 'type' in discount) {
-    if (discount.type === 'FIXED') {
-      discountAmount = (discount.amount / 100).toString() + '€';
-    } else {
-      discountAmount = discount.amount.toString() + '%';
+export const printDiscountAndTip = (printer, discounts, tip, lang) => {
+  // Filter out product-specific discounts - only print overall discounts
+  const overallDiscounts = Array.isArray(discounts)
+    ? discounts.filter((d: any) => !d.productId)
+    : [];
+
+  // Print each overall discount
+  overallDiscounts.forEach((discount: any) => {
+    if (discount.amount && discount.type) {
+      let discountAmount = '';
+      if (discount.type === 'FIXED') {
+        discountAmount = (discount.amount / 100).toString() + '€';
+      } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
+        discountAmount = discount.amount.toString() + '%';
+      }
+      if (discountAmount !== '') {
+        printer.println(
+          `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+        );
+      }
     }
-    if (discountAmount !== '') {
-      printer.println(
-        `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
-      );
-    }
-    if (tip > 0) {
-      printer.println(
-        `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
-      );
-    }
+  });
+
+  if (tip > 0) {
+    printer.println(
+      `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
+    );
   }
 };
 
