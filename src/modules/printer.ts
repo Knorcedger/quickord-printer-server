@@ -12,6 +12,7 @@ import { Order } from '../resolvers/printOrders';
 import {
   convertToDecimal,
   tr,
+  normalizeGreek,
   changeTextSize,
   PaymentMethod,
   readMarkdown,
@@ -2443,8 +2444,8 @@ export const printOrder = async (
         );
         printer.alignLeft();
         printer.newLine();
-        printer.println(tr(order.venue.title, settings.transliterate));
-        printer.println(tr(order.venue.address, settings.transliterate));
+        printer.println(tr(normalizeGreek(order.venue.title), settings.transliterate));
+        printer.println(tr(normalizeGreek(order.venue.address), settings.transliterate));
         drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
@@ -2470,7 +2471,7 @@ export const printOrder = async (
               ...(order.waiterName
                 ? [
                     tr(
-                      `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
+                      `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
                       settings.transliterate
                     ),
                   ]
@@ -2507,25 +2508,25 @@ export const printOrder = async (
         if (order.deliveryInfo) {
           printer.println(
             tr(
-              `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerFirstname} ${order.deliveryInfo.customerLastname}`,
+              `${translations.printOrder.customerName[lang]}:${normalizeGreek(order.deliveryInfo.customerFirstname || '')} ${normalizeGreek(order.deliveryInfo.customerLastname || '')}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`,
+              `${translations.printOrder.deliveryAddress[lang]}:${normalizeGreek(order.deliveryInfo.customerAddress)}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`,
+              `${translations.printOrder.deliveryFloor[lang]}:${normalizeGreek(order.deliveryInfo.customerFloor)}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`,
+              `${translations.printOrder.deliveryBell[lang]}:${normalizeGreek(order.deliveryInfo.customerBell)}`,
               settings.transliterate
             )
           );
@@ -2554,7 +2555,7 @@ export const printOrder = async (
           ) {
             printer.println(
               tr(
-                `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
+                `${translations.printOrder.customerName[lang]}:${normalizeGreek(order.TakeAwayInfo.customerName || '')}`,
                 settings.transliterate
               )
             );
@@ -2564,7 +2565,7 @@ export const printOrder = async (
           if (order.TakeAwayInfo.customerEmail) {
             printer.println(
               tr(
-                `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`,
+                `${translations.printOrder.customerEmail[lang]}:${normalizeGreek(order.TakeAwayInfo.customerEmail)}`,
                 settings.transliterate
               )
             );
@@ -2642,15 +2643,15 @@ export const printOrder = async (
           }
 
           // Pad title and amount for alignment
-          let productLine = `${product.quantity}x ${product.title}`;
+          let productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
           if (
             product.updateStatus?.includes('NEW') &&
             isEdit &&
             product.quantityChanged
           ) {
-            productLine = `${product.quantity}x ${product.title}`;
+            productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
           } else if (isEdit && product.quantityChanged) {
-            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
+            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${normalizeGreek(product.title)}`;
           }
           let priceStr = '';
           if (
@@ -2678,7 +2679,7 @@ export const printOrder = async (
                   ] ?? '')
                 : '';
 
-            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
+            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
 
             let choicePrice = '';
             if (
@@ -2698,7 +2699,7 @@ export const printOrder = async (
           if (product.comments) {
             printer.println(
               tr(
-                ` ${translations.printOrder.productComments[lang]}: ${product.comments.toUpperCase()}`,
+                ` ${translations.printOrder.productComments[lang]}: ${normalizeGreek(product.comments.toUpperCase())}`,
                 settings.transliterate
               )
             );

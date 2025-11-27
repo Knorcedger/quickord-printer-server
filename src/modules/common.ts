@@ -17,6 +17,11 @@ export const convertToDecimal = (value: number) => {
   return value / 100;
 };
 
+export const normalizeGreek = (text: string): string => {
+  // Remove Greek diacritics (tonos, dialytika, etc.)
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+};
+
 export const tr = (text: string, execute: boolean): string => {
   try {
     if (execute) {
@@ -469,7 +474,7 @@ export const printProducts = (
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
-    const name = detail.name.toUpperCase();
+    const name = normalizeGreek(detail.name.toUpperCase());
     console.log('proion', detail.name, lang);
     // First, find the product that contains the matchedContent
 
@@ -553,7 +558,7 @@ export const printProducts = (
       matchedProduct.options?.forEach((choice: any) => {
         console.log('choice', choice);
         choice.choices.forEach((ch) => {
-          const choiceTitle = getTitle(choice.content, lang); // parent title
+          const choiceTitle = normalizeGreek(getTitle(choice.content, lang)); // parent title
           const amountLevel =
             translations.printOrder.amountLevel?.[lang]?.[ch.amountLevel] || '';
           const quantityPrefix =
