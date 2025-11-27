@@ -12,6 +12,7 @@ import { Order } from '../resolvers/printOrders';
 import {
   convertToDecimal,
   tr,
+  normalizeGreek,
   changeTextSize,
   PaymentMethod,
   readMarkdown,
@@ -909,11 +910,24 @@ export const paymentSlip = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
+    // Normalize discount/discounts to array format from order object
+    let discountsArray: any[] = [];
+    const order = req.body.order;
+    if (order?.discounts) {
+      // If discounts exists, convert to array if needed
+      discountsArray = Array.isArray(order.discounts)
+        ? order.discounts
+        : [order.discounts];
+    } else if (order?.discount && Object.keys(order.discount).length > 0) {
+      // Backward compatibility: use old discount field if discounts doesn't exist
+      discountsArray = [order.discount];
+    }
+
     const result = await printPaymentSlip(
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.orderNumber,
-      req.body.discount || { amount: 0, type: 'NONE' },
+      discountsArray,
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
@@ -957,18 +971,34 @@ export const paymentReceipt = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
+    // Normalize discount/discounts to array format from order object
+    let discountsArray: any[] = [];
+    const order = req.body.order;
+    console.log('order?.discounts:', order?.discounts);
+    console.log('order?.discount:', order?.discount);
+    if (order?.discounts) {
+      // If discounts exists, convert to array if needed
+      discountsArray = Array.isArray(order.discounts)
+        ? order.discounts
+        : [order.discounts];
+    } else if (order?.discount && Object.keys(order.discount).length > 0) {
+      // Backward compatibility: use old discount field if discounts doesn't exist
+      discountsArray = [order.discount];
+    }
+    console.log('Normalized discountsArray:', JSON.stringify(discountsArray));
+
     const result = await printPaymentReceipt(
       req.body.aadeInvoice,
       req.body.orderNumber,
       req.body.orderType || '',
       req.body.issuerText || '',
-      req.body.discount || {},
+      discountsArray,
       req.body.tip || 0,
       req.body.appId || 'desktop',
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
-      req.body.order || null,
+      order || null,
       req.body.lang || 'el'
     );
 
@@ -1020,18 +1050,31 @@ export const invoice = async (
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
 
+    // Normalize discount/discounts to array format from order object
+    let discountsArray: any[] = [];
+    const order = req.body.order;
+    if (order?.discounts) {
+      // If discounts exists, convert to array if needed
+      discountsArray = Array.isArray(order.discounts)
+        ? order.discounts
+        : [order.discounts];
+    } else if (order?.discount && Object.keys(order.discount).length > 0) {
+      // Backward compatibility: use old discount field if discounts doesn't exist
+      discountsArray = [order.discount];
+    }
+
     const result = await printInvoice(
       req.body.aadeInvoice,
       req.body.orderNumber,
       req.body.orderType || '',
       req.body.issuerText || '',
-      req.body.discount || {},
+      discountsArray,
       req.body.tip || 0,
       req.body.appId || 'desktop',
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
-      req.body.order || null,
+      order || null,
       req.body.lang || 'el'
     );
 
@@ -1357,10 +1400,7 @@ const printPaymentSlip = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
   orderNumber: number,
-  discount: {
-    amount: number;
-    type: 'PERCENTAGE' | 'FIXED' | 'NONE';
-  },
+  discounts: any[] = [],
   project: string = 'centrix',
   lang: SupportedLanguages = 'el'
 ) => {
@@ -1461,20 +1501,23 @@ const printPaymentSlip = async (
       });
       drawLine2(printer);
       printer.newLine();
-      let discountAmount = '';
-      console.log(discount.type);
-      if (discount.type !== undefined) {
-        if (discount.type === 'FIXED') {
-          discountAmount = (discount.amount / 100).toString() + '€';
-        } else {
-          discountAmount = discount.amount.toString() + '%';
+      // Print only overall discounts (not product-specific)
+      const overallDiscounts = discounts.filter((d: any) => !d.productId);
+      overallDiscounts.forEach((discount: any) => {
+        if (discount.amount && discount.type) {
+          let discountAmount = '';
+          if (discount.type === 'FIXED') {
+            discountAmount = (discount.amount / 100).toString() + '€';
+          } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
+            discountAmount = discount.amount.toString() + '%';
+          }
+          if (discountAmount !== '') {
+            printer.println(
+              `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+            );
+          }
         }
-      }
-      if (discountAmount !== '') {
-        printer.println(
-          `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
-        );
-      }
+      });
       printer.alignRight();
       const roundedSum = Number(sumAmount)
         .toFixed(2)
@@ -1567,12 +1610,7 @@ const printPaymentReceipt = async (
   orderNumber: number,
   orderType: string,
   issuerText: string,
-  discount:
-    | {
-        amount: number;
-        type: 'PERCENTAGE' | 'FIXED' | 'NONE';
-      }
-    | {},
+  discounts: any[] = [],
   tip: number,
   appId: string,
   project: string = 'centrix',
@@ -1642,11 +1680,12 @@ const printPaymentReceipt = async (
           aadeInvoice,
           order,
           settings,
-          lang
+          lang,
+          discounts
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
-        printDiscountAndTip(printer, discount, tip, lang);
+        printDiscountAndTip(printer, discounts, tip, lang);
 
         printer.bold(true);
         printer.alignLeft();
@@ -1754,12 +1793,7 @@ const printInvoice = async (
   orderNumber: number,
   orderType: string,
   issuerText: string,
-  discount:
-    | {
-        amount: number;
-        type: 'PERCENTAGE' | 'FIXED' | 'NONE';
-      }
-    | {},
+  discounts: any[] = [],
   tip: number,
   appId: string,
   project: string = 'centrix',
@@ -1840,11 +1874,12 @@ const printInvoice = async (
           aadeInvoice,
           order,
           settings,
-          lang
+          lang,
+          discounts
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
-        printDiscountAndTip(printer, discount, tip, lang);
+        printDiscountAndTip(printer, discounts, tip, lang);
         printer.bold(true);
         printer.alignLeft();
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
@@ -2409,8 +2444,8 @@ export const printOrder = async (
         );
         printer.alignLeft();
         printer.newLine();
-        printer.println(tr(order.venue.title, settings.transliterate));
-        printer.println(tr(order.venue.address, settings.transliterate));
+        printer.println(tr(normalizeGreek(order.venue.title), settings.transliterate));
+        printer.println(tr(normalizeGreek(order.venue.address), settings.transliterate));
         drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
@@ -2436,7 +2471,7 @@ export const printOrder = async (
               ...(order.waiterName
                 ? [
                     tr(
-                      `${translations.printOrder.waiter[lang]}:${order.waiterName}`,
+                      `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
                       settings.transliterate
                     ),
                   ]
@@ -2473,25 +2508,25 @@ export const printOrder = async (
         if (order.deliveryInfo) {
           printer.println(
             tr(
-              `${translations.printOrder.customerName[lang]}:${order.deliveryInfo.customerFirstname} ${order.deliveryInfo.customerLastname}`,
+              `${translations.printOrder.customerName[lang]}:${normalizeGreek(order.deliveryInfo.customerFirstname || '')} ${normalizeGreek(order.deliveryInfo.customerLastname || '')}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryAddress[lang]}:${order.deliveryInfo.customerAddress}`,
+              `${translations.printOrder.deliveryAddress[lang]}:${normalizeGreek(order.deliveryInfo.customerAddress)}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryFloor[lang]}:${order.deliveryInfo.customerFloor}`,
+              `${translations.printOrder.deliveryFloor[lang]}:${normalizeGreek(order.deliveryInfo.customerFloor)}`,
               settings.transliterate
             )
           );
           printer.println(
             tr(
-              `${translations.printOrder.deliveryBell[lang]}:${order.deliveryInfo.customerBell}`,
+              `${translations.printOrder.deliveryBell[lang]}:${normalizeGreek(order.deliveryInfo.customerBell)}`,
               settings.transliterate
             )
           );
@@ -2520,7 +2555,7 @@ export const printOrder = async (
           ) {
             printer.println(
               tr(
-                `${translations.printOrder.customerName[lang]}:${order.TakeAwayInfo.customerName}`,
+                `${translations.printOrder.customerName[lang]}:${normalizeGreek(order.TakeAwayInfo.customerName || '')}`,
                 settings.transliterate
               )
             );
@@ -2530,7 +2565,7 @@ export const printOrder = async (
           if (order.TakeAwayInfo.customerEmail) {
             printer.println(
               tr(
-                `${translations.printOrder.customerEmail[lang]}:${order.TakeAwayInfo.customerEmail}`,
+                `${translations.printOrder.customerEmail[lang]}:${normalizeGreek(order.TakeAwayInfo.customerEmail)}`,
                 settings.transliterate
               )
             );
@@ -2608,15 +2643,15 @@ export const printOrder = async (
           }
 
           // Pad title and amount for alignment
-          let productLine = `${product.quantity}x ${product.title}`;
+          let productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
           if (
             product.updateStatus?.includes('NEW') &&
             isEdit &&
             product.quantityChanged
           ) {
-            productLine = `${product.quantity}x ${product.title}`;
+            productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
           } else if (isEdit && product.quantityChanged) {
-            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${product.title}`;
+            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${normalizeGreek(product.title)}`;
           }
           let priceStr = '';
           if (
@@ -2644,7 +2679,7 @@ export const printOrder = async (
                   ] ?? '')
                 : '';
 
-            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${choice.title}`;
+            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
 
             let choicePrice = '';
             if (
@@ -2664,7 +2699,7 @@ export const printOrder = async (
           if (product.comments) {
             printer.println(
               tr(
-                ` ${translations.printOrder.productComments[lang]}: ${product.comments.toUpperCase()}`,
+                ` ${translations.printOrder.productComments[lang]}: ${normalizeGreek(product.comments.toUpperCase())}`,
                 settings.transliterate
               )
             );

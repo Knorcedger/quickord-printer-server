@@ -34,6 +34,7 @@ import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { execSync } from 'child_process';
+import os from 'os';
 
 const main = async () => {
   const SERVER_PORT =
@@ -101,6 +102,21 @@ const main = async () => {
     }
   }
 
+  function getLocalIP(): string {
+    const interfaces = os.networkInterfaces();
+    for (const name of Object.keys(interfaces)) {
+      const iface = interfaces[name];
+      if (!iface) continue;
+
+      for (const alias of iface) {
+        if (alias.family === 'IPv4' && !alias.internal) {
+          return alias.address;
+        }
+      }
+    }
+    return '127.0.0.1';
+  }
+
   // Simple HTTPS request (works inside exe)
 
   async function fetchLatestVersion() {
@@ -139,6 +155,13 @@ const main = async () => {
     .route('/status')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
+    });
+
+  app
+    .route('/local-ip')
+    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
+      const localIP = getLocalIP();
+      res.status(200).send({ localIP });
     });
   app.route('/available').get(async (req: Request, res: Response) => {
     try {
