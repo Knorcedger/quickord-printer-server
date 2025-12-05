@@ -426,9 +426,16 @@ export const printMarks = (printer, aadeInvoice, lang) => {
     correction: 'Q',
   });
   printer.newLine();
-  printer.println(
-    `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
-  );
+  const url = aadeInvoice?.url;
+
+  let providerUrl = '';
+  console.log('Invoice URL:', url);
+  if (url.includes('invoiceportal')) {
+    providerUrl = 'www.invoiceportal.gr';
+  } else if (url.includes('etimologiera')) {
+    providerUrl = 'www.etimologiera.gr';
+  }
+  printer.println(`${translations.printOrder.provider[lang]} ${providerUrl}`);
   printer.newLine();
 };
 export const printPayments = (printer, aadeInvoice, lang) => {
@@ -613,7 +620,10 @@ export const printProducts = (
         let discountText = '';
         if (productDiscount.type === 'FIXED') {
           discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
-        } else if (productDiscount.type === 'PERCENTAGE' || productDiscount.type === 'PERCENT') {
+        } else if (
+          productDiscount.type === 'PERCENTAGE' ||
+          productDiscount.type === 'PERCENT'
+        ) {
           discountText = `${productDiscount.amount}%`;
         }
         if (discountText) {
@@ -622,7 +632,10 @@ export const printProducts = (
           );
         }
       } else {
-        console.log('No product discount to print - productDiscount:', productDiscount);
+        console.log(
+          'No product discount to print - productDiscount:',
+          productDiscount
+        );
       }
     }
   });
@@ -649,7 +662,10 @@ export const printDiscountAndTip = (printer, discounts, tip, lang) => {
       let discountAmount = '';
       if (discount.type === 'FIXED') {
         discountAmount = (discount.amount / 100).toString() + '€';
-      } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
+      } else if (
+        discount.type === 'PERCENTAGE' ||
+        discount.type === 'PERCENT'
+      ) {
         discountAmount = discount.amount.toString() + '%';
       }
       if (discountAmount !== '') {

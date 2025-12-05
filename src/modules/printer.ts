@@ -1508,7 +1508,10 @@ const printPaymentSlip = async (
           let discountAmount = '';
           if (discount.type === 'FIXED') {
             discountAmount = (discount.amount / 100).toString() + '€';
-          } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
+          } else if (
+            discount.type === 'PERCENTAGE' ||
+            discount.type === 'PERCENT'
+          ) {
             discountAmount = discount.amount.toString() + '%';
           }
           if (discountAmount !== '') {
@@ -1549,8 +1552,18 @@ const printPaymentSlip = async (
         correction: 'Q',
       });
       printer.newLine();
+      const url = aadeInvoice?.url;
+
+      let providerUrl = '';
+
+      if (url.includes('invoiceportal')) {
+        providerUrl = 'www.invoiceportal.gr';
+      } else if (url.includes('etimologiera')) {
+        providerUrl = 'www.etimologiera.gr';
+      }
+
       printer.println(
-        `${translations.printOrder.provider[lang]} www.invoiceportal.gr`
+        `${translations.printOrder.provider[lang]} ${providerUrl}`
       );
       printer.newLine();
       if (settings.poweredByQuickord) {
@@ -2444,8 +2457,12 @@ export const printOrder = async (
         );
         printer.alignLeft();
         printer.newLine();
-        printer.println(tr(normalizeGreek(order.venue.title), settings.transliterate));
-        printer.println(tr(normalizeGreek(order.venue.address), settings.transliterate));
+        printer.println(
+          tr(normalizeGreek(order.venue.title), settings.transliterate)
+        );
+        printer.println(
+          tr(normalizeGreek(order.venue.address), settings.transliterate)
+        );
         drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
