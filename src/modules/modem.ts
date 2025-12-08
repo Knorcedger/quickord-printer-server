@@ -1,9 +1,12 @@
 /* eslint-disable import/prefer-default-export */
 import { AutoDetectTypes } from '@serialport/bindings-cpp';
 import nconf from 'nconf';
-import fetch from 'node-fetch';
 import { SerialPort } from 'serialport';
 import signale from 'signale';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 import { getSettings, IModemSettings } from './settings';
 nconf.argv().env().file({ file: './config.json' });
@@ -59,27 +62,29 @@ export const createModem = async (settings: IModemSettings) => {
   // TODO: this should be done locally instead of through the quickordBE
   onDataCallback = async (data) => {
     signale.info(`Phone call detected: ${data}`);
+    let tempFilePath: string | null = null;
     try {
       signale.info(
         `Sending phone info to BE: phoneNumber: "${data}", venueId:"${settings.venueId}"`
       );
-      const res = await fetch(nconf.get('QUICKORD_API_URL'), {
-        body: JSON.stringify({
-          query: `mutation {
+
+      const graphqlQuery = {
+        query: `mutation {
     incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}"){
     status
     }
     }`,
-        }),
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
-          appId: 'desktop',
-        },
-        method: 'POST',
-      });
+      };
 
-      const responseJson = (await res.json()) as any;
+      // Write payload to temp file to avoid escaping issues on Windows
+      tempFilePath = path.join(os.tmpdir(), `modem-payload-${Date.now()}.json`);
+      fs.writeFileSync(tempFilePath, JSON.stringify(graphqlQuery));
+
+      // Use curl to bypass SSL issues in bundled executable
+      const curlCmd = `curl -s -X POST "${nconf.get('QUICKORD_API_URL')}" -H "Content-Type: application/json" -H "apikey: desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs" -H "appId: desktop" --data-binary "@${tempFilePath}"`;
+
+      const response = execSync(curlCmd, { encoding: 'utf-8' });
+      const responseJson = JSON.parse(response);
 
       if (responseJson?.errors) {
         signale.error(
@@ -92,6 +97,15 @@ export const createModem = async (settings: IModemSettings) => {
     } catch (err) {
       signale.error('error sending phone data to BE');
       signale.error(err);
+    } finally {
+      // Clean up temp file
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try {
+          fs.unlinkSync(tempFilePath);
+        } catch (cleanupErr) {
+          // Ignore cleanup errors
+        }
+      }
     }
   };
 
