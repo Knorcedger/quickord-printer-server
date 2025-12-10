@@ -277,7 +277,12 @@ const printOrders = async (
 
     logger.info('orders to print:', orders);
 
-    const result = await printerPrintOrders(orders);
+    const project =
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix';
+
+    const result = await printerPrintOrders(orders, project);
     console.log(orders[0]?.products);
 
     // Determine the appropriate status and HTTP code
