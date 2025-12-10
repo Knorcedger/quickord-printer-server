@@ -2949,13 +2949,21 @@ export const printOrder = async (
   return { successes, errors, skipped };
 };
 
-export const printOrders = async (orders: z.infer<typeof Order>[]) => {
+export const printOrders = async (
+  orders: z.infer<typeof Order>[],
+  project: string = 'centrix'
+) => {
   const allSuccesses: string[] = [];
   const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (const order of orders) {
-    const result = await printOrder(order);
+    const result = await printOrder(
+      order,
+      order.appId || 'desktop',
+      project,
+      'el'
+    );
     allSuccesses.push(...result.successes);
     allErrors.push(...result.errors);
     allSkipped.push(...result.skipped);
