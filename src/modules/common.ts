@@ -572,7 +572,7 @@ export const printProducts = (
             Number(ch.quantity) > 1 ? `${ch.quantity}x ` : '';
 
           // Build main text
-          const choiceText = `- ${amountLevel} ${quantityPrefix}${choiceTitle}`;
+          const choiceText = `- ${amountLevel} ${quantityPrefix}${choiceTitle.toUpperCase()}`;
 
           // Price (only if > 0)
           const choicePrice =
@@ -728,7 +728,9 @@ export const receiptData = (
   settings,
   orderNumber: number,
   orderType: string,
-  lang: SupportedLanguages
+  lang: SupportedLanguages,
+  project: string = 'centrix',
+  order?: any
 ) => {
   printer.alignLeft();
   const rawDate = new Date(aadeInvoice?.issue_date);
@@ -756,8 +758,16 @@ export const receiptData = (
   if (orderType !== 'MYPELATES') {
     if (lang === 'el') {
       if (orderType.toLowerCase() !== 'generic') {
+        const serviceLabel = SERVICES[orderType.toLowerCase()]?.label_el;
+
+        const externalOrderId = ['efoodOrderId', 'woltOrderId', 'boxOrderId']
+          .map((key) => order?.[key])
+          .find(Boolean);
+
         printer.println(
-          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_el}`
+          `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${
+            externalOrderId ? `: #${externalOrderId}` : ''
+          }`
         );
       } else {
         printer.println(`#${orderNumber}`);

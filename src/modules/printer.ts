@@ -1319,7 +1319,16 @@ const printOrderForm = async (
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
       await venueData(printer, aadeInvoice, issuerText, settings, lang);
-      receiptData(printer, aadeInvoice, settings, orderNumber, 'DINE_IN', lang);
+      receiptData(
+        printer,
+        aadeInvoice,
+        settings,
+        orderNumber,
+        'DINE_IN',
+        lang,
+        project,
+        order
+      );
       printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
       if (aadeInvoice.closed) {
         printer.setTextSize(1, 0);
@@ -1686,7 +1695,9 @@ const printPaymentReceipt = async (
           settings,
           orderNumber,
           orderType,
-          lang
+          lang,
+          project,
+          order
         );
         const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
           printer,
@@ -1880,7 +1891,9 @@ const printInvoice = async (
           settings,
           orderNumber,
           orderType,
-          lang
+          lang,
+          project,
+          order
         );
         const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
           printer,
@@ -2022,7 +2035,15 @@ const printMyPelatesReceipt = async (
         printer.alignCenter();
         printer.println(`${translations.printOrder.reciept[lang]}`);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
-        receiptData(printer, aadeInvoice, settings, 0, 'MYPELATES', lang);
+        receiptData(
+          printer,
+          aadeInvoice,
+          settings,
+          0,
+          'MYPELATES',
+          lang,
+          'MYPELATES'
+        );
         printer.alignLeft();
 
         printer.newLine();
@@ -2213,7 +2234,15 @@ const printMyPelatesInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
         printer.println(`${translations.printOrder.invoice[lang]}`);
-        receiptData(printer, aadeInvoice, settings, 0, 'MYPELATES', lang);
+        receiptData(
+          printer,
+          aadeInvoice,
+          settings,
+          0,
+          'MYPELATES',
+          lang,
+          'MYPELATES'
+        );
         printer.alignLeft();
 
         printer.newLine();
