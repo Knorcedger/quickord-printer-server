@@ -3000,3 +3000,54 @@ export const printOrders = async (
 
   return { successes: allSuccesses, errors: allErrors, skipped: allSkipped };
 };
+
+export const deliveryNote = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    await printDeliveryNote(
+      req.body.aadeInvoice,
+      req.body.project,
+      req.body.lang
+    );
+    res.status(200).send({ status: 'success' });
+  } catch (error) {
+    logger.error('Error printing delivery note:', error);
+    res.status(200).send({
+      status: 'failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
+const printDeliveryNote = async (
+  aadeInvoice: any,
+  project: string = 'centrix',
+  lang: SupportedLanguages = 'el'
+) => {
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+    if (!settings || !printer) continue;
+
+    printer.clear();
+    printer.alignCenter();
+    printer.println('delivery note for now');
+    printer.cut();
+
+    printMarks(printer, aadeInvoice, lang);
+    if (settings.poweredByQuickord) {
+      printer.println(
+        tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+      );
+    }
+    printer.newLine();
+    await executePrinter(
+      printer,
+      settings?.name || `printer-${i}`,
+      'delivery note print',
+      {}
+    );
+  }
+};
