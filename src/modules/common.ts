@@ -704,7 +704,7 @@ export const venueData = async (
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);
     printer.println(
-      `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`
+      `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
     );
 
     printer.println(

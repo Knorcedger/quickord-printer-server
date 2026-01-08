@@ -356,5 +356,75 @@ export default {
       el: 'ΔΙΕΥΘΥΝΣΗ',
       en: 'ADDRESS',
     },
+    movePurpose: {
+      SALE: {
+        el: 'ΠΩΛΗΣΗ',
+        en: 'SALE',
+      },
+      SALE_3RD_PARTY: {
+        el: 'ΠΩΛΗΣΗ ΓΙΑ ΛΟΓΑΡΙΑΣΜΟ ΤΡΙΤΩΝ',
+        en: 'SALE 3RD PARTY',
+      },
+      SAMPLING: {
+        el: 'ΔΕΙΓΜΑΤΙΣΜΟΣ',
+        en: 'SAMPLING',
+      },
+      EXHIBITION: {
+        el: 'ΕΚΘΕΣΗ',
+        en: 'EXHIBITION',
+      },
+      RETURN: {
+        el: 'ΕΠΙΣΤΡΟΦΗ',
+        en: 'RETURN',
+      },
+      GUARD: {
+        el: 'ΦΥΛΑΞΗ',
+        en: 'GUARD',
+      },
+      ASSEMBLY: {
+        el: 'ΣΥΝΑΡΜΟΛΟΓΗΣΗ',
+        en: 'ASSEMBLY',
+      },
+      FACILITY_TRANSFER: {
+        el: 'ΜΕΤΑΦΟΡΑ ΕΓΚΑΤΑΣΤΑΣΗΣ',
+        en: 'FACILITY TRANSFER',
+      },
+    },
+    shippingMethod: {
+      COURIER: {
+        el: 'COURIER',
+        en: 'COURIER',
+      },
+      HEADQUARTERS: {
+        el: 'ΣΤΗΝ ΕΔΡΑ ΜΑΣ',
+        en: 'HEADQUARTERS',
+      },
+      OWN_MEANS: {
+        el: 'ΙΔΙΑ ΜΕΣΑ',
+        en: 'OWN MEANS',
+      },
+      TRANSPORT: {
+        el: 'ΜΕΤΑΦΟΡΙΚΗ',
+        en: 'TRANSPORT',
+      },
+    },
+    SHIPPING_METHOD_OPTIONS: {
+      headquarters: {
+        el: 'Στην έδρα μας',
+        en: 'Headquarters',
+      },
+      'own-means': {
+        el: 'Ιδία μέσα',
+        en: 'Own means',
+      },
+      courier: {
+        el: 'Ταχυμεταφορική',
+        en: 'Courier',
+      },
+      transport: {
+        el: 'Μεταφορική',
+        en: 'Transport',
+      },
+    },
   },
 };

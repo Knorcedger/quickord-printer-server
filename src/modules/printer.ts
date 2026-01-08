@@ -2392,6 +2392,39 @@ export const deliveryNote = async (
   }
 };
 
+export type MovePurposeEnumType =
+  | 'ASSEMBLY'
+  | 'EXHIBITION'
+  | 'FACILITY_TRANSFER'
+  | 'GUARD'
+  | 'RETURN'
+  | 'SALE'
+  | 'SALE_3RD_PARTY'
+  | 'SAMPLING';
+export const PayvoMovePurposeMapping: { [index: string]: MovePurposeEnumType } =
+  {
+    '1': 'SALE',
+    '2': 'SALE_3RD_PARTY',
+    '3': 'SAMPLING',
+    '4': 'EXHIBITION',
+    '5': 'RETURN',
+    '6': 'GUARD',
+    '7': 'ASSEMBLY',
+    '8': 'FACILITY_TRANSFER',
+  };
+
+export type ShippingMethodEnumType =
+  | 'COURIER'
+  | 'HEADQUARTERS'
+  | 'OWN_MEANS'
+  | 'TRANSPORT';
+export const SHIPPING_METHOD_OPTIONS = [
+  { label: 'ΣΤΗΝ ΕΔΡΑ ΜΑΣ', value: 'headquarters' },
+  { label: 'ΙΔΙΑ ΜΕΣΑ', value: 'own-means' },
+  { label: 'ΤΑΧΥΜΕΤΑΦΟΡΙΚΗ', value: 'courier' },
+  { label: 'ΜΕΤΑΦΟΡΙΚΗ', value: 'transport' },
+];
+
 const printDeliveryNote = async (
   aadeInvoice: any,
   issuerText: string,
@@ -2422,7 +2455,7 @@ const printDeliveryNote = async (
       printer.alignCenter();
       await venueData(printer, aadeInvoice, issuerText, settings, lang);
       printer.newLine();
-      printer.println('ΤΙΜΟΛΟΓΙΟ ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ');
+      printer.println('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ');
       printer.println(`${aadeInvoice?.counterpart.name}`);
       printer.println(`${aadeInvoice?.counterpart.activity}`);
       printer.println(
@@ -2435,13 +2468,29 @@ const printDeliveryNote = async (
       printer.println(`${translations.printOrder.invoice[lang]}`);
       printer.newLine();
       printer.println('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ');
-      printer.println('ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ΠΩΛΗΣΗ');
-      printer.println('ΦΟΡΤΩΣΗ: -, ΩΡΑ: -');
+      const movePurposeCode = aadeInvoice.move_purpose?.code;
+      const movePurposeKey = movePurposeCode
+        ? PayvoMovePurposeMapping[movePurposeCode]
+        : undefined;
+      const movePurposeLabel = movePurposeKey
+        ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] || 'N/A'
+        : 'N/A';
+      printer.println(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`);
+      printer.println(
+        `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`
+      );
       printer.println(
         `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`
       );
-      printer.println('ΤΡ ΑΠΟΣΤΟΛΗΣ: -');
-      printer.println('ΠΙΝΑΚΙΔΑ¨-');
+      const shippingMethodCode = aadeInvoice.shipping_method;
+
+      const shippingMethodLabel = shippingMethodCode
+        ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
+            shippingMethodCode
+          ]?.[lang] || 'N/A'
+        : 'N/A';
+      printer.println(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`);
+      printer.println(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`);
       const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
         printer,
         aadeInvoice,
