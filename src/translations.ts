@@ -1,3 +1,5 @@
+import { deliveryNote } from './modules/printer';
+
 export default {
   printOrder: {
     customerComments: {
@@ -347,6 +349,12 @@ export default {
     new: {
       el: 'ΝΕΟ',
       en: 'NEW',
+    },
+  },
+  deliveryNote: {
+    address: {
+      el: 'ΔΙΕΥΘΥΝΣΗ',
+      en: 'ADDRESS',
     },
   },
 };

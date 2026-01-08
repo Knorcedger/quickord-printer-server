@@ -163,15 +163,6 @@ export const PaymentMethod = Object.freeze({
   WEB_BANK: { description: 'Web-banking', value: '6' },
 });
 
-const PaymentMethodDescriptions = Object.freeze(
-  Object.fromEntries(
-    Object.values(PaymentMethod).map(({ description, value }) => [
-      value,
-      description,
-    ])
-  )
-);
-
 export const readMarkdown = async (text, printer, alignment, settings) => {
   if (alignment === 'left') {
     printer.alignLeft();
@@ -446,9 +437,12 @@ export const printPayments = (printer, aadeInvoice, lang) => {
   aadeInvoice?.payment_methods.forEach((detail: any) => {
     console.log(detail.code);
     if (detail.amount > 0) {
+      const method = Object.values(PaymentMethod).find(
+        (m) => m.value === detail.code
+      );
+
       const methodDescription =
-        PaymentMethod[detail.code]?.description ||
-        translations.printOrder.unknown[lang];
+        method?.description || translations.printOrder.unknown[lang];
       printer.println(
         `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
       );
@@ -460,7 +454,7 @@ export const printPayments = (printer, aadeInvoice, lang) => {
 export const printProducts = (
   printer,
   aadeInvoice,
-  order,
+  order: any = {},
   settings,
   lang,
   discounts: any[] = []
@@ -539,7 +533,7 @@ export const printProducts = (
           vat.padStart(10)
       );
     }
-    const matchedProduct = order.products?.find((p: any) =>
+    const matchedProduct = order?.products?.find((p: any) =>
       p.content?.some(
         (c: any) => c.language === lang && c.title === detail.name
       )
@@ -705,7 +699,7 @@ export const venueData = async (
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    await readMarkdown(issuerText, printer, 'center', settings);
+    await readMarkdown(issuerText.toUpperCase(), printer, 'center', settings);
   } else {
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);

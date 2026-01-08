@@ -25,6 +25,7 @@ import {
 } from './modules/settings';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
+import { deliveryNote } from './modules/printer';
 import { parkingTicket } from './modules/printer';
 import { orderForm } from './modules/printer';
 import { checkPrinters } from './modules/printer';
@@ -198,6 +199,7 @@ const main = async () => {
   app.route('/print-pelatologio-record').post(pelatologioRecord);
   app.route('/print-text').post(printText);
   app.route('/print-invoice').post(invoice);
+  app.route('/print-delivery-note').post(deliveryNote);
 
   app
     .route('/logs')
