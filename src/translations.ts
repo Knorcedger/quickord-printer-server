@@ -410,20 +410,20 @@ export default {
     },
     SHIPPING_METHOD_OPTIONS: {
       headquarters: {
-        el: 'Στην έδρα μας',
-        en: 'Headquarters',
+        el: 'ΣΤΗΝ ΕΔΡΑ ΜΑΣ',
+        en: 'HEADQUARTERS',
       },
       'own-means': {
-        el: 'Ιδία μέσα',
-        en: 'Own means',
+        el: 'ΙΔΙΑ ΜΕΣΑ',
+        en: 'OWN MEANS',
       },
       courier: {
-        el: 'Ταχυμεταφορική',
-        en: 'Courier',
+        el: 'ΤΑΧΥΜΕΤΑΦΟΡΙΚΗ',
+        en: 'COURIER',
       },
       transport: {
-        el: 'Μεταφορική',
-        en: 'Transport',
+        el: 'ΜΕΤΑΦΟΡΙΚΗ',
+        en: 'TRANSPORT',
       },
     },
   },

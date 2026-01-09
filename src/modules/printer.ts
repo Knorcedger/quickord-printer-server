@@ -27,6 +27,8 @@ import {
   printVatBreakdown,
   venueData,
   receiptData,
+  printDeliveryNoteProducts,
+  printDeliveryNoteVatBreakdown,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
@@ -2363,7 +2365,8 @@ export const deliveryNote = async (
     const result = await printDeliveryNote(
       req.body.aadeInvoice,
       req.body.issuerText || '',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.project || 'centrix'
     );
 
     // Format the response with detailed printer status
@@ -2428,7 +2431,8 @@ export const SHIPPING_METHOD_OPTIONS = [
 const printDeliveryNote = async (
   aadeInvoice: any,
   issuerText: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  project: string = 'centrix'
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2491,16 +2495,18 @@ const printDeliveryNote = async (
         : 'N/A';
       printer.println(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`);
       printer.println(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`);
-      const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
-        printer,
-        aadeInvoice,
-        {},
-        settings,
-        lang,
-        []
-      );
-      // Line 1: Left-aligned item quantity (small text)
 
+      // Use delivery note specific products and VAT breakdown functions
+      const [
+        sumAmount,
+        sumQuantity,
+        fixedBreakdown,
+        totalOriginalValue,
+        totalNetValue,
+        totalVatAmount,
+      ] = printDeliveryNoteProducts(printer, aadeInvoice, lang);
+
+      // Line 1: Left-aligned item quantity (small text)
       printer.setTextSize(0, 0);
       printer.bold(true);
       printer.alignLeft();
@@ -2516,8 +2522,23 @@ const printDeliveryNote = async (
       // Print both on one line
       printer.println(leftText + spacing + rightText);
       printPayments(printer, aadeInvoice, lang);
-      printVatBreakdown(printer, fixedBreakdown, lang);
+
+      // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
+      printDeliveryNoteVatBreakdown(
+        printer,
+        fixedBreakdown,
+        lang,
+        totalOriginalValue,
+        totalNetValue,
+        totalVatAmount,
+        sumAmount
+      );
+
       printMarks(printer, aadeInvoice, lang);
+
+      printer.println(
+        tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+      );
       printer.cut();
 
       await printer.execute({

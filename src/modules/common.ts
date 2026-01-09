@@ -777,3 +777,242 @@ export const receiptData = (
     }
   }
 };
+
+/**
+ * Print products for delivery note with extended columns:
+ * ΠΕΡΙΓΡΑΦΗ | Μ.Μ. | ΠΟΣ | ΑΡΧ. ΑΞΙΑ | ΕΚΠ | ΚΑΘ. ΑΞΙΑ | ΦΠΑ % | ΦΠΑ | ΤΕΛ. ΤΙΜΗ
+ */
+export const printDeliveryNoteProducts = (
+  printer,
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages
+): [number, number, any[], number, number, number] => {
+  let sumAmount = 0;
+  let sumQuantity = 0;
+  let totalOriginalValue = 0;
+  let totalNetValue = 0;
+  let totalVatAmount = 0;
+
+  printer.alignCenter();
+  printer.newLine();
+  printer.alignLeft();
+
+  // Header line 1
+  printer.println(
+    'ΠΕΡΙΓΡΑΦΗ'.padEnd(14) +
+      'Μ.Μ.'.padEnd(5) +
+      'ΠΟΣ'.padEnd(4) +
+      'ΑΡΧ.ΑΞ'.padEnd(8) +
+      'ΕΚΠ'.padEnd(6)
+  );
+  // Header line 2
+  printer.println(
+    ''.padEnd(14) +
+      ''.padEnd(5) +
+      ''.padEnd(4) +
+      'ΚΑΘ.ΑΞ'.padEnd(8) +
+      'ΦΠΑ%'.padEnd(4) +
+      'ΦΠΑ'.padEnd(6) +
+      'ΤΕΛ.ΤΙΜ'
+  );
+  drawLine2(printer);
+
+  const vatBreakdown = new Map();
+
+  aadeInvoice?.details.forEach((detail: any) => {
+    sumQuantity += detail.quantity;
+
+    const name = normalizeGreek(detail.name.toUpperCase());
+    const quantity = detail.quantity.toFixed(0);
+    const unit = 'ΤΕΜ'; // Unit of measurement
+
+    // Calculate values
+    const netValue = detail.net_value || 0;
+    const vatAmount = detail?.tax?.value || 0;
+    const finalPrice = netValue + vatAmount;
+    const discount = detail?.discount || 0;
+    const originalValue = netValue + discount; // Original value before discount
+    const vatRate = Number(detail.tax?.rate || 0);
+
+    sumAmount += finalPrice;
+    totalOriginalValue += originalValue;
+    totalNetValue += netValue;
+    totalVatAmount += vatAmount;
+
+    // Update VAT breakdown
+    if (vatBreakdown.has(vatRate)) {
+      const entry = vatBreakdown.get(vatRate);
+      entry.total += finalPrice;
+      entry.netValue += netValue;
+      entry.vatAmount += vatAmount;
+    } else {
+      vatBreakdown.set(vatRate, {
+        vat: vatRate,
+        total: finalPrice,
+        netValue: netValue,
+        vatAmount: vatAmount,
+      });
+    }
+
+    const maxNameLength = 14;
+
+    // Print product row (split into 2 lines due to width constraints)
+    const truncatedName =
+      name.length > maxNameLength ? name.substring(0, maxNameLength) : name;
+
+    // Line 1: Description, Unit, Qty, Original Value, Discount
+    printer.println(
+      truncatedName.padEnd(maxNameLength) +
+        unit.padEnd(5) +
+        quantity.padEnd(4) +
+        originalValue.toFixed(2).padEnd(8) +
+        discount.toFixed(2).padEnd(6)
+    );
+
+    // Line 2: Net Value, VAT%, VAT, Final Price
+    printer.println(
+      ''.padEnd(maxNameLength) +
+        ''.padEnd(5) +
+        ''.padEnd(4) +
+        netValue.toFixed(2).padEnd(8) +
+        (vatRate + '%').padEnd(4) +
+        vatAmount.toFixed(2).padEnd(6) +
+        finalPrice.toFixed(2)
+    );
+
+    // Print remaining name if truncated
+    if (name.length > maxNameLength) {
+      for (let i = maxNameLength; i < name.length; i += maxNameLength) {
+        const chunk = name.substring(i, i + maxNameLength);
+        printer.println(chunk);
+      }
+    }
+  });
+
+  drawLine2(printer);
+
+  const fixedBreakdown = [...vatBreakdown.values()].map((entry) => ({
+    ...entry,
+    vatAmount: Number(entry.vatAmount.toFixed(2)),
+    netValue: Number(entry.netValue.toFixed(2)),
+    total: Number(entry.total.toFixed(2)),
+  }));
+
+  return [
+    sumAmount,
+    sumQuantity,
+    fixedBreakdown,
+    totalOriginalValue,
+    totalNetValue,
+    totalVatAmount,
+  ];
+};
+
+/**
+ * Print VAT breakdown for delivery note with fixed columns: 24%, 13%, 6%, 0%
+ * Shows: Καθαρή Αξία, Αξία ΦΠΑ, Συνολική αξία for each rate
+ * Also prints summary: ΑΡΧ. ΑΞΙΑ, ΚΑΘ. ΑΞΙΑ, ΦΠΑ, ΤΕΛ. ΤΙΜΗ
+ */
+export const printDeliveryNoteVatBreakdown = (
+  printer,
+  vatBreakdown: any[],
+  lang: SupportedLanguages,
+  totalOriginalValue: number,
+  totalNetValue: number,
+  totalVatAmount: number,
+  totalFinalPrice: number
+) => {
+  // Create a map with all VAT rates initialized to 0
+  const vatRates = [24, 13, 6, 0];
+  const vatMap = new Map<
+    number,
+    { netValue: number; vatAmount: number; total: number }
+  >();
+
+  // Initialize all rates with 0
+  vatRates.forEach((rate) => {
+    vatMap.set(rate, { netValue: 0, vatAmount: 0, total: 0 });
+  });
+
+  // Fill in actual values from breakdown
+  vatBreakdown.forEach((entry) => {
+    if (vatMap.has(entry.vat)) {
+      vatMap.set(entry.vat, {
+        netValue: entry.netValue,
+        vatAmount: entry.vatAmount,
+        total: entry.total,
+      });
+    }
+  });
+
+  printer.newLine();
+
+  // VAT Analysis Header
+  printer.println(
+    'ΑΝΑΛΥΣΗ ΦΠΑ'.padEnd(12) +
+      '24%'.padStart(7) +
+      '13%'.padStart(7) +
+      '6%'.padStart(7) +
+      '0%'.padStart(7)
+  );
+  drawLine2(printer);
+
+  // Row 1: Καθαρή Αξία (Net Value)
+  const net24 = vatMap.get(24)?.netValue.toFixed(2) || '0.00';
+  const net13 = vatMap.get(13)?.netValue.toFixed(2) || '0.00';
+  const net6 = vatMap.get(6)?.netValue.toFixed(2) || '0.00';
+  const net0 = vatMap.get(0)?.netValue.toFixed(2) || '0.00';
+  printer.println(
+    'Καθαρη Αξια'.padEnd(12) +
+      net24.padStart(7) +
+      net13.padStart(7) +
+      net6.padStart(7) +
+      net0.padStart(7)
+  );
+
+  // Row 2: Αξία ΦΠΑ (VAT Amount)
+  const vat24 = vatMap.get(24)?.vatAmount.toFixed(2) || '0.00';
+  const vat13 = vatMap.get(13)?.vatAmount.toFixed(2) || '0.00';
+  const vat6 = vatMap.get(6)?.vatAmount.toFixed(2) || '0.00';
+  const vat0 = vatMap.get(0)?.vatAmount.toFixed(2) || '0.00';
+  printer.println(
+    'Αξια ΦΠΑ'.padEnd(12) +
+      vat24.padStart(7) +
+      vat13.padStart(7) +
+      vat6.padStart(7) +
+      vat0.padStart(7)
+  );
+
+  // Row 3: Συνολική αξία (Total)
+  const tot24 = vatMap.get(24)?.total.toFixed(2) || '0.00';
+  const tot13 = vatMap.get(13)?.total.toFixed(2) || '0.00';
+  const tot6 = vatMap.get(6)?.total.toFixed(2) || '0.00';
+  const tot0 = vatMap.get(0)?.total.toFixed(2) || '0.00';
+  printer.println(
+    'Συνολ. αξια'.padEnd(12) +
+      tot24.padStart(7) +
+      tot13.padStart(7) +
+      tot6.padStart(7) +
+      tot0.padStart(7)
+  );
+
+  drawLine2(printer);
+
+  // Summary section
+  printer.newLine();
+  const lineWidth = 42;
+
+  const summaryLines = [
+    { label: 'ΑΡΧ. ΑΞΙΑ', value: totalOriginalValue.toFixed(2) + '€' },
+    { label: 'ΚΑΘ. ΑΞΙΑ', value: totalNetValue.toFixed(2) + '€' },
+    { label: 'ΦΠΑ', value: totalVatAmount.toFixed(2) + '€' },
+    { label: 'ΤΕΛ. ΤΙΜΗ', value: totalFinalPrice.toFixed(2) + '€' },
+  ];
+
+  summaryLines.forEach((line) => {
+    const spacing = lineWidth - line.label.length - line.value.length;
+    printer.println(line.label + ' '.repeat(Math.max(1, spacing)) + line.value);
+  });
+
+  drawLine2(printer);
+};
