@@ -779,8 +779,8 @@ export const receiptData = (
 };
 
 /**
- * Print products for delivery note with extended columns:
- * ΠΕΡΙΓΡΑΦΗ | Μ.Μ. | ΠΟΣ | ΑΡΧ. ΑΞΙΑ | ΕΚΠ | ΚΑΘ. ΑΞΙΑ | ΦΠΑ % | ΦΠΑ | ΤΕΛ. ΤΙΜΗ
+ * Print products for delivery note with columns on single line:
+ * ΠΕΡΙΓΡ | ΜΜ | Ν | ΑΡΧ | ΕΚΠ | ΚΑΘ | Φ% | ΦΠΑ | ΤΕΛ
  */
 export const printDeliveryNoteProducts = (
   printer,
@@ -797,23 +797,18 @@ export const printDeliveryNoteProducts = (
   printer.newLine();
   printer.alignLeft();
 
-  // Header line 1
+  // Compact header - all on one line (42 chars)
+  // ΠΕΡΙΓΡΑΦΗ(14) ΜΜ(4) Ν(2) ΑΡ(4) ΕΚ(3) ΚΑΘ(4) Φ%(3) ΦΠΑ(4) ΤΕ(4) = 42
   printer.println(
     'ΠΕΡΙΓΡΑΦΗ'.padEnd(14) +
-      'Μ.Μ.'.padEnd(5) +
-      'ΠΟΣ'.padEnd(4) +
-      'ΑΡΧ.ΑΞ'.padEnd(8) +
-      'ΕΚΠ'.padEnd(6)
-  );
-  // Header line 2
-  printer.println(
-    ''.padEnd(14) +
-      ''.padEnd(5) +
-      ''.padEnd(4) +
-      'ΚΑΘ.ΑΞ'.padEnd(8) +
-      'ΦΠΑ%'.padEnd(4) +
-      'ΦΠΑ'.padEnd(6) +
-      'ΤΕΛ.ΤΙΜ'
+      'ΜΜ'.padEnd(4) +
+      'ΠΟΣ'.padEnd(2) +
+      'ΑΡ'.padStart(4) +
+      'ΕΚ'.padStart(3) +
+      'ΚΑΘ'.padStart(4) +
+      'Φ%'.padStart(3) +
+      'ΦΠΑ'.padStart(4) +
+      'ΤΕ'.padStart(4)
   );
   drawLine2(printer);
 
@@ -824,14 +819,21 @@ export const printDeliveryNoteProducts = (
 
     const name = normalizeGreek(detail.name.toUpperCase());
     const quantity = detail.quantity.toFixed(0);
-    const unit = 'ΤΕΜ'; // Unit of measurement
+
+    // Map unit code to Greek unit name
+    const unitMap: Record<string, string> = {
+      '1': 'ΤΕΜ',
+      '2': 'ΚΙΛΑ',
+      '3': 'ΛΙΤΡΑ',
+    };
+    const unit = unitMap[detail?.unit?.code] || 'ΤΕΜ';
 
     // Calculate values
     const netValue = detail.net_value || 0;
     const vatAmount = detail?.tax?.value || 0;
     const finalPrice = netValue + vatAmount;
     const discount = detail?.discount || 0;
-    const originalValue = netValue + discount; // Original value before discount
+    const originalValue = netValue + discount;
     const vatRate = Number(detail.tax?.rate || 0);
 
     sumAmount += finalPrice;
@@ -854,36 +856,34 @@ export const printDeliveryNoteProducts = (
       });
     }
 
-    const maxNameLength = 14;
-
-    // Print product row (split into 2 lines due to width constraints)
+    const maxNameLength = 10;
     const truncatedName =
       name.length > maxNameLength ? name.substring(0, maxNameLength) : name;
 
-    // Line 1: Description, Unit, Qty, Original Value, Discount
+    // Format values compactly (no decimals if .00, otherwise 1 decimal)
+    const fmtVal = (v: number) => {
+      if (v === 0) return '0';
+      return v % 1 === 0 ? v.toFixed(0) : v.toFixed(2);
+    };
+
+    // Single line per product - matching header widths
+    // name(14) + unit(4) + qty(2) + orig(4) + disc(3) + net(4) + vat%(3) + vat(4) + final(4) = 42
     printer.println(
-      truncatedName.padEnd(maxNameLength) +
+      truncatedName.padEnd(14) +
         unit.padEnd(5) +
-        quantity.padEnd(4) +
-        originalValue.toFixed(2).padEnd(8) +
-        discount.toFixed(2).padEnd(6)
+        quantity.padEnd(2) +
+        fmtVal(originalValue).padStart(4) +
+        fmtVal(discount).padStart(3) +
+        fmtVal(netValue).padStart(4) +
+        (vatRate + '%').padStart(3) +
+        fmtVal(vatAmount).padStart(4) +
+        fmtVal(finalPrice).padStart(4)
     );
 
-    // Line 2: Net Value, VAT%, VAT, Final Price
-    printer.println(
-      ''.padEnd(maxNameLength) +
-        ''.padEnd(5) +
-        ''.padEnd(4) +
-        netValue.toFixed(2).padEnd(8) +
-        (vatRate + '%').padEnd(4) +
-        vatAmount.toFixed(2).padEnd(6) +
-        finalPrice.toFixed(2)
-    );
-
-    // Print remaining name if truncated
+    // Print remaining name on next line if truncated
     if (name.length > maxNameLength) {
-      for (let i = maxNameLength; i < name.length; i += maxNameLength) {
-        const chunk = name.substring(i, i + maxNameLength);
+      for (let i = maxNameLength; i < name.length; i += 42) {
+        const chunk = name.substring(i, i + 42);
         printer.println(chunk);
       }
     }
@@ -963,7 +963,7 @@ export const printDeliveryNoteVatBreakdown = (
   const net6 = vatMap.get(6)?.netValue.toFixed(2) || '0.00';
   const net0 = vatMap.get(0)?.netValue.toFixed(2) || '0.00';
   printer.println(
-    'Καθαρη Αξια'.padEnd(12) +
+    'ΚΑΘΑΡΗ ΑΞΙΑ'.padEnd(12) +
       net24.padStart(7) +
       net13.padStart(7) +
       net6.padStart(7) +
@@ -976,7 +976,7 @@ export const printDeliveryNoteVatBreakdown = (
   const vat6 = vatMap.get(6)?.vatAmount.toFixed(2) || '0.00';
   const vat0 = vatMap.get(0)?.vatAmount.toFixed(2) || '0.00';
   printer.println(
-    'Αξια ΦΠΑ'.padEnd(12) +
+    'ΑΞΙΑ ΦΠΑ'.padEnd(12) +
       vat24.padStart(7) +
       vat13.padStart(7) +
       vat6.padStart(7) +
@@ -989,7 +989,7 @@ export const printDeliveryNoteVatBreakdown = (
   const tot6 = vatMap.get(6)?.total.toFixed(2) || '0.00';
   const tot0 = vatMap.get(0)?.total.toFixed(2) || '0.00';
   printer.println(
-    'Συνολ. αξια'.padEnd(12) +
+    'ΣΥΝΟΛ. ΑΞΙΑ'.padEnd(12) +
       tot24.padStart(7) +
       tot13.padStart(7) +
       tot6.padStart(7) +

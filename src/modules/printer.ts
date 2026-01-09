@@ -2466,10 +2466,8 @@ const printDeliveryNote = async (
         `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`
       );
       printer.println(
-        `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - ΔΟΥ: ${aadeInvoice?.counterpart.tax_office}`
+        `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`
       );
-      printer.newLine();
-      printer.println(`${translations.printOrder.invoice[lang]}`);
       printer.newLine();
       printer.println('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ');
       const movePurposeCode = aadeInvoice.move_purpose?.code;
@@ -2508,20 +2506,6 @@ const printDeliveryNote = async (
 
       // Line 1: Left-aligned item quantity (small text)
       printer.setTextSize(0, 0);
-      printer.bold(true);
-      printer.alignLeft();
-      const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-      const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
-      const roundedSum = Number(sumAmount)
-        .toFixed(2)
-        .replace(/\.?0+$/, '');
-      const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
-      // Calculate spacing
-      const spaceCount = lineWidth - leftText.length - rightText.length;
-      const spacing = ' '.repeat(Math.max(1, spaceCount));
-      // Print both on one line
-      printer.println(leftText + spacing + rightText);
-      printPayments(printer, aadeInvoice, lang);
 
       // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
       printDeliveryNoteVatBreakdown(
