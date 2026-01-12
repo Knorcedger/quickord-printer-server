@@ -27,6 +27,8 @@ import {
   printVatBreakdown,
   venueData,
   receiptData,
+  printDeliveryNoteProducts,
+  printDeliveryNoteVatBreakdown,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
@@ -2353,6 +2355,211 @@ const printMyPelatesInvoice = async (
   }
 
   return { successes, errors, skipped };
+};
+
+export const deliveryNote = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    const result = await printDeliveryNote(
+      req.body.aadeInvoice,
+      req.body.issuerText || '',
+      req.body.lang || 'el',
+      req.body.project || 'centrix'
+    );
+
+    // Format the response with detailed printer status
+    const response: any = {
+      status: 'success',
+      successfulPrinters: result.successes,
+      failedPrinters: result.errors.map((e) => ({
+        printer: e.printerIdentifier,
+        error: e.error instanceof Error ? e.error.message : String(e.error),
+      })),
+    };
+
+    res.status(200).send(response);
+  } catch (error) {
+    if (error instanceof InvalidInputError) {
+      logger.error(`Invalid input for delivery note: ${error.message}`, {
+        field: error.field,
+      });
+      return res.status(400).send({ error: error.message, field: error.field });
+    }
+
+    logger.error('Error printing delivery note:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    res.status(200).send({ status: 'failed', error: errorMessage });
+  }
+};
+
+export type MovePurposeEnumType =
+  | 'ASSEMBLY'
+  | 'EXHIBITION'
+  | 'FACILITY_TRANSFER'
+  | 'GUARD'
+  | 'RETURN'
+  | 'SALE'
+  | 'SALE_3RD_PARTY'
+  | 'SAMPLING';
+export const PayvoMovePurposeMapping: { [index: string]: MovePurposeEnumType } =
+  {
+    '1': 'SALE',
+    '2': 'SALE_3RD_PARTY',
+    '3': 'SAMPLING',
+    '4': 'EXHIBITION',
+    '5': 'RETURN',
+    '6': 'GUARD',
+    '7': 'ASSEMBLY',
+    '8': 'FACILITY_TRANSFER',
+  };
+
+export type ShippingMethodEnumType =
+  | 'COURIER'
+  | 'HEADQUARTERS'
+  | 'OWN_MEANS'
+  | 'TRANSPORT';
+export const SHIPPING_METHOD_OPTIONS = [
+  { label: 'ΣΤΗΝ ΕΔΡΑ ΜΑΣ', value: 'headquarters' },
+  { label: 'ΙΔΙΑ ΜΕΣΑ', value: 'own-means' },
+  { label: 'ΤΑΧΥΜΕΤΑΦΟΡΙΚΗ', value: 'courier' },
+  { label: 'ΜΕΤΑΦΟΡΙΚΗ', value: 'transport' },
+];
+
+const printDeliveryNote = async (
+  aadeInvoice: any,
+  issuerText: string,
+  lang: SupportedLanguages = 'el',
+  project: string = 'centrix'
+) => {
+  let successCount = 0;
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const successes: string[] = [];
+
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      (settings as IPrinterSettings)?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
+    try {
+      if (!settings || !printer) {
+        errors.push({
+          printerIdentifier,
+          error: 'Printer not configured or missing settings',
+        });
+        continue;
+      }
+      printer.alignCenter();
+      await venueData(printer, aadeInvoice, issuerText, settings, lang);
+      printer.newLine();
+      printer.println('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ');
+      printer.println(`${aadeInvoice?.counterpart.name}`);
+      printer.println(`${aadeInvoice?.counterpart.activity}`);
+      printer.println(
+        `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`
+      );
+      printer.println(
+        `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`
+      );
+      printer.newLine();
+      printer.println('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ');
+      const movePurposeCode = aadeInvoice.move_purpose?.code;
+      const movePurposeKey = movePurposeCode
+        ? PayvoMovePurposeMapping[movePurposeCode]
+        : undefined;
+      const movePurposeLabel = movePurposeKey
+        ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] || 'N/A'
+        : 'N/A';
+      printer.println(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`);
+      printer.println(
+        `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`
+      );
+      printer.println(
+        `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`
+      );
+      const shippingMethodCode = aadeInvoice.shipping_method;
+
+      const shippingMethodLabel = shippingMethodCode
+        ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
+            shippingMethodCode
+          ]?.[lang] || 'N/A'
+        : 'N/A';
+      printer.println(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`);
+      printer.println(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`);
+
+      // Use delivery note specific products and VAT breakdown functions
+      const [
+        sumAmount,
+        sumQuantity,
+        fixedBreakdown,
+        totalOriginalValue,
+        totalNetValue,
+        totalVatAmount,
+      ] = printDeliveryNoteProducts(printer, aadeInvoice, lang);
+
+      // Line 1: Left-aligned item quantity (small text)
+      printer.setTextSize(0, 0);
+
+      // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
+      printDeliveryNoteVatBreakdown(
+        printer,
+        fixedBreakdown,
+        lang,
+        totalOriginalValue,
+        totalNetValue,
+        totalVatAmount,
+        sumAmount
+      );
+
+      printMarks(printer, aadeInvoice, lang);
+
+      printer.println(
+        tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+      );
+      printer.cut();
+
+      await printer.execute({
+        waitForResponse: false,
+      });
+
+      printer?.clear();
+      logger.info(`Successfull delivery note to ${printerIdentifier}`);
+      successCount++;
+      successes.push(printerIdentifier);
+    } catch (error) {
+      errors.push({ printerIdentifier, error });
+      if (error instanceof PrinterConnectionError) {
+        logger.error(
+          `Cannot print delivery note - printer ${printerIdentifier} is not connected or unreachable`
+        );
+      } else {
+        logger.error(`Failed to print delivery note to ${printerIdentifier}:`, {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+      }
+    }
+  }
+
+  // If no printers succeeded, throw an error
+  if (successCount === 0 && errors.length > 0) {
+    const errorMessages = errors.map(
+      (e) =>
+        `${e.printerIdentifier}: ${e.error instanceof Error ? e.error.message : String(e.error)}`
+    );
+    throw new PrinterError(
+      `Failed to print delivery note to any printer. Errors: ${errorMessages.join('; ')}`
+    );
+  }
+
+  return { successes, errors };
 };
 
 export const printOrder = async (
