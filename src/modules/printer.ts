@@ -2366,7 +2366,9 @@ export const deliveryNote = async (
       req.body.aadeInvoice,
       req.body.issuerText || '',
       req.body.lang || 'el',
-      req.body.project || 'centrix'
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix'
     );
 
     // Format the response with detailed printer status
