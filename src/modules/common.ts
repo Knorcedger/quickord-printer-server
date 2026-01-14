@@ -364,6 +364,11 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'TAKE AWAY',
     label_el: 'TAKE AWAY',
   },
+  take_away_package: {
+    value: 'take_away_package',
+    label_en: 'TAKE AWAY PACKAGE',
+    label_el: 'TAKE AWAY ΠΑΚΕΤΟ',
+  },
   dine_in: {
     value: 'dineIn',
     label_en: 'DINE IN',
