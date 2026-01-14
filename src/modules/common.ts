@@ -364,6 +364,11 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'TAKE AWAY',
     label_el: 'TAKE AWAY',
   },
+  take_away_package: {
+    value: 'take_away_package',
+    label_en: 'TAKE AWAY PACKAGE',
+    label_el: 'TAKE AWAY ΠΑΚΕΤΟ',
+  },
   dine_in: {
     value: 'dineIn',
     label_en: 'DINE IN',
@@ -435,14 +440,11 @@ export const printPayments = (printer, aadeInvoice, lang) => {
   drawLine2(printer);
   printer.println(`${translations.printOrder.payments[lang]}:`);
   aadeInvoice?.payment_methods.forEach((detail: any) => {
-    console.log(detail.code);
     if (detail.amount > 0) {
-      const method = Object.values(PaymentMethod).find(
-        (m) => m.value === detail.code
-      );
-
+      const method = PaymentMethod[detail.code];
       const methodDescription =
         method?.description || translations.printOrder.unknown[lang];
+      console.log('Printing payment method:', methodDescription, method);
       printer.println(
         `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
       );
