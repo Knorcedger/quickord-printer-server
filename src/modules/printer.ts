@@ -2607,24 +2607,26 @@ export const printOrder = async (
           continue;
         }
       }
-      let productsToPrint =
-        order.orderType === 'EFOOD'
-          ? order.products
-          : order.products.filter((product) =>
-              product.categories.some((category) =>
-                settings?.categoriesToPrint?.includes(category)
-              )
-            );
+
+      const isOrderFromPlatform =
+        order.orderType === 'EFOOD' ||
+        order.orderType === 'WOLT' ||
+        order.orderType === 'BOX';
+
+      let productsToPrint = isOrderFromPlatform
+        ? order.products
+        : order.products.filter((product) =>
+            product.categories.some((category) =>
+              settings?.categoriesToPrint?.includes(category)
+            )
+          );
 
       console.log(productsToPrint);
       if (!productsToPrint?.length) {
         printer?.clear();
 
         // Find which categories caused the filtering
-        if (
-          settings.categoriesToPrint !== undefined &&
-          order.orderType !== 'EFOOD'
-        ) {
+        if (settings.categoriesToPrint !== undefined && !isOrderFromPlatform) {
           const orderCategories = Array.from(
             new Set(order.products.flatMap((product) => product.categories))
           );
@@ -2929,9 +2931,9 @@ export const printOrder = async (
             const amountLevel =
               choice.amountLevel != null &&
               translations.printOrder.amountLevel?.[lang]
-                ? (translations.printOrder.amountLevel[lang][
+                ? translations.printOrder.amountLevel[lang][
                     choice.amountLevel as any
-                  ] ?? '')
+                  ] ?? ''
                 : '';
 
             const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
