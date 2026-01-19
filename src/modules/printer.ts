@@ -2508,7 +2508,8 @@ const printDeliveryNote = async (
 
       // Line 1: Left-aligned item quantity (small text)
       printer.setTextSize(0, 0);
-
+      printer.println('ΠΑΡΑΤΗΡΗΣΕΙΣ:');
+      printer.println(aadeInvoice.comments);
       // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
       printDeliveryNoteVatBreakdown(
         printer,
@@ -2931,9 +2932,9 @@ export const printOrder = async (
             const amountLevel =
               choice.amountLevel != null &&
               translations.printOrder.amountLevel?.[lang]
-                ? translations.printOrder.amountLevel[lang][
+                ? (translations.printOrder.amountLevel[lang][
                     choice.amountLevel as any
-                  ] ?? ''
+                  ] ?? '')
                 : '';
 
             const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
