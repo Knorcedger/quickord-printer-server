@@ -95,11 +95,14 @@ export const OrderType = z.enum([
   'TAKE_AWAY_INSIDE',
   'TAKE_AWAY_PACKAGE',
   'EFOOD',
+  'EFOOD_LAST_MILE',
   'KIOSK',
   'WOLT',
+  'WOLT_DRIVE',
   'FAGI',
   'BOX',
   'GENERIC',
+  'ON_THE_GO',
 ]);
 export const PaymentType = z.enum([
   'DELIVERY_CARD',

@@ -117,9 +117,17 @@ export default {
         el: 'EFOOD',
         en: 'EFOOD',
       },
+      EFOOD_LAST_MILE: {
+        el: 'EFOOD LAST MILE',
+        en: 'EFOOD LAST MILE',
+      },
       WOLT: {
         el: 'WOLT',
         en: 'WOLT',
+      },
+      WOLT_DRIVE: {
+        el: 'WOLT DRIVE',
+        en: 'WOLT DRIVE',
       },
       FAGI: {
         el: 'FAGI',
@@ -136,6 +144,10 @@ export default {
       GENERIC: {
         el: 'GENERIC',
         en: 'GENERIC',
+      },
+      ON_THE_GO: {
+        el: 'ΣΤΟ ΧΕΡΙ',
+        en: 'ON THE GO',
       },
     },
     orderWaiter: {

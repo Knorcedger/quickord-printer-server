@@ -334,10 +334,20 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'WOLT',
     label_el: 'WOLT',
   },
+  wolt_drive: {
+    value: 'wolt_drive',
+    label_en: 'WOLT DRIVE',
+    label_el: 'WOLT DRIVE',
+  },
   efood: {
     value: 'efood',
     label_en: 'EFOOD',
     label_el: 'EFOOD',
+  },
+  efood_last_mile: {
+    value: 'efood_last_mile',
+    label_en: 'EFOOD LAST MILE',
+    label_el: 'EFOOD LAST MILE',
   },
   box: {
     value: 'box',
@@ -388,6 +398,11 @@ export const SERVICES: Record<string, ServiceType> = {
     value: 'kiosk',
     label_en: 'KIOSK',
     label_el: 'KIOSΚ',
+  },
+  on_the_go: {
+    value: 'on_the_go',
+    label_en: 'ON THE GO',
+    label_el: 'ΣΤΟ ΧΕΡΙ',
   },
 };
 
