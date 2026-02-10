@@ -1886,7 +1886,19 @@ const printInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.tax_office}`);
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
-        printer.println(`${translations.printOrder.invoice[lang]}`);
+
+        // Determine invoice type label based on AADE code
+        let invoiceTypeLabel: string;
+        switch (aadeInvoice?.header?.code) {
+          case '11.4':
+            invoiceTypeLabel = translations.printOrder.retailCreditNote[lang];
+            break;
+          default:
+            invoiceTypeLabel = translations.printOrder.invoice[lang];
+            break;
+        }
+        printer.println(invoiceTypeLabel);
+
         receiptData(
           printer,
           aadeInvoice,

@@ -334,6 +334,10 @@ export default {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ',
       en: 'INVOICE',
     },
+    retailCreditNote: {
+      el: 'ΠΙΣΤΩΤΙΚΟ ΣΤΟΙΧ. ΛΙΑΝΙΚΗΣ',
+      en: 'RETAIL CREDIT NOTE',
+    },
     paymentSlip: {
       el: 'ΑΠΟΔΕΙΞΗ ΕΙΣΠΡΑΞΗΣ',
       en: 'PAYMENT SLIP',
