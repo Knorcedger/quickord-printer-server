@@ -87,4 +87,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: quickord-cashier-server.zip
-          path: ./builds/quickord-cashier-server.zip
+          path: ./builds/quickord-cashier-server
