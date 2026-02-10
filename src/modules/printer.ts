@@ -1689,7 +1689,18 @@ const printPaymentReceipt = async (
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
-        printer.println(`${translations.printOrder.reciept[lang]}`);
+
+        // Determine invoice type label based on AADE code
+        let invoiceTypeLabel: string;
+        switch (aadeInvoice?.header?.code) {
+          case '11.4':
+            invoiceTypeLabel = translations.printOrder.retailCreditNote[lang];
+            break;
+          default:
+            invoiceTypeLabel = `${translations.printOrder.reciept[lang]}`;
+            break;
+        }
+        printer.println(invoiceTypeLabel);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
           printer,
@@ -1890,8 +1901,8 @@ const printInvoice = async (
         // Determine invoice type label based on AADE code
         let invoiceTypeLabel: string;
         switch (aadeInvoice?.header?.code) {
-          case '11.4':
-            invoiceTypeLabel = translations.printOrder.retailCreditNote[lang];
+          case '5.1':
+            invoiceTypeLabel = translations.printOrder.invoiceCreditNote[lang];
             break;
           default:
             invoiceTypeLabel = translations.printOrder.invoice[lang];
@@ -2943,9 +2954,9 @@ export const printOrder = async (
             const amountLevel =
               choice.amountLevel != null &&
               translations.printOrder.amountLevel?.[lang]
-                ? translations.printOrder.amountLevel[lang][
+                ? (translations.printOrder.amountLevel[lang][
                     choice.amountLevel as any
-                  ] ?? ''
+                  ] ?? '')
                 : '';
 
             const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
