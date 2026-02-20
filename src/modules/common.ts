@@ -907,7 +907,10 @@ export const printDeliveryNoteProducts = (
   });
 
   drawLine2(printer);
-
+  if (aadeInvoice?.comments) {
+    printer.println(`ΠΑΡΑΤΗΡΗΣΕΙΣ: ${aadeInvoice?.comments}`);
+  }
+  drawLine2(printer);
   const fixedBreakdown = [...vatBreakdown.values()].map((entry) => ({
     ...entry,
     vatAmount: Number(entry.vatAmount.toFixed(2)),

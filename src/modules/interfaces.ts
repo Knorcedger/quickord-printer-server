@@ -61,6 +61,7 @@ export interface PelatologioRecord {
 }
 
 export interface AadeInvoice {
+  comments: string;
   issuer: {
     name: string;
     activity: string;
