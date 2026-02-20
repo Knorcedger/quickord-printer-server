@@ -1,7 +1,21 @@
 import * as net from 'net';
+import * as os from 'os';
 import * as ping from 'ping';
 
-const subnet = '192.168.1';
+function getSubnetFromGateway(): string {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        const parts = iface.address.split('.');
+        return `${parts[0]}.${parts[1]}.${parts[2]}`;
+      }
+    }
+  }
+  throw new Error('No active IPv4 network interface found');
+}
+
+const subnet = getSubnetFromGateway();
 const ports = [9100, 515, 631];
 
 async function checkPort(
