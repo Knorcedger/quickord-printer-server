@@ -141,6 +141,14 @@ export default {
         el: 'KIOSK',
         en: 'KIOSK',
       },
+      KIOSK_INSIDE: {
+        el: 'KIOSK ΕΝΤΟΣ',
+        en: 'KIOSK INSIDE',
+      },
+      KIOSK_PACKAGE: {
+        el: 'KIOSK ΠΑΚΕΤΟ',
+        en: 'KIOSK PACKAGE',
+      },
       GENERIC: {
         el: 'GENERIC',
         en: 'GENERIC',

@@ -399,6 +399,16 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'KIOSK',
     label_el: 'KIOSΚ',
   },
+  kiosk_inside: {
+    value: 'kiosk_inside',
+    label_en: 'KIOSK INSIDE',
+    label_el: 'KIOSK ΕΝΤΟΣ',
+  },
+  kiosk_package: {
+    value: 'kiosk_package',
+    label_en: 'KIOSK PACKAGE',
+    label_el: 'KIOSK ΠΑΚΕΤΟ',
+  },
   on_the_go: {
     value: 'on_the_go',
     label_en: 'ON THE GO',

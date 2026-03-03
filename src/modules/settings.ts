@@ -102,6 +102,8 @@ export const PrinterSettings = z.object({
       'TAKE_AWAY_PACKAGE',
       'EFOOD',
       'KIOSK',
+      'KIOSK_INSIDE',
+      'KIOSK_PACKAGE',
       'WOLT',
       'FAGI',
       'BOX',
