@@ -142,8 +142,8 @@ export default {
         en: 'KIOSK',
       },
       KIOSK_INSIDE: {
-        el: 'KIOSK ΕΝΤΟΣ',
-        en: 'KIOSK INSIDE',
+        el: 'KIOSK DINE IN',
+        en: 'KIOSK DINE IN',
       },
       KIOSK_PACKAGE: {
         el: 'KIOSK ΠΑΚΕΤΟ',

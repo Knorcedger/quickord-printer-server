@@ -401,8 +401,8 @@ export const SERVICES: Record<string, ServiceType> = {
   },
   kiosk_inside: {
     value: 'kiosk_inside',
-    label_en: 'KIOSK INSIDE',
-    label_el: 'KIOSK ΕΝΤΟΣ',
+    label_en: 'KIOSK DINE IN',
+    label_el: 'KIOSK DINE IN',
   },
   kiosk_package: {
     value: 'kiosk_package',
