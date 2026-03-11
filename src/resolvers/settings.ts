@@ -12,7 +12,7 @@ import {
   updateSettings,
 } from '../modules/settings';
 
-const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', req.body);
 
@@ -39,7 +39,7 @@ const settings = (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     if (newSettings.modem) {
       if (newSettings.modem.port && newSettings.modem.venueId) {
-        createModem(newSettings.modem);
+        await createModem(newSettings.modem);
       } else {
         signale.warn('Save settings was passed bad data for modem: ', {
           port: newSettings.modem.port,
