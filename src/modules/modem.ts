@@ -157,7 +157,6 @@ const createSerialPort = async (port: string) => {
   });
 
   serialport.on('close', () => {
-    if (intentionalClose) return;
     signale.warn('Modem disconnected unexpectedly');
     modem = null;
     scheduleReconnect();
@@ -221,9 +220,9 @@ export const createModem = async (settings: IModemSettings) => {
       }
     }
   };
-
+  
   if (modem && modem.isOpen && modem.path === settings.port) {
-    signale.info('Modem already initialized on same port, updating settings.');
+    signale.info('Modem already connected on same port, keeping existing connection.');
     return;
   }
 
