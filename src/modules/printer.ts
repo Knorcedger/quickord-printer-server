@@ -2939,7 +2939,7 @@ export const printOrder = async (
             settings.priceOnOrder === true
           ) {
             priceStr = product.total
-              ? `${convertToDecimal(product.total).toFixed(2)} €`
+              ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
           const lineWidth = 42; // Assuming 42 character width for POS80

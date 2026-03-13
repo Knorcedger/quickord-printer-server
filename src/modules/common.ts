@@ -503,7 +503,7 @@ export const printProducts = (
     sumQuantity += detail.quantity;
 
     const name = normalizeGreek(detail.name.toUpperCase());
-    console.log('proion', detail.name, lang);
+    console.log('Product:', detail.name, lang);
     // First, find the product that contains the matchedContent
 
     const quantity = detail.quantity.toFixed(0); // "1,000"
@@ -576,37 +576,30 @@ export const printProducts = (
     if (matchedProduct) {
       console.log('Matched product:', matchedProduct);
 
-      // Print the product title (from matchedContent)
-      const matchedContent = matchedProduct.content.find(
-        (c: any) => c.language === lang && c.title === detail.name
-      );
+      matchedProduct.options?.forEach((option: any) => {
+        const optionLabel = normalizeGreek(
+          getTitle(option.content, lang)
+        ).toUpperCase();
+        const choiceValues: string[] = [];
+        let totalPrice = 0;
 
-      const lineWidth = 32;
-      // Then loop through its choices (options)
-      matchedProduct.options?.forEach((choice: any) => {
-        console.log('choice', choice);
-        choice.choices.forEach((ch) => {
-          const choiceTitle = normalizeGreek(getTitle(choice.content, lang)); // parent title
+        option.choices.forEach((choice) => {
           const amountLevel =
-            translations.printOrder.amountLevel?.[lang]?.[ch.amountLevel] || '';
+            translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] ||
+            '';
           const quantityPrefix =
-            Number(ch.quantity) > 1 ? `${ch.quantity}x ` : '';
-
-          // Build main text
-          const choiceText = `- ${amountLevel} ${quantityPrefix}${choiceTitle.toUpperCase()}`;
-
-          // Price (only if > 0)
-          const choicePrice =
-            ch.price && ch.price > 0 ? `${(ch.price / 100).toFixed(2)} €` : '';
-
-          // Add indentation at start (e.g., 5 spaces)
-          const indent = '     '; // 5 spaces
-          const paddedChoiceLine =
-            indent + choiceText + (choicePrice ? '   ' + choicePrice : '');
-
-          printer.println(paddedChoiceLine);
-          console.log('choice', paddedChoiceLine);
+            Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
+          const title = normalizeGreek(getTitle(choice.content, lang));
+          choiceValues.push(`${amountLevel}${quantityPrefix}${title}`.trim());
+          if (choice.price && choice.price > 0)
+            totalPrice += choice.price * (Number(choice.quantity) || 1);
         });
+
+        const indent = '     ';
+        const priceStr =
+          totalPrice > 0 ? `   ${(totalPrice / 100).toFixed(2)} €` : '';
+        const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
+        printer.println(line);
       });
 
       // Print per-product discount if exists
