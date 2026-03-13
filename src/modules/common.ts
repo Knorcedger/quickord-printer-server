@@ -589,7 +589,7 @@ export const printProducts = (
             '';
           const quantityPrefix =
             Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
-          const title = normalizeGreek(choice.title);
+          const title = normalizeGreek(getTitle(choice.content, lang));
           choiceValues.push(`${amountLevel}${quantityPrefix}${title}`.trim());
           if (choice.price && choice.price > 0)
             totalPrice += choice.price * (Number(choice.quantity) || 1);
