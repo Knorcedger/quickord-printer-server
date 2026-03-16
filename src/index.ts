@@ -58,7 +58,11 @@ const main = async () => {
 
   await loadSettings();
 
-  await initModem();
+  try {
+    await initModem();
+  } catch (err) {
+    logger.error('Failed to initialize modem, continuing without modem:', err);
+  }
 
   await setupPrinters(getSettings());
 

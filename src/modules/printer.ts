@@ -2954,6 +2954,7 @@ export const printOrder = async (
             settings.documentsToPrint?.includes('OPTION-DETAILS') &&
             product.options
           ) {
+            console.log('Printing details:', product.options);
             printOptionDetails(printer, product.options, lang, settings);
           }
           // Comments (if any)
@@ -2964,6 +2965,15 @@ export const printOrder = async (
                 settings.transliterate
               )
             );
+          }
+
+          let choicesTotal = 0;
+          if (product.options) {
+            product.options.forEach((option) => {
+              option.choices?.forEach((choice) => {
+                choicesTotal += (choice.price || 0) * (choice.quantity || 1);
+              });
+            });
           }
 
           // VAT info (if any)
@@ -2979,13 +2989,6 @@ export const printOrder = async (
             );
 
             const vatRate = product.vat;
-
-            let choicesTotal = 0;
-            if (product.choices) {
-              product.choices.forEach((choice) => {
-                choicesTotal += (choice.price || 0) * (choice.quantity || 1);
-              });
-            }
 
             const rawTotal = product.quantity * (product.total + choicesTotal);
             const rawNet = rawTotal / (1 + (vatRate || 0) / 100);
@@ -3016,7 +3019,7 @@ export const printOrder = async (
             printer.alignRight();
             printer.println(
               tr(
-                `${convertToDecimal(total * product.quantity).toFixed(2)} €`,
+                `${convertToDecimal((total + choicesTotal) * product.quantity).toFixed(2)} €`,
                 settings.transliterate
               )
             );

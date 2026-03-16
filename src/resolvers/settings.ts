@@ -39,7 +39,14 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     if (newSettings.modem) {
       if (newSettings.modem.port && newSettings.modem.venueId) {
-        await createModem(newSettings.modem);
+        try {
+          await createModem(newSettings.modem);
+        } catch (modemError) {
+          logger.error(
+            'Failed to initialize modem, continuing without modem:',
+            modemError
+          );
+        }
       } else {
         signale.warn('Save settings was passed bad data for modem: ', {
           port: newSettings.modem.port,
@@ -53,7 +60,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     res.status(200).send({ newSettings, status: 'updated' });
   } catch (error) {
     logger.error('Error updating settings:', error);
-    res.status(400).send(error.message);
+    res.status(400).send({ error: error.message });
   }
 };
 

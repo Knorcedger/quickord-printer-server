@@ -614,6 +614,7 @@ export const printProducts = (
       settings.documentsToPrint?.includes('OPTION-DETAILS') &&
       matchedProduct?.options
     ) {
+      console.log('Printing details:', matchedProduct.options);
       printOptionDetails(printer, matchedProduct.options, lang, settings);
 
       // Print per-product discount if exists
