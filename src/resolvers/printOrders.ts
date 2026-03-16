@@ -48,30 +48,41 @@ export const Product = z.object({
     invalid_type_error: 'Invalid update status.',
     required_error: 'Update status is required.',
   }),
-  choices: z
+  options: z
     .array(
       z.object({
-        price: z
-          .number({
-            invalid_type_error: 'choice price must be a number.',
+        content: z.array(
+          z.object({
+            language: z.string(),
+            title: z.string(),
           })
-          .optional(),
-        amountLevel: z
-          .enum(['MUCH', 'LITTLE'], {
-            invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
+        ),
+        choices: z.array(
+          z.object({
+            amountLevel: z
+              .enum(['MUCH', 'LITTLE'], {
+                invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
+              })
+              .optional()
+              .nullable(),
+            price: z
+              .number({
+                invalid_type_error: 'choice price must be a number.',
+              })
+              .optional(),
+            quantity: z
+              .number({
+                invalid_type_error: 'choice quantity must be a number.',
+              })
+              .optional(),
+            content: z.array(
+              z.object({
+                language: z.string(),
+                title: z.string(),
+              })
+            ),
           })
-          .optional()
-          .nullable(),
-        quantity: z
-          .number({
-            invalid_type_error: 'choice quantity must be a number.',
-          })
-
-          .optional(),
-        title: z.string({
-          invalid_type_error: 'choice title must be a string.',
-          required_error: 'choice title is required.',
-        }),
+        ),
       })
     )
     .optional(),

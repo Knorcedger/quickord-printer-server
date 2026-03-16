@@ -29,6 +29,7 @@ import {
   receiptData,
   printDeliveryNoteProducts,
   printDeliveryNoteVatBreakdown,
+  printOptionDetails,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
@@ -2948,33 +2949,13 @@ export const printOrder = async (
 
           printer.println(tr(paddedLine, settings.transliterate));
 
-          // Handle product choices
-          product.choices?.forEach((choice) => {
-            total += (choice.price || 0) * (choice.quantity || 1);
-            const amountLevel =
-              choice.amountLevel != null &&
-              translations.printOrder.amountLevel?.[lang]
-                ? (translations.printOrder.amountLevel[lang][
-                    choice.amountLevel as any
-                  ] ?? '')
-                : '';
-
-            const choiceLine = `- ${amountLevel} ${Number(choice.quantity) > 1 ? `${choice.quantity}x ` : ''}${normalizeGreek(choice.title)}`;
-
-            let choicePrice = '';
-            if (
-              settings.priceOnOrder === undefined ||
-              settings.priceOnOrder === true
-            ) {
-              choicePrice = choice.price
-                ? `+${convertToDecimal(choice.price * (choice.quantity || 1)).toFixed(2)} €`
-                : '';
-            }
-            const paddedChoiceLine =
-              choiceLine.padEnd(lineWidth - choicePrice.length, ' ') +
-              choicePrice;
-            printer.println(tr(paddedChoiceLine, settings.transliterate));
-          });
+          // Handle product option details
+          if (
+            settings.documentsToPrint?.includes('OPTION-DETAILS') &&
+            product.options
+          ) {
+            printOptionDetails(printer, product.options, lang, settings);
+          }
           // Comments (if any)
           if (product.comments) {
             printer.println(

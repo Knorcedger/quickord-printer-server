@@ -478,6 +478,51 @@ export const printPayments = (printer, aadeInvoice, lang) => {
   });
 };
 
+export const getTitle = (content: any[], lang: string): string => {
+  return (
+    content?.find((c) => c.language === lang)?.title ||
+    content?.find((c) => c.language === 'en')?.title ||
+    ''
+  );
+};
+
+export const printOptionDetails = (
+  printer,
+  options: any[],
+  lang: string,
+  settings: any
+) => {
+  options?.forEach((option: any) => {
+    const optionLabel = normalizeGreek(
+      getTitle(option.content, lang)
+    ).toUpperCase();
+    const choiceValues: string[] = [];
+    let totalPrice = 0;
+
+    option.choices?.forEach((choice: any) => {
+      const amountLevel =
+        translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] || '';
+      const quantityPrefix =
+        Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
+      const title = normalizeGreek(getTitle(choice.content, lang));
+      choiceValues.push(`${amountLevel}${quantityPrefix}${title}`.trim());
+      if (choice.price && choice.price > 0)
+        totalPrice += choice.price * (Number(choice.quantity) || 1);
+    });
+
+    const indent = '     ';
+    let priceStr = '';
+    if (
+      totalPrice > 0 &&
+      (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
+    ) {
+      priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
+    }
+    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
+    printer.println(tr(line, settings.transliterate));
+  });
+};
+
 export const printProducts = (
   printer,
   aadeInvoice,
@@ -565,42 +610,11 @@ export const printProducts = (
         (c: any) => c.language === lang && c.title === detail.name
       )
     );
-    const getTitle = (content, lang) => {
-      return (
-        content.find((c) => c.language === lang)?.title ||
-        content.find((c) => c.language === 'en')?.title ||
-        ''
-      );
-    };
-
-    if (matchedProduct) {
-      console.log('Matched product:', matchedProduct);
-
-      matchedProduct.options?.forEach((option: any) => {
-        const optionLabel = normalizeGreek(
-          getTitle(option.content, lang)
-        ).toUpperCase();
-        const choiceValues: string[] = [];
-        let totalPrice = 0;
-
-        option.choices.forEach((choice) => {
-          const amountLevel =
-            translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] ||
-            '';
-          const quantityPrefix =
-            Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
-          const title = normalizeGreek(getTitle(choice.content, lang));
-          choiceValues.push(`${amountLevel}${quantityPrefix}${title}`.trim());
-          if (choice.price && choice.price > 0)
-            totalPrice += choice.price * (Number(choice.quantity) || 1);
-        });
-
-        const indent = '     ';
-        const priceStr =
-          totalPrice > 0 ? `   ${(totalPrice / 100).toFixed(2)} €` : '';
-        const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
-        printer.println(line);
-      });
+    if (
+      settings.documentsToPrint?.includes('OPTION-DETAILS') &&
+      matchedProduct?.options
+    ) {
+      printOptionDetails(printer, matchedProduct.options, lang, settings);
 
       // Print per-product discount if exists
       console.log('Checking for product discount');
