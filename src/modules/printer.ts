@@ -2695,6 +2695,15 @@ export const printOrder = async (
             product?.updateStatus?.includes('NEW') ||
             product?.updateStatus?.includes('UPDATED')
         );
+        if (!productsToPrint?.length) {
+          printer?.clear();
+          skipped.push({
+            printerIdentifier,
+            reason:
+              'No NEW or UPDATED products to print for this edit order',
+          });
+          continue;
+        }
       }
       const orderCreationDate = new Date(order.createdAt);
       const date =
