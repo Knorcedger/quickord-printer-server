@@ -541,6 +541,34 @@ export const printOptionDetails = (
   });
 };
 
+export const printProductDiscount = (
+  printer,
+  discount,
+  lang,
+  transliterate = false
+) => {
+  if (discount?.amount && discount?.type) {
+    const indent = '     ';
+    let discountText = '';
+    if (discount.type === 'FIXED') {
+      discountText = `${(discount.amount / 100).toFixed(2)}€`;
+    } else if (
+      discount.type === 'PERCENTAGE' ||
+      discount.type === 'PERCENT'
+    ) {
+      discountText = `${discount.amount}%`;
+    }
+    if (discountText) {
+      printer.println(
+        tr(
+          `${indent}${translations.printOrder.discount[lang]}: -${discountText}`,
+          transliterate
+        )
+      );
+    }
+  }
+};
+
 export const printProducts = (
   printer,
   aadeInvoice,
@@ -661,29 +689,7 @@ export const printProducts = (
       });
       console.log('Found productDiscount:', productDiscount);
 
-      if (productDiscount && productDiscount.amount && productDiscount.type) {
-        console.log('Printing product discount!');
-        const indent = '     '; // 5 spaces for consistency
-        let discountText = '';
-        if (productDiscount.type === 'FIXED') {
-          discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
-        } else if (
-          productDiscount.type === 'PERCENTAGE' ||
-          productDiscount.type === 'PERCENT'
-        ) {
-          discountText = `${productDiscount.amount}%`;
-        }
-        if (discountText) {
-          printer.println(
-            `${indent}${translations.printOrder.discount[lang]}: -${discountText}`
-          );
-        }
-      } else {
-        console.log(
-          'No product discount to print - productDiscount:',
-          productDiscount
-        );
-      }
+      printProductDiscount(printer, productDiscount, lang);
     }
   });
 
