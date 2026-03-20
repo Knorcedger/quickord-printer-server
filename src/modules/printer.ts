@@ -2778,7 +2778,7 @@ export const printOrder = async (
           printer.setTextSize(1, 0);
         }
         printer.println(
-          `${translations.printOrder.orderTypes[order.orderType][lang]}`
+          tr(`${translations.printOrder.orderTypes[order.orderType][lang]}`, settings.transliterate)
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
