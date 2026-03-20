@@ -486,20 +486,38 @@ export const getTitle = (content: any[], lang: string): string => {
   );
 };
 
+interface OptionChoice {
+  content: { language: string; title: string; description?: string }[];
+  amountLevel?: string;
+  quantity?: number;
+  price?: number;
+}
+
+interface ProductOption {
+  content: { language: string; title: string; description?: string }[];
+  choices?: OptionChoice[];
+}
+
 export const printOptionDetails = (
   printer,
-  options: any[],
+  options: ProductOption[],
   lang: string,
   settings: any
 ) => {
-  options?.forEach((option: any) => {
-    const optionLabel = normalizeGreek(
-      getTitle(option.content, lang)
-    ).toUpperCase();
+  options?.forEach((option) => {
+    let optionLabel = normalizeGreek(getTitle(option.content, lang))
+      .toUpperCase()
+      .trim();
+    if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
+      optionLabel = `${optionLabel}: `;
+    } else if (optionLabel.length > 0) {
+      optionLabel += ' ';
+    }
+
     const choiceValues: string[] = [];
     let totalPrice = 0;
 
-    option.choices?.forEach((choice: any) => {
+    option.choices?.forEach((choice) => {
       const amountLevel =
         translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] || '';
       const quantityPrefix =
@@ -518,7 +536,7 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
+    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}${priceStr}`;
     printer.println(tr(line, settings.transliterate));
   });
 };
