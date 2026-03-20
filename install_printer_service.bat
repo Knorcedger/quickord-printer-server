@@ -1,13 +1,15 @@
 @echo off
+cd /d "%~dp0"
 setlocal
 
-:: Use the actual Windows Service name (not EXE filename)
-set SERVICE_NAME=PrinterServerService
+:: Use the actual Windows Service name (matches printerServerService.xml <id>)
+set SERVICE_NAME=printerServer
 
 :: Check if the service is already installed
 sc query "%SERVICE_NAME%" >nul 2>&1
 if %errorlevel%==0 (
     echo Service is already installed.
+    pause
     exit /b
 )
 
@@ -22,9 +24,11 @@ timeout /t 2 >nul
 sc query "%SERVICE_NAME%" >nul 2>&1
 if %errorlevel%==0 (
     echo Service installed successfully.
+    pause
     exit /b 0
 )
 
 :: If we get here, installation failed
 echo Failed to install service.
+pause
 exit /b 1

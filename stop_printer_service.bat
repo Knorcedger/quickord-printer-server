@@ -1,10 +1,15 @@
 @echo off
+cd /d "%~dp0"
 setlocal enabledelayedexpansion
 set SERVICE=printerServerService.exe
+set SERVICE_NAME=printerServer
 set PORT=7810
 
-:: Stop the service gracefully
+:: Stop the service gracefully via sc (more reliable)
 echo Stopping service...
+sc stop "%SERVICE_NAME%" >nul 2>&1
+
+:: Also try via WinSW as fallback
 %SERVICE% stop
 
 :: Wait a moment for service to stop
@@ -17,7 +22,7 @@ set "found_process=0"
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
     set "found_process=1"
     echo Killing process using port %PORT% with PID %%a
-    taskkill /pid %%a /f >nul 2>&1
+    taskkill /pid %%a /f
     if not errorlevel 1 set "killed=1"
 )
 
