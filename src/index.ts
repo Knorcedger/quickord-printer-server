@@ -162,6 +162,13 @@ const main = async () => {
       res.status(200).send({ status: 'ok' });
     });
 
+  app.post('/restart', (req: Request, res: Response) => {
+    res.status(200).send({ status: 'restarting' });
+    setTimeout(() => {
+      process.exit(0);
+    }, 500);
+  });
+
   app
     .route('/local-ip')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
