@@ -93,6 +93,7 @@ Run `deploy.sh` on Windows. This builds the exe via nexe, copies native node_mod
 - **Transliteration**: All printed text passes through `tr(text, settings.transliterate)` from `common.ts`. When enabled, converts Greek → Latin characters. Every `printer.println()` / `printer.print()` call with translatable text must use this wrapper.
 - **Settings are per-printer**: Each printer in the `settings.json` array has its own configuration (categories, character set, transliterate, etc.)
 - **Settings are saved in two places**: locally in `settings.json` AND in the Quickord database via the frontend's GraphQL mutation. The frontend's `syncPrinterSettings` feature pushes DB settings → local server on page load.
+- **Remote settings sync**: When settings are edited remotely (server offline), they're saved to the DB. The backend emits a `printerSettingsUpdated` WebSocket event. Any frontend client on the venue's local network receives it, fetches the new settings from DB, and pushes them to the printer server via HTTP POST `/settings`.
 
 ## Related Repos
 
