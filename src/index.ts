@@ -67,6 +67,7 @@ const main = async () => {
   await setupPrinters(getSettings());
 
   const app = express();
+  let server!: ReturnType<typeof app.listen>;
   app.use(
     cors({
       origin(origin: string | undefined, callback: any) {
@@ -165,7 +166,27 @@ const main = async () => {
   app.post('/restart', (req: Request, res: Response) => {
     res.status(200).send({ status: 'restarting' });
     setTimeout(() => {
-      process.exit(0);
+      const isDev = process.argv[1]?.endsWith('.ts');
+      if (isDev) {
+        process.exit(0);
+      }
+      // Production: close server to release port, then spawn new process
+      server.close(() => {
+        const { spawn } =
+          require('child_process') as typeof import('child_process');
+        const child = spawn(
+          process.execPath,
+          [...process.execArgv, ...process.argv.slice(1)],
+          {
+            detached: true,
+            stdio: 'ignore',
+            cwd: process.cwd(),
+            env: process.env,
+          }
+        );
+        child.unref();
+        process.exit(0);
+      });
     }, 500);
   });
 
@@ -258,7 +279,7 @@ const main = async () => {
   );
 
   // start server
-  const server = app.listen(SERVER_PORT, () => {
+  server = app.listen(SERVER_PORT, () => {
     logger.info(
       'API listening at port',
       (server?.address?.() as { port: number })?.port
