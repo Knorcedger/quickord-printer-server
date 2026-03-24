@@ -486,20 +486,38 @@ export const getTitle = (content: any[], lang: string): string => {
   );
 };
 
+interface OptionChoice {
+  content: { language: string; title: string; description?: string }[];
+  amountLevel?: string;
+  quantity?: number;
+  price?: number;
+}
+
+interface ProductOption {
+  content: { language: string; title: string; description?: string }[];
+  choices?: OptionChoice[];
+}
+
 export const printOptionDetails = (
   printer,
-  options: any[],
+  options: ProductOption[],
   lang: string,
   settings: any
 ) => {
-  options?.forEach((option: any) => {
-    const optionLabel = normalizeGreek(
-      getTitle(option.content, lang)
-    ).toUpperCase();
+  options?.forEach((option) => {
+    let optionLabel = normalizeGreek(getTitle(option.content, lang))
+      .toUpperCase()
+      .trim();
+    if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
+      optionLabel = `${optionLabel}: `;
+    } else if (optionLabel.length > 0) {
+      optionLabel += ' ';
+    }
+
     const choiceValues: string[] = [];
     let totalPrice = 0;
 
-    option.choices?.forEach((choice: any) => {
+    option.choices?.forEach((choice) => {
       const amountLevel =
         translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] || '';
       const quantityPrefix =
@@ -518,9 +536,37 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
+    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}${priceStr}`;
     printer.println(tr(line, settings.transliterate));
   });
+};
+
+export const printProductDiscount = (
+  printer,
+  discount,
+  lang,
+  transliterate = false
+) => {
+  if (discount?.amount && discount?.type) {
+    const indent = '     ';
+    let discountText = '';
+    if (discount.type === 'FIXED') {
+      discountText = `${(discount.amount / 100).toFixed(2)}€`;
+    } else if (
+      discount.type === 'PERCENTAGE' ||
+      discount.type === 'PERCENT'
+    ) {
+      discountText = `${discount.amount}%`;
+    }
+    if (discountText) {
+      printer.println(
+        tr(
+          `${indent}${translations.printOrder.discount[lang]}: -${discountText}`,
+          transliterate
+        )
+      );
+    }
+  }
 };
 
 export const printProducts = (
@@ -643,29 +689,7 @@ export const printProducts = (
       });
       console.log('Found productDiscount:', productDiscount);
 
-      if (productDiscount && productDiscount.amount && productDiscount.type) {
-        console.log('Printing product discount!');
-        const indent = '     '; // 5 spaces for consistency
-        let discountText = '';
-        if (productDiscount.type === 'FIXED') {
-          discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
-        } else if (
-          productDiscount.type === 'PERCENTAGE' ||
-          productDiscount.type === 'PERCENT'
-        ) {
-          discountText = `${productDiscount.amount}%`;
-        }
-        if (discountText) {
-          printer.println(
-            `${indent}${translations.printOrder.discount[lang]}: -${discountText}`
-          );
-        }
-      } else {
-        console.log(
-          'No product discount to print - productDiscount:',
-          productDiscount
-        );
-      }
+      printProductDiscount(printer, productDiscount, lang);
     }
   });
 
