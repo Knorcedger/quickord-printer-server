@@ -183,9 +183,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (imgMatch) {
         // Print current buffer before processing image
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.print(buffer);
           buffer = '';
         }
@@ -211,9 +211,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (qrMatch) {
         // Print current buffer before processing QR code
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.print(buffer);
           buffer = '';
         }
@@ -239,9 +239,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (tagMatch) {
         // Print current buffer before changing formatting
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.print(buffer);
           buffer = '';
         }
@@ -255,7 +255,6 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
             changeTextSize(printer, 'NORMAL');
           }
         } else {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           // Opening tag
           if (tag === 'b') formatting.bold = true;
           if (tag === 'u') formatting.underline = true;
@@ -277,9 +276,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
 
     // Handle newline
     if (text[index] === '\n') {
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.println(buffer);
       buffer = '';
       index++;
@@ -293,10 +292,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
 
   // Print any remaining text
   if (buffer) {
-    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
     printer.bold(formatting.bold);
-
     printer.underline(formatting.underline);
+    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
     printer.print(buffer);
   }
 };
