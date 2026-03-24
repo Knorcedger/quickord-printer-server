@@ -486,7 +486,7 @@ export const getTitle = (content: any[], lang: string): string => {
 
 interface OptionChoice {
   content: { language: string; title: string; description?: string }[];
-  amountLevel?: string;
+  amountLevel?: string | null;
   quantity?: number;
   price?: number;
 }
