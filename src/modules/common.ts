@@ -183,10 +183,10 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (imgMatch) {
         // Print current buffer before processing image
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          printer.print(buffer);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -211,10 +211,10 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (qrMatch) {
         // Print current buffer before processing QR code
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          printer.print(buffer);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -239,10 +239,10 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       if (tagMatch) {
         // Print current buffer before changing formatting
         if (buffer) {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          printer.print(buffer);
+          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -255,7 +255,6 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
             changeTextSize(printer, 'NORMAL');
           }
         } else {
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
           // Opening tag
           if (tag === 'b') formatting.bold = true;
           if (tag === 'u') formatting.underline = true;
@@ -277,10 +276,10 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
 
     // Handle newline
     if (text[index] === '\n') {
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
-      printer.println(buffer);
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      printer.println(tr(buffer, settings?.transliterate));
       buffer = '';
       index++;
       continue;
@@ -293,11 +292,10 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
 
   // Print any remaining text
   if (buffer) {
-    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
     printer.bold(formatting.bold);
-
     printer.underline(formatting.underline);
-    printer.print(buffer);
+    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+    printer.print(tr(buffer, settings?.transliterate));
   }
 };
 export const formatToGreek = (date: Date | string): string => {
@@ -552,7 +550,10 @@ export const printProductDiscount = (
     let discountText = '';
     if (discount.type === 'FIXED') {
       discountText = `${(discount.amount / 100).toFixed(2)}€`;
-    } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
+    } else if (
+      discount.type === 'PERCENTAGE' ||
+      discount.type === 'PERCENT'
+    ) {
       discountText = `${discount.amount}%`;
     }
     if (discountText) {
@@ -686,29 +687,7 @@ export const printProducts = (
       });
       console.log('Found productDiscount:', productDiscount);
 
-      if (productDiscount && productDiscount.amount && productDiscount.type) {
-        console.log('Printing product discount!');
-        const indent = '     '; // 5 spaces for consistency
-        let discountText = '';
-        if (productDiscount.type === 'FIXED') {
-          discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
-        } else if (
-          productDiscount.type === 'PERCENTAGE' ||
-          productDiscount.type === 'PERCENT'
-        ) {
-          discountText = `${productDiscount.amount}%`;
-        }
-        if (discountText) {
-          printer.println(
-            `${indent}${translations.printOrder.discount[lang]}: -${discountText}`
-          );
-        }
-      } else {
-        console.log(
-          'No product discount to print - productDiscount:',
-          productDiscount
-        );
-      }
+      printProductDiscount(printer, productDiscount, lang);
     }
   });
 
