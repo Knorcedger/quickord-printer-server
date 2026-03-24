@@ -186,7 +186,7 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(buffer);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -214,7 +214,7 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(buffer);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -242,7 +242,7 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(buffer);
+          printer.print(tr(buffer, settings?.transliterate));
           buffer = '';
         }
 
@@ -279,7 +279,7 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(buffer);
+      printer.println(tr(buffer, settings?.transliterate));
       buffer = '';
       index++;
       continue;
@@ -295,7 +295,7 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
     printer.bold(formatting.bold);
     printer.underline(formatting.underline);
     changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-    printer.print(buffer);
+    printer.print(tr(buffer, settings?.transliterate));
   }
 };
 export const formatToGreek = (date: Date | string): string => {
