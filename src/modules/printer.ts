@@ -1351,14 +1351,16 @@ const printOrderForm = async (
         lang,
         discounts
       );
-<<<<<<< service-bugs
-      printMarks(printer, aadeInvoice, lang, settings.transliterate);
-=======
       if (discounts.length > 0) {
-        printDiscountAndTip(printer, discounts, order?.tip || 0, lang);
+        printDiscountAndTip(
+          printer,
+          discounts,
+          order?.tip || 0,
+          lang,
+          settings.transliterate
+        );
       }
-      printMarks(printer, aadeInvoice, lang);
->>>>>>> main
+      printMarks(printer, aadeInvoice, lang, settings.transliterate);
       if (settings.poweredByQuickord) {
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2782,8 +2784,7 @@ export const printOrder = async (
           printer?.clear();
           skipped.push({
             printerIdentifier,
-            reason:
-              'No NEW or UPDATED products to print for this edit order',
+            reason: 'No NEW or UPDATED products to print for this edit order',
           });
           continue;
         }
@@ -2870,14 +2871,10 @@ export const printOrder = async (
           printer.setTextSize(1, 0);
         }
         printer.println(
-<<<<<<< service-bugs
           tr(
             `${translations.printOrder.orderTypes[order.orderType][lang]}`,
             settings.transliterate
           )
-=======
-          tr(`${translations.printOrder.orderTypes[order.orderType][lang]}`, settings.transliterate)
->>>>>>> main
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
@@ -3260,16 +3257,12 @@ export const printOrder = async (
         // Calculate total discount amount for overall discounts
         let totalDiscountAmount = 0;
         if (order.discounts) {
-          const overallDiscounts = order.discounts.filter(
-            (d) => !d.productId
-          );
+          const overallDiscounts = order.discounts.filter((d) => !d.productId);
           overallDiscounts.forEach((d) => {
             if (d.type === 'FIXED') {
               totalDiscountAmount += d.amount;
             } else if (d.type === 'PERCENTAGE' || d.type === 'PERCENT') {
-              totalDiscountAmount += Math.round(
-                (order.total * d.amount) / 100
-              );
+              totalDiscountAmount += Math.round((order.total * d.amount) / 100);
             }
           });
         }
@@ -3281,14 +3274,7 @@ export const printOrder = async (
         ) {
           const finalTotal = order.total - totalDiscountAmount;
           printer.println(
-<<<<<<< service-bugs
             `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(order.total).toFixed(2)} €`
-=======
-            tr(
-              `${translations.printOrder.total[lang]}:${convertToDecimal(finalTotal).toFixed(2)} €`,
-              settings.transliterate
-            )
->>>>>>> main
           );
         }
 

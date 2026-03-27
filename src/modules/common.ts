@@ -553,13 +553,8 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-<<<<<<< service-bugs
     const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}`;
     printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
-=======
-    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}${priceStr}`;
-    printer.println(tr(line, settings.transliterate));
->>>>>>> main
   });
 };
 
@@ -574,18 +569,12 @@ export const printProductDiscount = (
     let discountText = '';
     if (discount.type === 'FIXED') {
       discountText = `${(discount.amount / 100).toFixed(2)}€`;
-    } else if (
-      discount.type === 'PERCENTAGE' ||
-      discount.type === 'PERCENT'
-    ) {
+    } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
       discountText = `${discount.amount}%`;
     }
     if (discountText) {
       printer.println(
-        tr(
-          `${indent}${translations.printOrder.discount[lang]}: -${discountText}`,
-          transliterate
-        )
+        `${indent}${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: -${discountText}`
       );
     }
   }
@@ -723,33 +712,7 @@ export const printProducts = (
       });
       console.log('Found productDiscount:', productDiscount);
 
-<<<<<<< service-bugs
-      if (productDiscount && productDiscount.amount && productDiscount.type) {
-        console.log('Printing product discount!');
-        const indent = '     '; // 5 spaces for consistency
-        let discountText = '';
-        if (productDiscount.type === 'FIXED') {
-          discountText = `${(productDiscount.amount / 100).toFixed(2)}€`;
-        } else if (
-          productDiscount.type === 'PERCENTAGE' ||
-          productDiscount.type === 'PERCENT'
-        ) {
-          discountText = `${productDiscount.amount}%`;
-        }
-        if (discountText) {
-          printer.println(
-            `${indent}${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: -${discountText}`
-          );
-        }
-      } else {
-        console.log(
-          'No product discount to print - productDiscount:',
-          productDiscount
-        );
-      }
-=======
       printProductDiscount(printer, productDiscount, lang);
->>>>>>> main
     }
   });
 
