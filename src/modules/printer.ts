@@ -1336,7 +1336,9 @@ const printOrderForm = async (
       if (aadeInvoice.closed) {
         printer.setTextSize(1, 0);
         printer.bold(true);
-        printer.println(`${translations.printOrder.closed[lang]}`);
+        printer.println(
+          tr(`${translations.printOrder.closed[lang]}`, settings.transliterate)
+        );
         printer.setTextSize(0, 0);
       }
       const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
@@ -1346,7 +1348,7 @@ const printOrderForm = async (
         settings,
         lang
       );
-      printMarks(printer, aadeInvoice, lang);
+      printMarks(printer, aadeInvoice, lang, settings.transliterate);
       if (settings.poweredByQuickord) {
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -1452,18 +1454,32 @@ const printPaymentSlip = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(`${translations.printOrder.paymentSlip[lang]}`);
+      printer.println(
+        tr(
+          `${translations.printOrder.paymentSlip[lang]}`,
+          settings.transliterate
+        )
+      );
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
       printer.println(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`
+        tr(
+          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`,
+          settings.transliterate
+        )
       );
 
       printer.println(
-        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
+        tr(
+          `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`,
+          settings.transliterate
+        )
       );
       printer.println(
-        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+        tr(
+          `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`,
+          settings.transliterate
+        )
       );
       if (issuerText) {
         printer.println(issuerText);
@@ -1528,7 +1544,7 @@ const printPaymentSlip = async (
           }
           if (discountAmount !== '') {
             printer.println(
-              `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+              `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
             );
           }
         }
@@ -1537,18 +1553,22 @@ const printPaymentSlip = async (
       const roundedSum = Number(sumAmount)
         .toFixed(2)
         .replace(/\.?0+$/, '');
-      printer.println(`${translations.printOrder.sum[lang]}: ${roundedSum}€`);
+      printer.println(
+        `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+      );
       printer.bold(false);
       printer.alignCenter();
       drawLine2(printer);
-      printer.println(`${translations.printOrder.payments[lang]}:`);
+      printer.println(
+        tr(`${translations.printOrder.payments[lang]}:`, settings.transliterate)
+      );
       aadeInvoice?.payment_methods.forEach((detail: any) => {
         printer.newLine();
         const methodDescription =
           PaymentMethod[detail.code]?.description ||
           translations.printOrder.unknown[lang];
         printer.println(
-          `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
+          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${detail.amount.toFixed(2)}€`
         );
       });
       drawLine2(printer);
@@ -1701,7 +1721,7 @@ const printPaymentReceipt = async (
             invoiceTypeLabel = `${translations.printOrder.reciept[lang]}`;
             break;
         }
-        printer.println(invoiceTypeLabel);
+        printer.println(tr(invoiceTypeLabel, settings.transliterate));
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
           printer,
@@ -1723,18 +1743,27 @@ const printPaymentReceipt = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
-        printDiscountAndTip(printer, discounts, tip, lang);
+        printDiscountAndTip(
+          printer,
+          discounts,
+          tip,
+          lang,
+          settings.transliterate
+        );
 
         printer.bold(true);
         printer.alignLeft();
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-        const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+        const leftText = tr(
+          `${translations.printOrder.items[lang]}: ${sumQuantity}`,
+          settings.transliterate
+        );
         const roundedSum = Number(sumAmount + tip / 100)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
-        const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -1742,9 +1771,14 @@ const printPaymentReceipt = async (
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang);
-        printVatBreakdown(printer, fixedBreakdown, lang);
-        printMarks(printer, aadeInvoice, lang);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        printVatBreakdown(
+          printer,
+          fixedBreakdown,
+          lang,
+          settings.transliterate
+        );
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
         if (settings.poweredByQuickord) {
           printer.println(
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -1889,7 +1923,12 @@ const printInvoice = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
-        printer.println(`${translations.printOrder.customerInfo[lang]}`);
+        printer.println(
+          tr(
+            `${translations.printOrder.customerInfo[lang]}`,
+            settings.transliterate
+          )
+        );
         printer.println(`${aadeInvoice?.counterpart.name}`);
         printer.println(`${aadeInvoice?.counterpart.activity}`);
         printer.println(
@@ -1931,24 +1970,38 @@ const printInvoice = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
-        printDiscountAndTip(printer, discounts, tip, lang);
+        printDiscountAndTip(
+          printer,
+          discounts,
+          tip,
+          lang,
+          settings.transliterate
+        );
         printer.bold(true);
         printer.alignLeft();
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-        const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+        const leftText = tr(
+          `${translations.printOrder.items[lang]}: ${sumQuantity}`,
+          settings.transliterate
+        );
         const roundedSum = Number(sumAmount + tip / 100)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
-        const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
         const spacing = ' '.repeat(Math.max(1, spaceCount));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang);
-        printVatBreakdown(printer, fixedBreakdown, lang);
-        printMarks(printer, aadeInvoice, lang);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        printVatBreakdown(
+          printer,
+          fixedBreakdown,
+          lang,
+          settings.transliterate
+        );
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
@@ -2059,7 +2112,9 @@ const printMyPelatesReceipt = async (
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
-        printer.println(`${translations.printOrder.reciept[lang]}`);
+        printer.println(
+          tr(`${translations.printOrder.reciept[lang]}`, settings.transliterate)
+        );
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
           printer,
@@ -2109,12 +2164,15 @@ const printMyPelatesReceipt = async (
         printer.alignLeft();
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-        const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+        const leftText = tr(
+          `${translations.printOrder.items[lang]}: ${sumQuantity}`,
+          settings.transliterate
+        );
         const roundedSum = Number(sumAmount)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
-        const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -2125,8 +2183,8 @@ const printMyPelatesReceipt = async (
 
         printer.bold(false);
         printer.alignCenter();
-        printPayments(printer, aadeInvoice, lang);
-        printMarks(printer, aadeInvoice, lang);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
@@ -2250,7 +2308,12 @@ const printMyPelatesInvoice = async (
         printer.alignCenter();
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
-        printer.println(`${translations.printOrder.customerInfo[lang]}`);
+        printer.println(
+          tr(
+            `${translations.printOrder.customerInfo[lang]}`,
+            settings.transliterate
+          )
+        );
         printer.println(`${aadeInvoice?.counterpart.name}`);
         printer.println(`${aadeInvoice?.counterpart.activity}`);
         printer.println(
@@ -2259,7 +2322,9 @@ const printMyPelatesInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.tax_office}`);
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
-        printer.println(`${translations.printOrder.invoice[lang]}`);
+        printer.println(
+          tr(`${translations.printOrder.invoice[lang]}`, settings.transliterate)
+        );
         receiptData(
           printer,
           aadeInvoice,
@@ -2308,12 +2373,15 @@ const printMyPelatesInvoice = async (
         printer.alignLeft();
 
         const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
-        const leftText = `${translations.printOrder.items[lang]}: ${sumQuantity}`;
+        const leftText = tr(
+          `${translations.printOrder.items[lang]}: ${sumQuantity}`,
+          settings.transliterate
+        );
         const roundedSum = Number(sumAmount)
           .toFixed(2)
           .replace(/\.?0+$/, '');
 
-        const rightText = `${translations.printOrder.sum[lang]}: ${roundedSum}€`;
+        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -2324,8 +2392,8 @@ const printMyPelatesInvoice = async (
 
         printer.bold(false);
         printer.alignCenter();
-        printPayments(printer, aadeInvoice, lang);
-        printMarks(printer, aadeInvoice, lang);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
         printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
@@ -2528,7 +2596,12 @@ const printDeliveryNote = async (
         totalOriginalValue,
         totalNetValue,
         totalVatAmount,
-      ] = printDeliveryNoteProducts(printer, aadeInvoice, lang);
+      ] = printDeliveryNoteProducts(
+        printer,
+        aadeInvoice,
+        lang,
+        settings.transliterate
+      );
 
       // Line 1: Left-aligned item quantity (small text)
       printer.setTextSize(0, 0);
@@ -2544,7 +2617,7 @@ const printDeliveryNote = async (
         sumAmount
       );
 
-      printMarks(printer, aadeInvoice, lang);
+      printMarks(printer, aadeInvoice, lang, settings.transliterate);
 
       printer.println(
         tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2778,7 +2851,10 @@ export const printOrder = async (
           printer.setTextSize(1, 0);
         }
         printer.println(
-          `${translations.printOrder.orderTypes[order.orderType][lang]}`
+          tr(
+            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            settings.transliterate
+          )
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
@@ -2900,7 +2976,12 @@ export const printOrder = async (
           }
           if (isEdit) {
             if (product.updateStatus?.includes('NEW')) {
-              printer.println(`${translations.printOrder.new[lang]}`);
+              printer.println(
+                tr(
+                  `${translations.printOrder.new[lang]}`,
+                  settings.transliterate
+                )
+              );
             }
             if (
               product.updateStatus?.includes('UPDATED') &&
@@ -2908,10 +2989,18 @@ export const printOrder = async (
               isEdit
             ) {
               printer.println(
-                `${translations.printOrder.quantityChanged[lang]}`
+                tr(
+                  `${translations.printOrder.quantityChanged[lang]}`,
+                  settings.transliterate
+                )
               );
             } else if (product.updateStatus?.includes('UPDATED')) {
-              printer.println(`${translations.printOrder.updated[lang]}`);
+              printer.println(
+                tr(
+                  `${translations.printOrder.updated[lang]}`,
+                  settings.transliterate
+                )
+              );
             }
           }
           // Bold if enabled
@@ -2944,10 +3033,14 @@ export const printOrder = async (
               : '';
           }
           const lineWidth = 42; // Assuming 42 character width for POS80
-          const paddedLine =
-            productLine.padEnd(lineWidth - priceStr.length, ' ') + priceStr;
+          const paddedLine = productLine.padEnd(
+            lineWidth - priceStr.length,
+            ' '
+          );
 
-          printer.println(tr(paddedLine, settings.transliterate));
+          printer.println(
+            `${tr(paddedLine, settings.transliterate)}${priceStr}`
+          );
 
           // Handle product option details
           if (
@@ -3018,10 +3111,7 @@ export const printOrder = async (
           ) {
             printer.alignRight();
             printer.println(
-              tr(
-                `${convertToDecimal((total + choicesTotal) * product.quantity).toFixed(2)} €`,
-                settings.transliterate
-              )
+              `${convertToDecimal((total + choicesTotal) * product.quantity).toFixed(2)} €`
             );
           }
           printer.alignLeft();
@@ -3090,20 +3180,14 @@ export const printOrder = async (
         if (order.tip && settings.priceOnOrder) {
           printer.newLine();
           printer.println(
-            tr(
-              `${translations.printOrder.tip[lang]}:${convertToDecimal(order.tip).toFixed(2)} €`,
-              settings.transliterate
-            )
+            `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(order.tip).toFixed(2)} €`
           );
         }
 
         if (order.deliveryInfo?.deliveryFee) {
           printer.newLine();
           printer.println(
-            tr(
-              `${translations.printOrder.deliveryFee[lang]}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`,
-              settings.transliterate
-            )
+            `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
           );
         }
         printer.alignRight();
@@ -3119,10 +3203,7 @@ export const printOrder = async (
         ) {
           // Print total without VAT
           printer.println(
-            tr(
-              `${translations.printOrder.netWithoutVat[lang]}:${totalNetValue.toFixed(2)} €`,
-              settings.transliterate
-            )
+            `${tr(`${translations.printOrder.netWithoutVat[lang]}`, settings.transliterate)}:${totalNetValue.toFixed(2)} €`
           );
         }
         // Print total (with VAT)
@@ -3131,10 +3212,7 @@ export const printOrder = async (
           settings.priceOnOrder === true
         ) {
           printer.println(
-            tr(
-              `${translations.printOrder.total[lang]}:${convertToDecimal(order.total).toFixed(2)} €`,
-              settings.transliterate
-            )
+            `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(order.total).toFixed(2)} €`
           );
         }
 
@@ -3147,9 +3225,17 @@ export const printOrder = async (
         printer.newLine();
         printer.newLine();
         printer.alignCenter();
-        printer.println(`${translations.printOrder.notReceiptNotice[lang]}`);
         printer.println(
-          `${translations.printOrder.notReceiptNoticeContinue[lang]}`
+          tr(
+            `${translations.printOrder.notReceiptNotice[lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.println(
+          tr(
+            `${translations.printOrder.notReceiptNoticeContinue[lang]}`,
+            settings.transliterate
+          )
         );
         printer.cut();
       }

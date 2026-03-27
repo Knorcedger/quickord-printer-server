@@ -434,7 +434,12 @@ export const DISCOUNTTYPES: Record<string, ServiceType> = {
   },
 };
 
-export const printMarks = (printer, aadeInvoice, lang) => {
+export const printMarks = (
+  printer,
+  aadeInvoice,
+  lang,
+  transliterate: boolean = false
+) => {
   printer.newLine();
   printer.alignLeft();
   printer.println(`MARK ${aadeInvoice?.mark}`);
@@ -456,14 +461,26 @@ export const printMarks = (printer, aadeInvoice, lang) => {
   } else if (url.includes('etimologiera')) {
     providerUrl = 'www.etimologiera.gr';
   }
-  printer.println(`${translations.printOrder.provider[lang]} ${providerUrl}`);
+  printer.println(
+    tr(
+      `${translations.printOrder.provider[lang]} ${providerUrl}`,
+      transliterate
+    )
+  );
   printer.newLine();
 };
-export const printPayments = (printer, aadeInvoice, lang) => {
+export const printPayments = (
+  printer,
+  aadeInvoice,
+  lang,
+  transliterate: boolean = false
+) => {
   printer.bold(false);
   printer.alignCenter();
   drawLine2(printer);
-  printer.println(`${translations.printOrder.payments[lang]}:`);
+  printer.println(
+    tr(`${translations.printOrder.payments[lang]}:`, transliterate)
+  );
   aadeInvoice?.payment_methods.forEach((detail: any) => {
     if (detail.amount > 0) {
       const method = PaymentMethod[detail.code];
@@ -471,7 +488,7 @@ export const printPayments = (printer, aadeInvoice, lang) => {
         method?.description || translations.printOrder.unknown[lang];
       console.log('Printing payment method:', methodDescription, method);
       printer.println(
-        `${methodDescription}     ${translations.printOrder.amount[lang]}: ${detail.amount.toFixed(2)}€`
+        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${detail.amount.toFixed(2)}€`
       );
     }
     drawLine2(printer);
@@ -505,7 +522,9 @@ export const printOptionDetails = (
       const quantityPrefix =
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
-      choiceValues.push(`${amountLevel}${quantityPrefix}${title}`.trim());
+      choiceValues.push(
+        `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim()
+      );
       if (choice.price && choice.price > 0)
         totalPrice += choice.price * (Number(choice.quantity) || 1);
     });
@@ -518,8 +537,8 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}${priceStr}`;
-    printer.println(tr(line, settings.transliterate));
+    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}`;
+    printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
   });
 };
 
@@ -537,17 +556,29 @@ export const printProducts = (
   printer.newLine();
   printer.alignLeft();
   printer.println(
-    `${translations.printOrder.quantity[lang]}`.padEnd(7) +
-      `${translations.printOrder.kind[lang]}`.padEnd(20) +
-      `${translations.printOrder.price[lang]}`.padEnd(10) +
-      `${translations.printOrder.vat[lang]}`
+    tr(
+      `${translations.printOrder.quantity[lang]}`,
+      settings.transliterate
+    ).padEnd(7) +
+      tr(
+        `${translations.printOrder.kind[lang]}`,
+        settings.transliterate
+      ).padEnd(20) +
+      tr(
+        `${translations.printOrder.price[lang]}`,
+        settings.transliterate
+      ).padEnd(10) +
+      tr(`${translations.printOrder.vat[lang]}`, settings.transliterate)
   );
   drawLine2(printer);
   const vatBreakdown = new Map();
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
-    const name = normalizeGreek(detail.name.toUpperCase());
+    const name = tr(
+      normalizeGreek(detail.name.toUpperCase()),
+      settings.transliterate
+    );
     console.log('Product:', detail.name, lang);
     // First, find the product that contains the matchedContent
 
@@ -657,7 +688,7 @@ export const printProducts = (
         }
         if (discountText) {
           printer.println(
-            `${indent}${translations.printOrder.discount[lang]}: -${discountText}`
+            `${indent}${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: -${discountText}`
           );
         }
       } else {
@@ -679,7 +710,13 @@ export const printProducts = (
   return [sumAmount, sumQuantity, fixedBreakdown];
 };
 
-export const printDiscountAndTip = (printer, discounts, tip, lang) => {
+export const printDiscountAndTip = (
+  printer,
+  discounts,
+  tip,
+  lang,
+  transliterate: boolean = false
+) => {
   // Filter out product-specific discounts - only print overall discounts
   const overallDiscounts = Array.isArray(discounts)
     ? discounts.filter((d: any) => !d.productId)
@@ -699,7 +736,7 @@ export const printDiscountAndTip = (printer, discounts, tip, lang) => {
       }
       if (discountAmount !== '') {
         printer.println(
-          `${translations.printOrder.discount[lang]}: ${discountAmount},${DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || ''}`
+          `${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', transliterate)}`
         );
       }
     }
@@ -707,14 +744,28 @@ export const printDiscountAndTip = (printer, discounts, tip, lang) => {
 
   if (tip > 0) {
     printer.println(
-      `${translations.printOrder.tip[lang]}: ${(tip / 100).toFixed(2)}€`
+      `${tr(`${translations.printOrder.tip[lang]}`, transliterate)}: ${(tip / 100).toFixed(2)}€`
     );
   }
 };
 
-export const printVatBreakdown = (printer, vatBreakdown, lang) => {
+export const printVatBreakdown = (
+  printer,
+  vatBreakdown,
+  lang,
+  transliterate: boolean = false
+) => {
   printer.println(
-    `${translations.printOrder.percentage[lang].padEnd(10)}${translations.printOrder.netWorth[lang].padEnd(12)}${translations.printOrder.netValue[lang].padEnd(10)}${translations.printOrder.total[lang].padStart(10)}`
+    tr(`${translations.printOrder.percentage[lang]}`, transliterate).padEnd(
+      10
+    ) +
+      tr(`${translations.printOrder.netWorth[lang]}`, transliterate).padEnd(
+        12
+      ) +
+      tr(`${translations.printOrder.netValue[lang]}`, transliterate).padEnd(
+        10
+      ) +
+      tr(`${translations.printOrder.total[lang]}`, transliterate).padStart(10)
   );
 
   vatBreakdown.forEach((entry) => {
@@ -739,14 +790,23 @@ export const venueData = async (
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);
     printer.println(
-      `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`
+      tr(
+        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`,
+        settings.transliterate
+      )
     );
 
     printer.println(
-      `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`
+      tr(
+        `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`,
+        settings.transliterate
+      )
     );
     printer.println(
-      `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`
+      tr(
+        `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`,
+        settings.transliterate
+      )
     );
   }
 };
@@ -780,7 +840,10 @@ export const receiptData = (
   printer.setTextSize(0, 0);
 
   printer.println(
-    `${translations.printOrder.series[lang]}: ${aadeInvoice?.header.series.code}     ${translations.printOrder.number[lang]}: ${aadeInvoice?.header.serial_number}   ${formattedDate},${formattedTime}`
+    tr(
+      `${translations.printOrder.series[lang]}: ${aadeInvoice?.header.series.code}     ${translations.printOrder.number[lang]}: ${aadeInvoice?.header.serial_number}   ${formattedDate},${formattedTime}`,
+      settings.transliterate
+    )
   );
 
   printer.alignLeft();
@@ -794,9 +857,12 @@ export const receiptData = (
           .find(Boolean);
 
         printer.println(
-          `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${
-            externalOrderId ? `: #${externalOrderId}` : ''
-          }`
+          tr(
+            `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${
+              externalOrderId ? `: #${externalOrderId}` : ''
+            }`,
+            settings.transliterate
+          )
         );
       } else {
         printer.println(`#${orderNumber}`);
@@ -820,7 +886,8 @@ export const receiptData = (
 export const printDeliveryNoteProducts = (
   printer,
   aadeInvoice: AadeInvoice,
-  lang: SupportedLanguages
+  lang: SupportedLanguages,
+  transliterate: boolean = false
 ): [number, number, any[], number, number, number] => {
   let sumAmount = 0;
   let sumQuantity = 0;
@@ -852,7 +919,7 @@ export const printDeliveryNoteProducts = (
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
-    const name = normalizeGreek(detail.name.toUpperCase());
+    const name = tr(normalizeGreek(detail.name.toUpperCase()), transliterate);
     const quantity = detail.quantity.toFixed(0);
 
     // Map unit code to Greek unit name
