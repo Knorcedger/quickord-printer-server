@@ -48,12 +48,24 @@ Recommended operating system: Windows as i havent tested on others.
 
 - NOTE: some node modules are required to be shipped with the exe but you check them in deploy.sh
 
-1. It is recommended to run ./deploy.sh and everything will become automated, it will
+### Quick Release (code-only zip, any OS)
 
-   - update version file
-   - remove and remake builds folders and it will contain:
-     - quickord-cashier-server.zip where you can just open a new release and ship the new version
-     - node_modules / builds and you can run the printerServer.exe
+1. Bump version: `node scripts/create_version_file.js` (increments counter, format: `vYYYY.MM.DD-NNNNNN`)
+2. Build: `npm run build` (typechecks, compiles TS, creates `quickord-cashier-server.zip`)
+3. Commit and push
+4. Create release:
+   ```bash
+   gh release create <version> ./quickord-cashier-server.zip --title "<version>" --generate-notes --latest
+   ```
+
+### Full Build with exe (Windows only)
+
+Run `./deploy.sh` which will:
+   - Auto-generate version file
+   - Remove and remake builds folders
+   - Build the exe via nexe
+   - Copy required native node_modules (@serialport, etc.)
+   - Create quickord-cashier-server.zip with everything
 
 To do it manually:
 
@@ -96,6 +108,7 @@ The following are the printer settings that can be configured:
 - `port: string`: The port to use for the printer. (instead of IP)
 - `textOptions: Array<'BOLD_PRODUCTS' | 'BOLD_ORDER_NUMBER'>`: The text options to use for the printer. This is used to change the text depending on the specified options.
 - `textSize: 'NORMAL' | 'ONE' | 'TWO' | 'THREE'`: The size of the text to print.
+- `transliterate: boolean`: When `true`, converts Greek characters to Latin equivalents (greeklish) before printing. Useful for printers that don't support Greek character sets. Default: `false`.
 
 The printers are configured by sending a POST to `/settings` with the following body (example):
 

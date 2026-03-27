@@ -61,7 +61,8 @@ export const Product = z.object({
           z.object({
             amountLevel: z
               .enum(['MUCH', 'LITTLE'], {
-                invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
+                invalid_type_error:
+                  'choice amountLevel must be MUCH or LITTLE.',
               })
               .optional()
               .nullable(),
@@ -279,6 +280,16 @@ export const Order = z.object({
       invalid_type_error: 'waiterName must be a string.',
       required_error: 'waiterName is required.',
     })
+    .optional(),
+  discounts: z
+    .array(
+      z.object({
+        amount: z.number(),
+        type: z.enum(['FIXED', 'PERCENTAGE', 'PERCENT']),
+        productId: z.string().optional(),
+        voucherId: z.string().optional().nullable(),
+      })
+    )
     .optional(),
 });
 

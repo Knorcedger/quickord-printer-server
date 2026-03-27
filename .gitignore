@@ -6,6 +6,7 @@ dist
 .tsbuildinfo
 compiled-out
 builds
+*.zip
 data-dir
 testcode
 .DS_Store

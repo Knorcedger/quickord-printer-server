@@ -30,6 +30,7 @@ import {
   printDeliveryNoteProducts,
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
+  printProductDiscount,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
@@ -1341,14 +1342,23 @@ const printOrderForm = async (
         );
         printer.setTextSize(0, 0);
       }
+      const discounts = order?.discounts || [];
       const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
         printer,
         aadeInvoice,
         order,
         settings,
-        lang
+        lang,
+        discounts
       );
+<<<<<<< service-bugs
       printMarks(printer, aadeInvoice, lang, settings.transliterate);
+=======
+      if (discounts.length > 0) {
+        printDiscountAndTip(printer, discounts, order?.tip || 0, lang);
+      }
+      printMarks(printer, aadeInvoice, lang);
+>>>>>>> main
       if (settings.poweredByQuickord) {
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2768,6 +2778,15 @@ export const printOrder = async (
             product?.updateStatus?.includes('NEW') ||
             product?.updateStatus?.includes('UPDATED')
         );
+        if (!productsToPrint?.length) {
+          printer?.clear();
+          skipped.push({
+            printerIdentifier,
+            reason:
+              'No NEW or UPDATED products to print for this edit order',
+          });
+          continue;
+        }
       }
       const orderCreationDate = new Date(order.createdAt);
       const date =
@@ -2851,10 +2870,14 @@ export const printOrder = async (
           printer.setTextSize(1, 0);
         }
         printer.println(
+<<<<<<< service-bugs
           tr(
             `${translations.printOrder.orderTypes[order.orderType][lang]}`,
             settings.transliterate
           )
+=======
+          tr(`${translations.printOrder.orderTypes[order.orderType][lang]}`, settings.transliterate)
+>>>>>>> main
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
@@ -3060,6 +3083,25 @@ export const printOrder = async (
             );
           }
 
+          // Per-product discount
+          if (
+            order.discounts &&
+            (settings.priceOnOrder === undefined ||
+              settings.priceOnOrder === true)
+          ) {
+            const productDiscount = order.discounts.find(
+              (d) => d.productId === product._id
+            );
+            if (productDiscount) {
+              printProductDiscount(
+                printer,
+                productDiscount,
+                lang,
+                settings.transliterate
+              );
+            }
+          }
+
           let choicesTotal = 0;
           if (product.options) {
             product.options.forEach((option) => {
@@ -3184,6 +3226,15 @@ export const printOrder = async (
           );
         }
 
+        // Overall discounts (not per-product)
+        if (
+          order.discounts &&
+          (settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true)
+        ) {
+          printDiscountAndTip(printer, order.discounts, 0, lang);
+        }
+
         if (order.deliveryInfo?.deliveryFee) {
           printer.newLine();
           printer.println(
@@ -3206,13 +3257,38 @@ export const printOrder = async (
             `${tr(`${translations.printOrder.netWithoutVat[lang]}`, settings.transliterate)}:${totalNetValue.toFixed(2)} €`
           );
         }
+        // Calculate total discount amount for overall discounts
+        let totalDiscountAmount = 0;
+        if (order.discounts) {
+          const overallDiscounts = order.discounts.filter(
+            (d) => !d.productId
+          );
+          overallDiscounts.forEach((d) => {
+            if (d.type === 'FIXED') {
+              totalDiscountAmount += d.amount;
+            } else if (d.type === 'PERCENTAGE' || d.type === 'PERCENT') {
+              totalDiscountAmount += Math.round(
+                (order.total * d.amount) / 100
+              );
+            }
+          });
+        }
+
         // Print total (with VAT)
         if (
           settings.priceOnOrder === undefined ||
           settings.priceOnOrder === true
         ) {
+          const finalTotal = order.total - totalDiscountAmount;
           printer.println(
+<<<<<<< service-bugs
             `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(order.total).toFixed(2)} €`
+=======
+            tr(
+              `${translations.printOrder.total[lang]}:${convertToDecimal(finalTotal).toFixed(2)} €`,
+              settings.transliterate
+            )
+>>>>>>> main
           );
         }
 
