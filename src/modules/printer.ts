@@ -3272,9 +3272,9 @@ export const printOrder = async (
           settings.priceOnOrder === undefined ||
           settings.priceOnOrder === true
         ) {
-          const finalTotal = order.total - totalDiscountAmount;
+          const totalAfterDiscounts = order.total - totalDiscountAmount;
           printer.println(
-            `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(order.total).toFixed(2)} €`
+            `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
           );
         }
 
