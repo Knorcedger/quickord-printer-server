@@ -978,14 +978,14 @@ export const paymentReceipt = async (
     // Normalize discount/discounts to array format from order object
     let discountsArray: any[] = [];
     const order = req.body.order;
-    console.log('order?.discounts:', order?.discounts);
-    console.log('order?.discount:', order?.discount);
     if (order?.discounts) {
+      console.log('order?.discounts:', order?.discounts);
       // If discounts exists, convert to array if needed
       discountsArray = Array.isArray(order.discounts)
         ? order.discounts
         : [order.discounts];
     } else if (order?.discount && Object.keys(order.discount).length > 0) {
+      console.log('order?.discount:', order?.discount);
       // Backward compatibility: use old discount field if discounts doesn't exist
       discountsArray = [order.discount];
     }
@@ -1717,7 +1717,7 @@ const printPaymentReceipt = async (
       });
       continue;
     }
-    console.log('printing ALP');
+    console.log('Printing ALP');
     for (let copies = 0; copies < settings.copies; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
@@ -3067,7 +3067,7 @@ export const printOrder = async (
             settings.documentsToPrint?.includes('OPTION-DETAILS') &&
             product.options
           ) {
-            console.log('Printing details:', product.options);
+            console.log('Printing details:', JSON.stringify(product.options));
             printOptionDetails(printer, product.options, lang, settings);
           }
           // Comments (if any)
