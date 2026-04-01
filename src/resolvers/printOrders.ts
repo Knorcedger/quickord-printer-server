@@ -310,7 +310,6 @@ const printOrders = async (
         : req.headers.project) || 'centrix';
 
     const result = await printerPrintOrders(orders, project);
-    console.log(orders[0]?.products);
 
     // Determine the appropriate status and HTTP code
     const { status, httpCode } = determinePrintStatus(

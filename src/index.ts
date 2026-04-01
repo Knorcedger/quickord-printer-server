@@ -23,6 +23,7 @@ import {
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings';
+import { dedup } from './modules/dedup';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
@@ -218,20 +219,20 @@ const main = async () => {
       }
     });
 
-  app.route('/print-orders').post(printOrders);
+  app.route('/print-orders').post(dedup, printOrders);
 
   app.route('/test-print').post(testPrint);
-  app.route('/print-alp').post(paymentReceipt);
-  app.route('/print-alp-mypelates').post(paymentMyPelatesReceipt);
-  app.route('/print-invoice-mypelates').post(invoiceMyPelates);
+  app.route('/print-alp').post(dedup, paymentReceipt);
+  app.route('/print-alp-mypelates').post(dedup, paymentMyPelatesReceipt);
+  app.route('/print-invoice-mypelates').post(dedup, invoiceMyPelates);
 
-  app.route('/print-payment-slip').post(paymentSlip);
-  app.route('/print-order-form').post(orderForm);
-  app.route('/print-parking-ticket').post(parkingTicket);
-  app.route('/print-pelatologio-record').post(pelatologioRecord);
-  app.route('/print-text').post(printText);
-  app.route('/print-invoice').post(invoice);
-  app.route('/print-delivery-note').post(deliveryNote);
+  app.route('/print-payment-slip').post(dedup, paymentSlip);
+  app.route('/print-order-form').post(dedup, orderForm);
+  app.route('/print-parking-ticket').post(dedup, parkingTicket);
+  app.route('/print-pelatologio-record').post(dedup, pelatologioRecord);
+  app.route('/print-text').post(dedup, printText);
+  app.route('/print-invoice').post(dedup, invoice);
+  app.route('/print-delivery-note').post(dedup, deliveryNote);
 
   app
     .route('/logs')
