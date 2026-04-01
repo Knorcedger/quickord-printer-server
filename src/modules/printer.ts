@@ -1708,7 +1708,6 @@ const printPaymentReceipt = async (
       }
     }
 
-    console.log(appId, settings.printerType);
     if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
       console.log('skipping because its kiosk printer from desktop');
       skipped.push({
@@ -1930,7 +1929,6 @@ const printInvoice = async (
     }
     console.log('printing invoice');
     for (let copies = 0; copies < settings.copies; copies += 1) {
-      console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);

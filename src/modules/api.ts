@@ -17,6 +17,21 @@ const execAsync = (cmd: string): Promise<string> => {
   });
 };
 
+export const getLocalIP = (): string => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    const iface = interfaces[name];
+    if (!iface) continue;
+
+    for (const alias of iface) {
+      if (alias.family === 'IPv4' && !alias.internal) {
+        return alias.address;
+      }
+    }
+  }
+  return '127.0.0.1';
+};
+
 /**
  * Makes a GraphQL API call to the Quickord backend using curl.
  * Curl is used instead of fetch to bypass SSL certificate issues in the bundled executable (nexe).

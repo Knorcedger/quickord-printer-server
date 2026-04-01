@@ -691,12 +691,6 @@ export const printProducts = (
       console.log('Printing details:', JSON.stringify(matchedProduct.options));
       printOptionDetails(printer, matchedProduct.options, lang, settings);
 
-      // Print per-product discount if exists
-      console.log('Checking for product discount');
-      console.log('All discounts:', JSON.stringify(discounts));
-      console.log('matchedProduct.productId:', matchedProduct.productId);
-      console.log('matchedProduct._id:', matchedProduct._id);
-
       // Check if discount matches by productId (template), _id (instance), or content _id
       const productDiscount = discounts.find((d: any) => {
         if (!d.productId) return false;
@@ -726,7 +720,6 @@ export const printProducts = (
     ...entry,
     vatAmount: Number((entry.total - entry.netValue).toFixed(2)),
   }));
-  console.log(fixedBreakdown);
 
   return [sumAmount, sumQuantity, fixedBreakdown];
 };
@@ -869,11 +862,8 @@ export const receiptData = (
 
   printer.alignLeft();
   if (orderType !== 'MYPELATES') {
-    console.log('Language:', lang);
     if (lang === 'el') {
       if (orderType.toLowerCase() !== 'generic') {
-        console.log('1. Order type:', orderType);
-        console.log(SERVICES[orderType.toLowerCase()]);
         const serviceLabel = SERVICES[orderType.toLowerCase()]?.label_el;
 
         const externalOrderId = ['efoodOrderId', 'woltOrderId', 'boxOrderId']
@@ -892,8 +882,6 @@ export const receiptData = (
         printer.println(`#${orderNumber}`);
       }
     } else {
-      console.log('2. Order type:', orderType);
-      console.log(SERVICES[orderType.toLowerCase()]);
       if (orderType.toLowerCase() !== 'generic') {
         printer.println(
           `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`

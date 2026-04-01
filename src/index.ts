@@ -33,10 +33,9 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
-import { apiCall } from './modules/api';
+import { apiCall, getLocalIP } from './modules/api';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { execSync } from 'child_process';
-import os from 'os';
 
 const main = async () => {
   const SERVER_PORT =
@@ -107,21 +106,6 @@ const main = async () => {
       console.error('Error reading version file:', error);
       return 'unknown';
     }
-  }
-
-  function getLocalIP(): string {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      const iface = interfaces[name];
-      if (!iface) continue;
-
-      for (const alias of iface) {
-        if (alias.family === 'IPv4' && !alias.internal) {
-          return alias.address;
-        }
-      }
-    }
-    return '127.0.0.1';
   }
 
   // Simple HTTPS request (works inside exe)
