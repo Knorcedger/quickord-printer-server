@@ -82,9 +82,11 @@ function restoreSettings() {
 // Restart main service
 function restartService() {
   console.log("🚀 Restarting main service...");
-  spawn("node", ["builds/index.js"], {
+  const exePath = path.join(__dirname, "builds", "printerServer.exe");
+  spawn(exePath, [], {
     detached: true,
     stdio: "ignore",
+    cwd: path.join(__dirname, "builds"),
   }).unref();
 }
 
