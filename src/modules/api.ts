@@ -19,17 +19,30 @@ const execAsync = (cmd: string): Promise<string> => {
 
 export const getLocalIP = (): string => {
   const interfaces = os.networkInterfaces();
+
+  // Skip virtual/container interfaces that may shadow the real LAN IP
+  const virtualPatterns =
+    /^(vEthernet|WSL|docker|br-|veth|Hyper-V|VMware|VirtualBox|virbr)/i;
+
+  let fallback: string | null = null;
+
   for (const name of Object.keys(interfaces)) {
     const iface = interfaces[name];
     if (!iface) continue;
 
     for (const alias of iface) {
       if (alias.family === 'IPv4' && !alias.internal) {
-        return alias.address;
+        if (virtualPatterns.test(name)) {
+          console.log('hit virtualPatterns:', name);
+          // Keep as fallback in case no real interface is found
+          if (!fallback) fallback = alias.address;
+        } else {
+          return alias.address;
+        }
       }
     }
   }
-  return '127.0.0.1';
+  return fallback || '127.0.0.1';
 };
 
 /**
