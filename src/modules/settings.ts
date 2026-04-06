@@ -196,7 +196,26 @@ export const loadSettings = async () => {
       return;
     }
 
-    settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
+    let parsed: any;
+
+    try {
+      parsed = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
+    } catch (parseError) {
+      logger.error(
+        'Settings file is corrupted (invalid JSON). Using default settings.',
+        parseError
+      );
+      return;
+    }
+
+    if (!parsed || !Array.isArray(parsed.printers)) {
+      logger.error(
+        'Settings file has invalid structure (missing printers array). Using default settings.'
+      );
+      return;
+    }
+
+    settings = parsed;
 
     logger.info('Settings loaded:', settings);
 

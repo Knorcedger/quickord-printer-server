@@ -99,9 +99,9 @@ export const determinePrintStatus = (
     return { status: 'skipped', httpCode: 200 };
   }
 
-  // All printers failed (no successes) → 200
+  // All printers failed (no successes) → 500
   if (hasErrors && !hasSuccesses) {
-    return { status: 'failed', httpCode: 200 };
+    return { status: 'failed', httpCode: 500 };
   }
 
   // Fallback: no printers at all
@@ -109,56 +109,105 @@ export const determinePrintStatus = (
 };
 
 export const DEFAULT_CODE_PAGE = 7;
+const PRINTER_EXECUTE_TIMEOUT_MS = 10_000;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
+
+// Per-printer mutex to prevent concurrent jobs from interleaving on the same printer
+const printerLocks = new Map<string, Promise<void>>();
+
+const getPrinterKey = (settings: IPrinterSettings): string =>
+  settings.ip || settings.port || settings.name || 'unknown';
+
+const withPrinterLock = async <T>(
+  settings: IPrinterSettings,
+  fn: () => Promise<T>
+): Promise<T> => {
+  const key = getPrinterKey(settings);
+  const existing = printerLocks.get(key) ?? Promise.resolve();
+
+  let releaseLock: () => void;
+  const lockPromise = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  printerLocks.set(key, lockPromise);
+
+  await existing;
+  try {
+    return await fn();
+  } finally {
+    releaseLock!();
+    if (printerLocks.get(key) === lockPromise) {
+      printerLocks.delete(key);
+    }
+  }
+};
+
+const executeWithTimeout = async (
+  printer: ThermalPrinter,
+  options: { waitForResponse: boolean } = { waitForResponse: false }
+): Promise<void> => {
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`Printer execute timed out after ${PRINTER_EXECUTE_TIMEOUT_MS}ms`)),
+      PRINTER_EXECUTE_TIMEOUT_MS
+    )
+  );
+
+  await Promise.race([printer.execute(options), timeoutPromise]);
+};
 
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
 
-// Helper function to execute printer with proper error handling
+// Helper function to execute printer with proper error handling and per-printer mutex
 const executePrinter = async (
   printer: ThermalPrinter,
+  printerSettings: IPrinterSettings,
   printerIdentifier: string,
   operation: string,
   context?: Record<string, any>
 ): Promise<void> => {
-  try {
-    await printer.execute({ waitForResponse: false });
-    printer?.clear();
-    logger.info(
-      `Successfully executed ${operation} on ${printerIdentifier}`,
-      context
-    );
-  } catch (error) {
-    printer?.clear();
+  await withPrinterLock(printerSettings, async () => {
+    try {
+      await executeWithTimeout(printer, { waitForResponse: false });
+      printer?.clear();
+      logger.info(
+        `Successfully executed ${operation} on ${printerIdentifier}`,
+        context
+      );
+    } catch (error) {
+      printer?.clear();
 
-    // Check if it's a connection error
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const isConnectionError =
-      errorMessage.toLowerCase().includes('connect') ||
-      errorMessage.toLowerCase().includes('timeout') ||
-      errorMessage.toLowerCase().includes('network') ||
-      errorMessage.toLowerCase().includes('econnrefused');
+      // Check if it's a connection error
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const isConnectionError =
+        errorMessage.toLowerCase().includes('connect') ||
+        errorMessage.toLowerCase().includes('timeout') ||
+        errorMessage.toLowerCase().includes('network') ||
+        errorMessage.toLowerCase().includes('econnrefused');
 
-    if (isConnectionError) {
-      logger.error(`Printer connection error on ${printerIdentifier}:`, {
-        operation,
-        error: errorMessage,
-        printerIdentifier,
-        ...context,
-      });
-      throw new PrinterConnectionError(printerIdentifier, error);
-    } else {
-      logger.error(`Printer execution error on ${printerIdentifier}:`, {
-        operation,
-        error: errorMessage,
-        stack: error instanceof Error ? error.stack : undefined,
-        printerIdentifier,
-        ...context,
-      });
-      throw new PrinterExecutionError(operation, printerIdentifier, error);
+      if (isConnectionError) {
+        logger.error(`Printer connection error on ${printerIdentifier}:`, {
+          operation,
+          error: errorMessage,
+          printerIdentifier,
+          ...context,
+        });
+        throw new PrinterConnectionError(printerIdentifier, error);
+      } else {
+        logger.error(`Printer execution error on ${printerIdentifier}:`, {
+          operation,
+          error: errorMessage,
+          stack: error instanceof Error ? error.stack : undefined,
+          printerIdentifier,
+          ...context,
+        });
+        throw new PrinterExecutionError(operation, printerIdentifier, error);
+      }
     }
-  }
+  });
 };
 
 export const setupPrinters = async (settings: ISettings) => {
@@ -377,7 +426,7 @@ export const printTestPage = async (
   printer.cut();
 
   try {
-    await printer.execute();
+    await executeWithTimeout(printer);
     logger.info(`Printed test page to ${device}`);
 
     return 'success';
@@ -486,8 +535,9 @@ const printTextFunc = async (
         await readMarkdown(text, printer, alignment, settings);
         printer.cut();
 
-        await printer.execute({
-          waitForResponse: false,
+        await withPrinterLock(settings, async () => {
+          await executeWithTimeout(printer, { waitForResponse: false });
+          printer?.clear();
         });
 
         logger.info(`Successfully printed text to ${printerIdentifier}`, {
@@ -714,11 +764,10 @@ const printParkingTicket = async (
       printer.println('Keep this ticket for your records');
       printer.cut();
 
-      await printer.execute({
-        waitForResponse: false,
+      await withPrinterLock(settings, async () => {
+        await executeWithTimeout(printer, { waitForResponse: false });
+        printer?.clear();
       });
-
-      printer?.clear();
       logger.info(
         `Successfully printed parking ticket to ${printerIdentifier}`,
         { license }
@@ -858,11 +907,10 @@ const printPelatologioRecord = async (
       printer.println('POWERED BY MYPELATES');
       printer.cut();
 
-      await printer.execute({
-        waitForResponse: false,
+      await withPrinterLock(settings, async () => {
+        await executeWithTimeout(printer, { waitForResponse: false });
+        printer?.clear();
       });
-
-      printer?.clear();
       logger.info(
         `Successfully printed pelatologio record to ${printerIdentifier}`,
         { dclId: pelatologioRecord.dclId }
@@ -1373,7 +1421,7 @@ const printOrderForm = async (
       printer.alignCenter();
       printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'order form print', {
+      await executePrinter(printer, settings, printerIdentifier, 'order form print', {
         orderNumber,
         tableNumber,
       });
@@ -1593,7 +1641,7 @@ const printPaymentSlip = async (
       printer.alignCenter();
       printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'payment slip print', {
+      await executePrinter(printer, settings, printerIdentifier, 'payment slip print', {
         orderNumber,
         mark: aadeInvoice?.mark,
       });
@@ -1770,6 +1818,7 @@ const printPaymentReceipt = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'payment receipt print',
           {
@@ -1966,7 +2015,7 @@ const printInvoice = async (
           settings?.port ||
           `printer-${i}`;
 
-        await executePrinter(printer, printerIdentifier, 'invoice print', {
+        await executePrinter(printer, settings, printerIdentifier, 'invoice print', {
           orderNumber,
           mark: aadeInvoice?.mark,
           copy: copies + 1,
@@ -2151,6 +2200,7 @@ const printMyPelatesReceipt = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'MyPelates receipt print',
           {
@@ -2336,6 +2386,7 @@ const printMyPelatesInvoice = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'MyPelates invoice print',
           {
@@ -2551,11 +2602,10 @@ const printDeliveryNote = async (
       );
       printer.cut();
 
-      await printer.execute({
-        waitForResponse: false,
+      await withPrinterLock(settings, async () => {
+        await executeWithTimeout(printer, { waitForResponse: false });
+        printer?.clear();
       });
-
-      printer?.clear();
       logger.info(`Successfull delivery note to ${printerIdentifier}`);
       successCount++;
       successes.push(printerIdentifier);
@@ -3156,7 +3206,7 @@ export const printOrder = async (
 
       if (!dontPrint) {
         try {
-          await executePrinter(printer, printerIdentifier, 'order print', {
+          await executePrinter(printer, settings, printerIdentifier, 'order print', {
             orderId: order._id,
             orderNumber: order.number,
             orderType: order.orderType,
