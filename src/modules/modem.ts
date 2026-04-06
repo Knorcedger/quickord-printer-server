@@ -146,9 +146,7 @@ const createSerialPort = async (port: string) => {
     // RING
 
     const chunk = d.toString();
-    // Mask phone digits in raw log to avoid PII exposure
-    const maskedChunk = chunk.replace(/(\d{3})\d{4,}/g, '$1****');
-    signale.debug(`[modem raw] ${JSON.stringify(maskedChunk)}`);
+    signale.debug(`[modem raw] ${JSON.stringify(chunk)}`);
 
     serialBuffer += chunk;
 
