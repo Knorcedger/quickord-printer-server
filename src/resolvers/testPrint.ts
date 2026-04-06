@@ -6,7 +6,7 @@ import logger from '../modules/logger';
 import { printTestPage } from '../modules/printer';
 
 
-const testPrint = (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const testPrint = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     let ip = '';
     let port = '';
@@ -21,7 +21,12 @@ const testPrint = (req: Request<{}, any, any>, res: Response<{}, any>) => {
     const charset = z.nativeEnum(CharacterSet).parse(req.body.charset);
     const codePage = req.body.codePage;
 
-    printTestPage(ip, port, charset, codePage);
+    const result = await printTestPage(ip, port, charset, codePage);
+
+    if (result === 'Printer not connected') {
+      res.status(503).send({ error: 'Printer not connected', status: 'failed' });
+      return;
+    }
 
     res.status(200).send({ status: 'done' });
   } catch (error) {

@@ -382,6 +382,11 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'DINE IN',
     label_el: 'DINE IN',
   },
+  delivery: {
+    value: 'delivery',
+    label_en: 'DELIVERY',
+    label_el: 'ΔΙΑΝΟΜΗ',
+  },
   generic: {
     value: 'generic',
     label_en: 'GENERIC',
@@ -553,7 +558,7 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}: ${choiceValues.join(', ')}`;
+    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}`;
     printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
   });
 };
@@ -683,14 +688,8 @@ export const printProducts = (
       settings.documentsToPrint?.includes('OPTION-DETAILS') &&
       matchedProduct?.options
     ) {
-      console.log('Printing details:', matchedProduct.options);
+      console.log('Printing details:', JSON.stringify(matchedProduct.options));
       printOptionDetails(printer, matchedProduct.options, lang, settings);
-
-      // Print per-product discount if exists
-      console.log('Checking for product discount');
-      console.log('All discounts:', JSON.stringify(discounts));
-      console.log('matchedProduct.productId:', matchedProduct.productId);
-      console.log('matchedProduct._id:', matchedProduct._id);
 
       // Check if discount matches by productId (template), _id (instance), or content _id
       const productDiscount = discounts.find((d: any) => {
@@ -721,7 +720,6 @@ export const printProducts = (
     ...entry,
     vatAmount: Number((entry.total - entry.netValue).toFixed(2)),
   }));
-  console.log(fixedBreakdown);
 
   return [sumAmount, sumQuantity, fixedBreakdown];
 };

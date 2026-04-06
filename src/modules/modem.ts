@@ -1,15 +1,10 @@
 /* eslint-disable import/prefer-default-export */
 import { AutoDetectTypes } from '@serialport/bindings-cpp';
-import nconf from 'nconf';
 import { SerialPort } from 'serialport';
 import signale from 'signale';
-import { exec } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 
+import { apiCall } from './api';
 import { getSettings, IModemSettings } from './settings';
-nconf.argv().env().file({ file: './config.json' });
 
 let modem: SerialPort<AutoDetectTypes> | null = null;
 let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
@@ -23,15 +18,6 @@ let onDataCallback: (data: string) => void;
 const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
-
-const execAsync = (cmd: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { encoding: 'utf-8' }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
-};
 
 const cleanup = () => {
   if (keepaliveInterval) {
@@ -174,34 +160,19 @@ export const createModem = async (settings: IModemSettings) => {
   // TODO: this should be done locally instead of through the quickordBE
   onDataCallback = async (data) => {
     signale.info(`Phone call detected: ${data}`);
-    let tempFilePath: string | null = null;
     try {
       signale.info(
         `Sending phone info to BE: phoneNumber: "${data}", venueId:"${settings.venueId}"`
       );
 
-      const graphqlQuery = {
-        query: `mutation {
-    incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}"){
-    status
-    }
-    }`,
-      };
+      const response = await apiCall(
+        `mutation { incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}") { status } }`
+      );
 
-      // Write payload to temp file to avoid escaping issues on Windows
-      tempFilePath = path.join(os.tmpdir(), `modem-payload-${Date.now()}.json`);
-      fs.writeFileSync(tempFilePath, JSON.stringify(graphqlQuery));
-
-      // Use curl to bypass SSL issues in bundled executable
-      const curlCmd = `curl -s -X POST "${nconf.get('QUICKORD_API_URL')}" -H "Content-Type: application/json" -H "apikey: desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs" -H "appId: desktop" --data-binary "@${tempFilePath}"`;
-
-      const response = await execAsync(curlCmd);
-      const responseJson = JSON.parse(response);
-
-      if (responseJson?.errors) {
+      if (response?.errors) {
         signale.error(
           'failed to call BE for phonecall',
-          JSON.stringify(responseJson.errors, null, 2)
+          JSON.stringify(response.errors, null, 2)
         );
       } else {
         signale.info(`Phone info sent`);
@@ -209,20 +180,13 @@ export const createModem = async (settings: IModemSettings) => {
     } catch (err) {
       signale.error('error sending phone data to BE');
       signale.error(err);
-    } finally {
-      // Clean up temp file
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try {
-          fs.unlinkSync(tempFilePath);
-        } catch (cleanupErr) {
-          // Ignore cleanup errors
-        }
-      }
     }
   };
-  
+
   if (modem && modem.isOpen && modem.path === settings.port) {
-    signale.info('Modem already connected on same port, keeping existing connection.');
+    signale.info(
+      'Modem already connected on same port, keeping existing connection.'
+    );
     return;
   }
 
