@@ -25,6 +25,11 @@ const testPrint = async (req: Request<{}, any, any>, res: Response<{}, any>) => 
 
     res.status(200).send({ status: 'done' });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      logger.error('Invalid test print request:', error);
+      res.status(400).send({ error: error.message });
+      return;
+    }
     logger.error('Error printing test page:', error);
     res.status(500).send({ error: error instanceof Error ? error.message : 'Print failed' });
   }

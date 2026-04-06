@@ -115,8 +115,14 @@ const printers: [ThermalPrinter, IPrinterSettings][] = [];
 // Per-printer mutex to prevent concurrent jobs from interleaving on the same printer
 const printerLocks = new Map<string, Promise<void>>();
 
-const getPrinterKey = (settings: IPrinterSettings): string =>
-  settings.ip || settings.port || settings.name || 'unknown';
+const getPrinterKey = (settings: IPrinterSettings): string => {
+  const parts = [
+    settings.name && `name:${settings.name}`,
+    settings.ip && `ip:${settings.ip}`,
+    settings.port && `port:${settings.port}`,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join('|') : 'unknown';
+};
 
 const withPrinterLock = async <T>(
   settings: IPrinterSettings,
@@ -146,14 +152,32 @@ const executeWithTimeout = async (
   printer: ThermalPrinter,
   options: { waitForResponse: boolean } = { waitForResponse: false }
 ): Promise<void> => {
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error(`Printer execute timed out after ${PRINTER_EXECUTE_TIMEOUT_MS}ms`)),
-      PRINTER_EXECUTE_TIMEOUT_MS
-    )
-  );
+  const executePromise = printer.execute(options);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
-  await Promise.race([printer.execute(options), timeoutPromise]);
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`Printer execute timed out after ${PRINTER_EXECUTE_TIMEOUT_MS}ms`)),
+        PRINTER_EXECUTE_TIMEOUT_MS
+      );
+    });
+
+    await Promise.race([executePromise, timeoutPromise]);
+  } catch (error) {
+    // Wait for the in-flight execute to settle before releasing the lock,
+    // so a timed-out job can't interleave with the next one
+    try {
+      await executePromise;
+    } catch {
+      // Ignore — preserve the original timeout/error
+    }
+    throw error;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
 };
 
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
@@ -425,8 +449,16 @@ export const printTestPage = async (
   printer.println('text size 3');
   printer.cut();
 
+  const lockSettings = { ip, port, name: 'test-print' } as IPrinterSettings;
+
   try {
-    await executeWithTimeout(printer);
+    await withPrinterLock(lockSettings, async () => {
+      try {
+        await executeWithTimeout(printer);
+      } finally {
+        printer?.clear();
+      }
+    });
     logger.info(`Printed test page to ${device}`);
 
     return 'success';
@@ -536,8 +568,11 @@ const printTextFunc = async (
         printer.cut();
 
         await withPrinterLock(settings, async () => {
-          await executeWithTimeout(printer, { waitForResponse: false });
-          printer?.clear();
+          try {
+            await executeWithTimeout(printer, { waitForResponse: false });
+          } finally {
+            printer?.clear();
+          }
         });
 
         logger.info(`Successfully printed text to ${printerIdentifier}`, {
