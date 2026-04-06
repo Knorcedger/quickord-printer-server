@@ -329,7 +329,6 @@ export const printTestPage = async (
     type: PrinterTypes.EPSON,
   });
 
-  console.log(printers);
   let connected = false;
   if (ip !== '') {
     connected = await printer?.isPrinterConnected();

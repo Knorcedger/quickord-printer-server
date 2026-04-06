@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import signale from 'signale';
 
-import { apiCall, getLocalIP } from '../modules/api';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
@@ -19,6 +18,18 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     const oldSettings = getSettings();
 
+    // Venue guard: reject settings sync from a different venue
+    const ownVenueId = oldSettings.venueId || oldSettings.modem?.venueId;
+    const incomingVenueId = req.body.venueId;
+
+    if (ownVenueId && incomingVenueId && incomingVenueId !== ownVenueId) {
+      logger.warn(
+        `Rejected settings sync from different venue: ${incomingVenueId} (own: ${ownVenueId})`
+      );
+      res.status(403).send({ error: 'venueId mismatch', ownVenueId });
+      return;
+    }
+
     const printers: IPrinterSettings[] = req.body.printers.map(
       (printer: IPrinterSettings) => ({
         ...(oldSettings.printers.find(
@@ -31,7 +42,12 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       })
     );
 
-    const newSettings = Settings.parse({ ...req.body, printers });
+    // Force own venueId — accept first time, lock after
+    const newSettings = Settings.parse({
+      ...req.body,
+      printers,
+      venueId: ownVenueId || incomingVenueId,
+    });
 
     updateSettings(newSettings);
 
@@ -54,17 +70,6 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
           venueId: newSettings.modem.venueId,
         });
       }
-    }
-
-    // Re-register IP if venueId changed
-    if (newSettings.venueId && newSettings.venueId !== oldSettings.venueId) {
-      const localIp = getLocalIP();
-      logger.info(
-        `VenueId changed to ${newSettings.venueId}, re-registering IP: ${localIp}`
-      );
-      apiCall(
-        `mutation { updatePrinterServerIp(venueId: "${newSettings.venueId}", ip: "${localIp}") { status ip } }`
-      ).catch((err) => logger.error('Failed to re-register IP:', err));
     }
 
     logger.info('Settings updated:', newSettings);
