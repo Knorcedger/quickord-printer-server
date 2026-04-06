@@ -5,7 +5,10 @@ import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -112,6 +115,8 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
   }
 };
 
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 10_000;
+
 const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
   // Check cache first
   const cachedImage = getCachedImage(url);
@@ -125,11 +130,16 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
     // -L = follow redirects
     // -A = custom User-Agent
     // --fail = exit non-zero if HTTP error
-    const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
-    const imageBuffer = execSync(cmd);
+    // --max-time = timeout in seconds
+    const timeoutSec = Math.ceil(IMAGE_DOWNLOAD_TIMEOUT_MS / 1000);
+    const cmd = `curl -s -L --fail --max-time ${timeoutSec} -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
+    const { stdout } = await execAsync(cmd, {
+      encoding: 'buffer',
+      maxBuffer: 10 * 1024 * 1024,
+    });
 
     // Process the image with sharp
-    const processedImage = await sharp(imageBuffer)
+    const processedImage = await sharp(stdout)
       .resize(384)
       .grayscale()
       .threshold(128)
