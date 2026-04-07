@@ -14,6 +14,7 @@ let isReconnecting = false;
 let currentSettings: IModemSettings | null = null;
 // eslint-disable-next-line no-unused-vars
 let onDataCallback: (data: string) => void;
+let serialBuffer = '';
 
 const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
@@ -100,6 +101,8 @@ const startKeepalive = () => {
 };
 
 const createSerialPort = async (port: string) => {
+  serialBuffer = '';
+
   const serialport = new SerialPort({
     autoOpen: false,
     baudRate: 9600,
@@ -123,18 +126,38 @@ const createSerialPort = async (port: string) => {
   serialport.write(Buffer.from('AT+GCI=B5\rAT+VCID=1\r'));
 
   serialport.on('data', (d: Buffer) => {
-    // Example of the data returned when the phone rings
+    // Expected modem CID format:
     // RING
-    // DATE = 0718\nTIME = 1730\nNMBR = 1234567890
+    // DATE = 0718
+    // TIME = 1730
+    // NMBR = 1234567890
     // RING
 
-    const data = d
-      .toString()
-      .trim()
-      .match(/(?<=NMBR = )\d+/im)?.[0];
+    const chunk = d.toString();
+    signale.debug(`[modem raw] ${JSON.stringify(chunk)}`);
 
-    if (data) {
-      onDataCallback?.(data);
+    serialBuffer += chunk;
+
+    // Process buffer when we have a complete message:
+    // Either a second RING (end of CID block) or a newline after NMBR line
+    const hasCompleteNmbr = /NMBR\s*=\s*\+?\d+/.test(serialBuffer) &&
+      (serialBuffer.indexOf('NMBR') < serialBuffer.lastIndexOf('\n') ||
+       (serialBuffer.match(/RING/g)?.length ?? 0) >= 2);
+
+    if (hasCompleteNmbr) {
+      const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=\s*)\+?\d+/im)?.[0];
+
+      if (phoneNumber) {
+        onDataCallback?.(phoneNumber);
+      }
+
+      serialBuffer = '';
+    }
+
+    // Prevent buffer from growing indefinitely if no NMBR arrives
+    if (serialBuffer.length > 1024) {
+      signale.warn(`[modem] Buffer overflow, clearing. Content: ${JSON.stringify(serialBuffer)}`);
+      serialBuffer = '';
     }
   });
 
@@ -191,6 +214,7 @@ export const createModem = async (settings: IModemSettings) => {
   }
 
   cleanup();
+  serialBuffer = '';
   modem = await createSerialPort(settings.port);
 };
 
