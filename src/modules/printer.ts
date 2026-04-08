@@ -1561,9 +1561,7 @@ const printPaymentSlip = async (
         }
       });
       printer.alignRight();
-      const roundedSum = Number(sumAmount)
-        .toFixed(2)
-        .replace(/\.?0+$/, '');
+      const roundedSum = Number(sumAmount).toFixed(2);
       printer.println(
         `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
       );
@@ -1769,9 +1767,8 @@ const printPaymentReceipt = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount + tip / 100)
-          .toFixed(2)
-          .replace(/\.?0+$/, '');
+
+        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
@@ -1993,9 +1990,7 @@ const printInvoice = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount + tip / 100)
-          .toFixed(2)
-          .replace(/\.?0+$/, '');
+        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
@@ -2177,9 +2172,7 @@ const printMyPelatesReceipt = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount)
-          .toFixed(2)
-          .replace(/\.?0+$/, '');
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
@@ -2386,10 +2379,8 @@ const printMyPelatesInvoice = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount)
-          .toFixed(2)
-          .replace(/\.?0+$/, '');
 
+        const roundedSum = Number(sumAmount).toFixed(2);
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
         // Calculate spacing
@@ -2910,9 +2901,7 @@ export const printOrder = async (
               settings.transliterate
             )
           );
-          if (settings.startOrder) {
-            drawLine2(printer);
-          }
+          drawLine2(printer);
         }
 
         if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
@@ -2981,6 +2970,7 @@ export const printOrder = async (
 
         productsToPrint.forEach((product) => {
           let total = product.total || 0;
+          let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
           console.log(order.appId, settings.printerType);
           console.log(
@@ -3001,6 +2991,18 @@ export const printOrder = async (
               );
             }
             if (
+              product.updateStatus?.includes('UPDATED') &&
+              product.quantityChanged &&
+              product.quantityChanged.is < product.quantityChanged.was &&
+              isEdit
+            ) {
+              printer.println(
+                tr(
+                  `${translations.printOrder.quantityReduced[lang]}`,
+                  settings.transliterate
+                )
+              );
+            } else if (
               product.updateStatus?.includes('UPDATED') &&
               product.quantityChanged &&
               isEdit
@@ -3032,13 +3034,14 @@ export const printOrder = async (
           // Pad title and amount for alignment
           let productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
           if (
-            product.updateStatus?.includes('NEW') &&
             isEdit &&
-            product.quantityChanged
+            product.quantityChanged &&
+            !product.updateStatus?.includes('NEW')
           ) {
-            productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
-          } else if (isEdit && product.quantityChanged) {
-            productLine = `${product.quantityChanged.was} -> ${product.quantity}x ${normalizeGreek(product.title)}`;
+            const diff =
+              product.quantityChanged.is - product.quantityChanged.was;
+            printQuantity = diff;
+            productLine = `${diff}x ${normalizeGreek(product.title)}`;
           }
           let priceStr = '';
           if (
@@ -3119,7 +3122,8 @@ export const printOrder = async (
 
             const vatRate = product.vat;
 
-            const rawTotal = product.quantity * (product.total + choicesTotal);
+            const rawTotal =
+              Math.abs(printQuantity) * (product.total + choicesTotal);
             const rawNet = rawTotal / (1 + (vatRate || 0) / 100);
 
             const fullTotal = parseFloat(convertToDecimal(rawTotal).toFixed(2));
@@ -3147,7 +3151,7 @@ export const printOrder = async (
           ) {
             printer.alignRight();
             printer.println(
-              `${convertToDecimal((total + choicesTotal) * product.quantity).toFixed(2)} €`
+              `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
             );
           }
           printer.alignLeft();
@@ -3229,7 +3233,11 @@ export const printOrder = async (
           printDiscountAndTip(printer, order.discounts, 0, lang);
         }
 
-        if (order.deliveryInfo?.deliveryFee) {
+        if (
+          order.deliveryInfo?.deliveryFee &&
+          (settings.priceOnOrder === undefined ||
+            settings.priceOnOrder === true)
+        ) {
           printer.newLine();
           printer.println(
             `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`

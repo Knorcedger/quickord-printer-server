@@ -211,6 +211,26 @@ export default {
         el: 'ONLINE WOLT',
         en: 'ONLINE WOLT',
       },
+      ONLINE_CARD: {
+        el: 'ONLINE ΚΑΡΤΑ',
+        en: 'ONLINE CARD',
+      },
+      WEB_BANKING: {
+        el: 'WEB BANKING',
+        en: 'WEB BANKING',
+      },
+      IRIS: {
+        el: 'IRIS',
+        en: 'IRIS',
+      },
+      ROOM_CHARGE: {
+        el: 'ΧΡΕΩΣΗ ΔΩΜΑΤΙΟΥ',
+        en: 'ROOM CHARGE',
+      },
+      QR_PAYS: {
+        el: 'QR PAYS',
+        en: 'QR PAYS',
+      },
     },
     poweredBy: {
       el: 'POWERED BY QUICKORD',
@@ -373,6 +393,10 @@ export default {
     quantityChanged: {
       el: 'ΑΛΛΑΓΗ ΠΟΣΟΤΗΤΑΣ',
       en: 'QUANTITY CHANGED',
+    },
+    quantityReduced: {
+      el: 'ΑΚΥΡΩΣΗ ΠΡΟΪΟΝΤΟΣ',
+      en: 'CANCELLED PRODUCTS',
     },
     new: {
       el: 'ΝΕΟ',
