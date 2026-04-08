@@ -120,7 +120,7 @@ export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
 // (same as Font A on 80mm), so all existing layout code works unchanged.
 export const applyPaperWidth = (
   printer: ThermalPrinter,
-  settings?: { paperWidth?: string }
+  settings?: Pick<IPrinterSettings, 'paperWidth'>
 ) => {
   if (settings?.paperWidth === '58') {
     printer.setTypeFontB();
