@@ -124,7 +124,8 @@ export const applyPaperWidth = (
   printer: ThermalPrinter,
   settings?: Pick<IPrinterSettings, 'paperWidth'>
 ) => {
-  const venueId = getSettings().venueId || getSettings().modem?.venueId;
+  const currentSettings = getSettings();
+  const venueId = currentSettings.venueId || currentSettings.modem?.venueId;
   const is58mm =
     settings?.paperWidth === '58' ||
     (!!venueId && getVenues58mm().includes(venueId));
