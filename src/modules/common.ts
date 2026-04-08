@@ -313,13 +313,25 @@ export const formatToGreek = (date: Date | string): string => {
   });
 };
 
+// Module-level paper width — set once per print job via setActivePaperWidth()
+let activePaperWidth: string = '80';
+
+export const setActivePaperWidth = (pw: string) => {
+  activePaperWidth = pw || '80';
+};
+
+export const getLineWidth = (): number =>
+  activePaperWidth === '58' ? 32 : 42;
+
 export const formatLine = (left, right) => {
-  const space = 40 - left.length - right.length;
+  const width = getLineWidth();
+  const space = width - 2 - left.length - right.length;
   return left + ' '.repeat(space > 0 ? space : 1) + right;
 };
 
 export const drawLine2 = (printer: ThermalPrinter) => {
-  printer.println('------------------------------------------');
+  const width = getLineWidth();
+  printer.println('-'.repeat(width));
 };
 
 export type ServiceType = {
@@ -1122,7 +1134,7 @@ export const printDeliveryNoteVatBreakdown = (
 
   // Summary section
   printer.newLine();
-  const lineWidth = 42;
+  const lineWidth = getLineWidth();
 
   const summaryLines = [
     { label: 'ΑΡΧ. ΑΞΙΑ', value: totalOriginalValue.toFixed(2) + '€' },

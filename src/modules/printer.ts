@@ -31,6 +31,8 @@ import {
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
   printProductDiscount,
+  setActivePaperWidth,
+  getLineWidth,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
@@ -116,12 +118,12 @@ export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
 
-// For 58mm paper printers, switch to Font B which gives ~42 chars/line
-// (same as Font A on 80mm), so all existing layout code works unchanged.
+// For 58mm paper printers, switch to Font B for smaller text.
 export const applyPaperWidth = (
   printer: ThermalPrinter,
   settings?: Pick<IPrinterSettings, 'paperWidth'>
 ) => {
+  setActivePaperWidth(settings?.paperWidth || '80');
   if (settings?.paperWidth === '58') {
     printer.setTypeFontB();
   }
@@ -1779,7 +1781,7 @@ const printPaymentReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+        const lineWidth = getLineWidth();
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2003,7 +2005,7 @@ const printInvoice = async (
         );
         printer.bold(true);
         printer.alignLeft();
-        const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+        const lineWidth = getLineWidth();
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2186,7 +2188,7 @@ const printMyPelatesReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+        const lineWidth = getLineWidth();
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2394,7 +2396,7 @@ const printMyPelatesInvoice = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = 42; // Adjust based on your printer (usually 32 or 42 characters at size 0,0)
+        const lineWidth = getLineWidth();
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -3073,7 +3075,7 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = 42; // Assuming 42 character width for POS80
+          const lineWidth = getLineWidth();
           const paddedLine = productLine.padEnd(
             lineWidth - priceStr.length,
             ' '
