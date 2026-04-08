@@ -130,22 +130,34 @@ function restoreSettings() {
 
 // Restart via service if installed, otherwise start exe directly
 function restartService() {
+  // Check if service is installed
+  let serviceInstalled = false;
   try {
-    // Check if service is installed
     execSync(`sc query "${SERVICE_NAME}"`, { timeout: 5000 });
-    console.log("Starting service...");
-    execSync(`sc start "${SERVICE_NAME}"`, { timeout: 10000 });
-    console.log("Service started");
+    serviceInstalled = true;
   } catch {
-    // Service not installed, start exe directly
-    console.log("Service not installed, starting exe directly...");
-    const exePath = path.join(__dirname, "builds", "printerServer.exe");
-    spawn(exePath, [], {
-      detached: true,
-      stdio: "ignore",
-      cwd: path.join(__dirname, "builds"),
-    }).unref();
+    // Service not installed
   }
+
+  if (serviceInstalled) {
+    try {
+      console.log("Starting service...");
+      execSync(`sc start "${SERVICE_NAME}"`, { timeout: 10000 });
+      console.log("Service started");
+    } catch (err) {
+      console.error("Failed to start service:", err.message || err);
+    }
+    return;
+  }
+
+  // Service not installed, start exe directly
+  console.log("Service not installed, starting exe directly...");
+  const exePath = path.join(__dirname, "builds", "printerServer.exe");
+  spawn(exePath, [], {
+    detached: true,
+    stdio: "ignore",
+    cwd: path.join(__dirname, "builds"),
+  }).unref();
 }
 
 // Main updater flow
