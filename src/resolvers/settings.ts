@@ -4,6 +4,7 @@ import signale from 'signale';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
+import nconf from 'nconf';
 import {
   getSettings,
   IPrinterSettings,
@@ -36,14 +37,18 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
         const cleaned = Object.fromEntries(
           Object.entries(printer).filter(([, v]) => v !== undefined)
         );
+        const sanitizedIp =
+          printer.ip !== undefined ? printer.ip.replace('\r', '') : undefined;
         return {
           ...(oldSettings.printers.find(
             (p) =>
-              (p.ip === printer.ip?.replace('\r', '') && p.ip !== '') ||
+              (sanitizedIp !== undefined &&
+                p.ip === sanitizedIp &&
+                p.ip !== '') ||
               (p.port === printer.port && p.port !== '')
           ) || {}),
           ...cleaned,
-          ip: printer.ip ? printer.ip.replace('\r', '') : undefined,
+          ...(sanitizedIp !== undefined ? { ip: sanitizedIp } : {}),
         };
       }
     );
@@ -55,8 +60,8 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       venueId: ownVenueId || incomingVenueId,
     });
 
-    // Force 58mm paper width for specific venues
-    const VENUES_58MM = ['69ce72b461628d1bfbc00d6f'];
+    // Force 58mm paper width for specific venues (configured in config.json)
+    const VENUES_58MM: string[] = nconf.get('VENUES_58MM') || [];
     const effectiveVenueId = newSettings.venueId || newSettings.modem?.venueId;
     if (effectiveVenueId && VENUES_58MM.includes(effectiveVenueId)) {
       newSettings.printers = newSettings.printers.map((p) => ({
