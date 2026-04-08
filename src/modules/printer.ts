@@ -115,6 +115,17 @@ export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
 
+// For 58mm paper printers, switch to Font B which gives ~42 chars/line
+// (same as Font A on 80mm), so all existing layout code works unchanged.
+export const applyPaperWidth = (
+  printer: ThermalPrinter,
+  settings?: { paperWidth?: string }
+) => {
+  if (settings?.paperWidth === '58') {
+    printer.setTypeFontB();
+  }
+};
+
 // Helper function to execute printer with proper error handling
 const executePrinter = async (
   printer: ThermalPrinter,
@@ -480,8 +491,9 @@ const printTextFunc = async (
       );
 
       try {
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.clear();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
 
         await readMarkdown(text, printer, alignment, settings);
         printer.cut();
@@ -685,6 +697,7 @@ const printParkingTicket = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      applyPaperWidth(printer, settings);
       printer.bold(true);
       printer.println('PARKING TICKET');
       drawLine2(printer);
@@ -796,6 +809,7 @@ const printPelatologioRecord = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      applyPaperWidth(printer, settings);
       printer.bold(true);
       printer.println('PELATOLOGIO RECORD');
       printer.newLine();
@@ -1318,6 +1332,7 @@ const printOrderForm = async (
       console.log(aadeInvoice);
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      applyPaperWidth(printer, settings);
       printer.println(
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
@@ -1452,6 +1467,7 @@ const printPaymentSlip = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      applyPaperWidth(printer, settings);
       printer.println(`${translations.printOrder.paymentSlip[lang]}`);
       printer.println(aadeInvoice?.issuer.name);
       printer.println(aadeInvoice?.issuer.activity);
@@ -1689,6 +1705,7 @@ const printPaymentReceipt = async (
     for (let copies = 0; copies < settings.copies; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
@@ -1887,6 +1904,7 @@ const printInvoice = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
         printer.println(`${translations.printOrder.customerInfo[lang]}`);
@@ -2058,6 +2076,7 @@ const printMyPelatesReceipt = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
         printer.alignCenter();
         printer.println(`${translations.printOrder.reciept[lang]}`);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
@@ -2247,6 +2266,7 @@ const printMyPelatesInvoice = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
         printer.alignCenter();
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
@@ -2710,6 +2730,7 @@ export const printOrder = async (
 
       for (let copies = 0; copies < settings.copies; copies += 1) {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        applyPaperWidth(printer, settings);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();

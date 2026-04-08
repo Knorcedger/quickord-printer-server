@@ -165,6 +165,14 @@ export const PrinterSettings = z.object({
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
   transliterate: z.boolean().default(false),
+  paperWidth: z
+    .enum(['80', '58'], {
+      description:
+        'The paper width of the printer in mm. 58mm printers use a smaller font to fit content.',
+      invalid_type_error: 'paperWidth must be "80" or "58".',
+    })
+    .optional()
+    .default('80'),
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
