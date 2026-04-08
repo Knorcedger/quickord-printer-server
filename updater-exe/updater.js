@@ -34,7 +34,7 @@ function killPort(port) {
   try {
     console.log(`Killing process on port ${port}...`);
     execSync(
-      `for /f "tokens=5" %a in ('netstat -ano ^| find ":${port}" ^| find "LISTENING"') do taskkill /PID %a /F`
+      `for /f "tokens=5" %a in ('netstat -ano ^| findstr /R /C:":${port} " ^| find "LISTENING"') do taskkill /PID %a /F`
     );
   } catch {
     console.warn(`No process found on port ${port}`);

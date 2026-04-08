@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import * as path from 'node:path';
@@ -62,10 +63,15 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   }
 }
 
-function launchUpdaterAndExit(): void {
+function launchUpdaterAndExit(): boolean {
   // updater.exe sits one level above builds/
   const cwd = process.cwd();
   const updaterPath = path.resolve(cwd, '..', 'updater.exe');
+
+  if (!fs.existsSync(updaterPath)) {
+    console.error('updater.exe not found at:', updaterPath);
+    return false;
+  }
 
   console.log('Launching updater:', updaterPath);
 
@@ -75,12 +81,17 @@ function launchUpdaterAndExit(): void {
     windowsHide: false,
   });
 
+  child.on('error', (err) => {
+    console.error('Failed to launch updater:', err.message);
+  });
+
   child.unref();
 
   console.log('Updater launched. Exiting printerServer...');
   setTimeout(() => {
     process.exit(0);
   }, 500);
+  return true;
 }
 
 export default async function autoUpdate() {
@@ -117,5 +128,8 @@ export default async function autoUpdate() {
   console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
 
   // Delegate to updater.exe and exit
-  launchUpdaterAndExit();
+  const launched = launchUpdaterAndExit();
+  if (!launched) {
+    console.error('Could not launch updater. Continuing without update.');
+  }
 }

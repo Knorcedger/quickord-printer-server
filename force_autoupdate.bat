@@ -16,7 +16,7 @@ echo Killing printerServer.exe...
 taskkill /IM printerServer.exe /F >nul 2>&1
 
 REM Kill any process on the port
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
     taskkill /pid %%a /f >nul 2>&1
 )
 
