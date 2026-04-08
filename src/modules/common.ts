@@ -52,7 +52,9 @@ export const changeTextSize = (
       return;
     case 'NORMAL':
     default:
-      printer.setTextNormal();
+      // Use setTextSize(0,0) instead of setTextNormal() to avoid resetting
+      // the font selection (Font B for 58mm paper support).
+      printer.setTextSize(0, 0);
   }
 };
 
