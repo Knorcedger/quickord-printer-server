@@ -1793,7 +1793,7 @@ const printPaymentReceipt = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, Math.min(spaceCount, lineWidth / 2)));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
@@ -2015,7 +2015,7 @@ const printInvoice = async (
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, Math.min(spaceCount, lineWidth / 2)));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
         printPayments(printer, aadeInvoice, lang, settings.transliterate);
@@ -2199,7 +2199,7 @@ const printMyPelatesReceipt = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, Math.min(spaceCount, lineWidth / 2)));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
@@ -2407,7 +2407,7 @@ const printMyPelatesInvoice = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, Math.min(spaceCount, lineWidth / 2)));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
