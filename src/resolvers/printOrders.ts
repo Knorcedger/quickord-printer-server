@@ -61,7 +61,8 @@ export const Product = z.object({
           z.object({
             amountLevel: z
               .enum(['MUCH', 'LITTLE'], {
-                invalid_type_error: 'choice amountLevel must be MUCH or LITTLE.',
+                invalid_type_error:
+                  'choice amountLevel must be MUCH or LITTLE.',
               })
               .optional()
               .nullable(),
@@ -129,6 +130,10 @@ export const PaymentType = z.enum([
   'ONLINE_BOX',
   'ONLINE_WOLT',
   'ONLINE_CARD',
+  'WEB_BANKING',
+  'IRIS',
+  'ROOM_CHARGE',
+  'QR_PAYS',
 ]);
 
 export const DeliveryInfo = z.object({
@@ -280,6 +285,16 @@ export const Order = z.object({
       required_error: 'waiterName is required.',
     })
     .optional(),
+  discounts: z
+    .array(
+      z.object({
+        amount: z.number(),
+        type: z.enum(['FIXED', 'PERCENTAGE', 'PERCENT']),
+        productId: z.string().optional(),
+        voucherId: z.string().optional().nullable(),
+      })
+    )
+    .optional(),
 });
 
 const Orders = z.array(Order);
@@ -299,7 +314,6 @@ const printOrders = async (
         : req.headers.project) || 'centrix';
 
     const result = await printerPrintOrders(orders, project);
-    console.log(orders[0]?.products);
 
     // Determine the appropriate status and HTTP code
     const { status, httpCode } = determinePrintStatus(

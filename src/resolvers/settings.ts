@@ -18,6 +18,18 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     const oldSettings = getSettings();
 
+    // Venue guard: reject settings sync from a different venue
+    const ownVenueId = oldSettings.venueId || oldSettings.modem?.venueId;
+    const incomingVenueId = req.body.venueId;
+
+    if (ownVenueId && incomingVenueId && incomingVenueId !== ownVenueId) {
+      logger.warn(
+        `Rejected settings sync from different venue: ${incomingVenueId} (own: ${ownVenueId})`
+      );
+      res.status(403).send({ error: 'venueId mismatch', ownVenueId });
+      return;
+    }
+
     const printers: IPrinterSettings[] = req.body.printers.map(
       (printer: IPrinterSettings) => ({
         ...(oldSettings.printers.find(
@@ -30,7 +42,12 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       })
     );
 
-    const newSettings = Settings.parse({ ...req.body, printers });
+    // Force own venueId — accept first time, lock after
+    const newSettings = Settings.parse({
+      ...req.body,
+      printers,
+      venueId: ownVenueId || incomingVenueId,
+    });
 
     updateSettings(newSettings);
 

@@ -23,6 +23,7 @@ import {
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings';
+import { dedup } from './modules/dedup';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
@@ -33,9 +34,9 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
+import { apiCall, getLocalIP } from './modules/api';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { execSync } from 'child_process';
-import os from 'os';
 
 const main = async () => {
   const SERVER_PORT =
@@ -67,6 +68,7 @@ const main = async () => {
   await setupPrinters(getSettings());
 
   const app = express();
+  let server!: ReturnType<typeof app.listen>;
   app.use(
     cors({
       origin(origin: string | undefined, callback: any) {
@@ -105,21 +107,6 @@ const main = async () => {
       console.error('Error reading version file:', error);
       return 'unknown';
     }
-  }
-
-  function getLocalIP(): string {
-    const interfaces = os.networkInterfaces();
-    for (const name of Object.keys(interfaces)) {
-      const iface = interfaces[name];
-      if (!iface) continue;
-
-      for (const alias of iface) {
-        if (alias.family === 'IPv4' && !alias.internal) {
-          return alias.address;
-        }
-      }
-    }
-    return '127.0.0.1';
   }
 
   // Simple HTTPS request (works inside exe)
@@ -162,6 +149,33 @@ const main = async () => {
       res.status(200).send({ status: 'ok' });
     });
 
+  app.post('/restart', (req: Request, res: Response) => {
+    res.status(200).send({ status: 'restarting' });
+    setTimeout(() => {
+      const isDev = process.argv[1]?.endsWith('.ts');
+      if (isDev) {
+        process.exit(0);
+      }
+      // Production: close server to release port, then spawn new process
+      server.close(() => {
+        const { spawn } =
+          require('child_process') as typeof import('child_process');
+        const child = spawn(
+          process.execPath,
+          [...process.execArgv, ...process.argv.slice(1)],
+          {
+            detached: true,
+            stdio: 'ignore',
+            cwd: process.cwd(),
+            env: process.env,
+          }
+        );
+        child.unref();
+        process.exit(0);
+      });
+    }, 500);
+  });
+
   app
     .route('/local-ip')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
@@ -190,20 +204,20 @@ const main = async () => {
       }
     });
 
-  app.route('/print-orders').post(printOrders);
+  app.route('/print-orders').post(dedup, printOrders);
 
   app.route('/test-print').post(testPrint);
-  app.route('/print-alp').post(paymentReceipt);
-  app.route('/print-alp-mypelates').post(paymentMyPelatesReceipt);
-  app.route('/print-invoice-mypelates').post(invoiceMyPelates);
+  app.route('/print-alp').post(dedup, paymentReceipt);
+  app.route('/print-alp-mypelates').post(dedup, paymentMyPelatesReceipt);
+  app.route('/print-invoice-mypelates').post(dedup, invoiceMyPelates);
 
-  app.route('/print-payment-slip').post(paymentSlip);
-  app.route('/print-order-form').post(orderForm);
-  app.route('/print-parking-ticket').post(parkingTicket);
-  app.route('/print-pelatologio-record').post(pelatologioRecord);
-  app.route('/print-text').post(printText);
-  app.route('/print-invoice').post(invoice);
-  app.route('/print-delivery-note').post(deliveryNote);
+  app.route('/print-payment-slip').post(dedup, paymentSlip);
+  app.route('/print-order-form').post(dedup, orderForm);
+  app.route('/print-parking-ticket').post(dedup, parkingTicket);
+  app.route('/print-pelatologio-record').post(dedup, pelatologioRecord);
+  app.route('/print-text').post(dedup, printText);
+  app.route('/print-invoice').post(dedup, invoice);
+  app.route('/print-delivery-note').post(dedup, deliveryNote);
 
   app
     .route('/logs')
@@ -251,11 +265,41 @@ const main = async () => {
   );
 
   // start server
-  const server = app.listen(SERVER_PORT, () => {
+  server = app.listen(SERVER_PORT, () => {
     logger.info(
       'API listening at port',
       (server?.address?.() as { port: number })?.port
     );
+
+    // Self-register printer server IP with the backend
+    const venueId = getSettings().venueId || getSettings().modem?.venueId;
+
+    if (venueId) {
+      const localIp = getLocalIP();
+      logger.info(
+        `Registering printer server IP: ${localIp} for venue: ${venueId}`
+      );
+      apiCall(
+        `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
+      )
+        .then((res) => {
+          if (res?.errors) {
+            logger.error(
+              'Failed to register printer server IP:',
+              JSON.stringify(res.errors)
+            );
+          } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
+            logger.info('Printer server IP registered successfully');
+          }
+        })
+        .catch((err) => {
+          logger.error('Failed to register printer server IP:', err);
+        });
+    } else {
+      logger.info(
+        'No venueId configured, skipping printer server IP registration'
+      );
+    }
   });
 };
 

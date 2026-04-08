@@ -187,6 +187,7 @@ export type IModemSettings = z.infer<typeof ModemSettings>;
 export const Settings = z.object({
   modem: ModemSettings.optional(),
   printers: z.array(PrinterSettings),
+  venueId: z.string().optional(),
 });
 
 export type ISettings = z.infer<typeof Settings>;

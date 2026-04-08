@@ -1,15 +1,10 @@
 /* eslint-disable import/prefer-default-export */
 import { AutoDetectTypes } from '@serialport/bindings-cpp';
-import nconf from 'nconf';
 import { SerialPort } from 'serialport';
 import signale from 'signale';
-import { exec } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 
+import { apiCall } from './api';
 import { getSettings, IModemSettings } from './settings';
-nconf.argv().env().file({ file: './config.json' });
 
 let modem: SerialPort<AutoDetectTypes> | null = null;
 let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
@@ -19,19 +14,11 @@ let isReconnecting = false;
 let currentSettings: IModemSettings | null = null;
 // eslint-disable-next-line no-unused-vars
 let onDataCallback: (data: string) => void;
+let serialBuffer = '';
 
 const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
-
-const execAsync = (cmd: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { encoding: 'utf-8' }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
-};
 
 const cleanup = () => {
   if (keepaliveInterval) {
@@ -114,6 +101,8 @@ const startKeepalive = () => {
 };
 
 const createSerialPort = async (port: string) => {
+  serialBuffer = '';
+
   const serialport = new SerialPort({
     autoOpen: false,
     baudRate: 9600,
@@ -137,18 +126,39 @@ const createSerialPort = async (port: string) => {
   serialport.write(Buffer.from('AT+GCI=B5\rAT+VCID=1\r'));
 
   serialport.on('data', (d: Buffer) => {
-    // Example of the data returned when the phone rings
-    // RING
-    // DATE = 0718\nTIME = 1730\nNMBR = 1234567890
+    // Expected modem CID formats:
+    // Direct modem:          CHC (virtual COM):
+    // RING                   RING
+    // DATE = 0718            DATE 0408
+    // TIME = 1730            TIME 1355
+    // NMBR = 1234567890      NMBR 6976641604
     // RING
 
-    const data = d
-      .toString()
-      .trim()
-      .match(/(?<=NMBR = )\d+/im)?.[0];
+    const chunk = d.toString();
+    signale.debug(`[modem raw] ${JSON.stringify(chunk)}`);
 
-    if (data) {
-      onDataCallback?.(data);
+    serialBuffer += chunk;
+
+    // Process buffer when we have a complete message:
+    // Either a second RING (end of CID block) or a newline after NMBR line
+    const hasCompleteNmbr = /NMBR\s*=?\s*\+?\d+/.test(serialBuffer) &&
+      (serialBuffer.indexOf('NMBR') < serialBuffer.lastIndexOf('\n') ||
+       (serialBuffer.match(/RING/g)?.length ?? 0) >= 2);
+
+    if (hasCompleteNmbr) {
+      const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=?\s*)\+?\d+/im)?.[0];
+
+      if (phoneNumber) {
+        onDataCallback?.(phoneNumber);
+      }
+
+      serialBuffer = '';
+    }
+
+    // Prevent buffer from growing indefinitely if no NMBR arrives
+    if (serialBuffer.length > 1024) {
+      signale.warn(`[modem] Buffer overflow, clearing. Content: ${JSON.stringify(serialBuffer)}`);
+      serialBuffer = '';
     }
   });
 
@@ -174,34 +184,19 @@ export const createModem = async (settings: IModemSettings) => {
   // TODO: this should be done locally instead of through the quickordBE
   onDataCallback = async (data) => {
     signale.info(`Phone call detected: ${data}`);
-    let tempFilePath: string | null = null;
     try {
       signale.info(
         `Sending phone info to BE: phoneNumber: "${data}", venueId:"${settings.venueId}"`
       );
 
-      const graphqlQuery = {
-        query: `mutation {
-    incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}"){
-    status
-    }
-    }`,
-      };
+      const response = await apiCall(
+        `mutation { incomingPhoneCall(phoneNumber: "${data}", venueId:"${settings.venueId}") { status } }`
+      );
 
-      // Write payload to temp file to avoid escaping issues on Windows
-      tempFilePath = path.join(os.tmpdir(), `modem-payload-${Date.now()}.json`);
-      fs.writeFileSync(tempFilePath, JSON.stringify(graphqlQuery));
-
-      // Use curl to bypass SSL issues in bundled executable
-      const curlCmd = `curl -s -X POST "${nconf.get('QUICKORD_API_URL')}" -H "Content-Type: application/json" -H "apikey: desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs" -H "appId: desktop" --data-binary "@${tempFilePath}"`;
-
-      const response = await execAsync(curlCmd);
-      const responseJson = JSON.parse(response);
-
-      if (responseJson?.errors) {
+      if (response?.errors) {
         signale.error(
           'failed to call BE for phonecall',
-          JSON.stringify(responseJson.errors, null, 2)
+          JSON.stringify(response.errors, null, 2)
         );
       } else {
         signale.info(`Phone info sent`);
@@ -209,24 +204,18 @@ export const createModem = async (settings: IModemSettings) => {
     } catch (err) {
       signale.error('error sending phone data to BE');
       signale.error(err);
-    } finally {
-      // Clean up temp file
-      if (tempFilePath && fs.existsSync(tempFilePath)) {
-        try {
-          fs.unlinkSync(tempFilePath);
-        } catch (cleanupErr) {
-          // Ignore cleanup errors
-        }
-      }
     }
   };
-  
+
   if (modem && modem.isOpen && modem.path === settings.port) {
-    signale.info('Modem already connected on same port, keeping existing connection.');
+    signale.info(
+      'Modem already connected on same port, keeping existing connection.'
+    );
     return;
   }
 
   cleanup();
+  serialBuffer = '';
   modem = await createSerialPort(settings.port);
 };
 

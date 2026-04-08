@@ -1,7 +1,9 @@
 @echo off
+cd /d "%~dp0"
 setlocal enabledelayedexpansion
 
-set SERVICE_NAME=PrinterServerService
+:: Use the actual Windows Service name (matches printerServerService.xml <id>)
+set SERVICE_NAME=printerServer
 set PORT=7810
 
 :: Check if port is in use and try to stop service
