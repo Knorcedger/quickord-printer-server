@@ -1,6 +1,6 @@
 /**
  * WebSocket client that connects to the Quickord backend.
- * Receives raw ESC/POS print commands and sends them to local printers via TCP/serial.
+ * Receives raw ESC/POS print commands and sends them to local printers via TCP.
  */
 import WebSocket from 'ws';
 import * as net from 'node:net';
@@ -12,18 +12,16 @@ nconf.argv().env().file({ file: './config.json' });
 let ws: WebSocket | null = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_DELAY = 60000;
+const SOCKET_TIMEOUT = 5000;
 
 function getBackendWsUrl(): string {
-  // Derive WS URL from the API URL
   const apiUrl = nconf.get('QUICKORD_API_URL') || 'https://api.quickord.com/graphql';
   const wsUrl = nconf.get('BACKEND_WS_URL');
   if (wsUrl) return wsUrl;
-  // Convert https://api.quickord.com/graphql -> wss://api.quickord.com
   return apiUrl.replace('/graphql', '').replace('https://', 'wss://').replace('http://', 'ws://');
 }
 
 function getVenueId(): string {
-  // Try to get venueId from settings.json first, then config
   try {
     const fs = require('fs');
     if (fs.existsSync('./settings.json')) {
@@ -35,21 +33,23 @@ function getVenueId(): string {
   return nconf.get('VENUE_ID') || '';
 }
 
+function getApiKey(): string {
+  return nconf.get('API_KEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+}
+
 async function sendToPrinter(
   ip: string,
   port: number,
   data: Buffer
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const socket = net.connect(
-      { host: ip, port: port || 9100, timeout: 5000 },
-      () => {
-        socket.write(data, () => {
-          socket.destroy();
-          resolve();
-        });
-      }
-    );
+    const socket = net.connect({ host: ip, port: port || 9100 }, () => {
+      socket.write(data, () => {
+        socket.end(); // graceful close instead of destroy
+        resolve();
+      });
+    });
+    socket.setTimeout(SOCKET_TIMEOUT);
     socket.on('error', (err) => {
       socket.destroy();
       reject(err);
@@ -61,13 +61,20 @@ async function sendToPrinter(
   });
 }
 
-function handleMessage(message: string): void {
+function handleMessage(raw: string): void {
   try {
-    const msg = JSON.parse(message);
+    const msg = JSON.parse(raw);
 
     switch (msg.type) {
       case 'printRaw': {
         const { jobId, printerIp, printerPort, data } = msg;
+
+        if (!jobId || !printerIp || !data) {
+          logger.error('Invalid printRaw message: missing required fields');
+          if (jobId) sendResult(jobId, 'failed', 'Missing required fields');
+          return;
+        }
+
         const buffer = Buffer.from(data, 'base64');
         const port = printerPort ? parseInt(printerPort, 10) : 9100;
 
@@ -87,7 +94,6 @@ function handleMessage(message: string): void {
 
       case 'checkPrintersRequest': {
         logger.info('Received printer check request');
-        // TODO: ping printers and respond
         break;
       }
 
@@ -127,20 +133,17 @@ function connect(): void {
     reconnectAttempts = 0;
     logger.info('WebSocket connected to backend');
 
-    // Register as printer server
     ws!.send(
       JSON.stringify({
         type: 'printerServerRegister',
-        data: {
-          venueId,
-          apikey: 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
-        },
+        data: { venueId, apikey: getApiKey() },
       })
     );
   });
 
   ws.on('message', (data: WebSocket.Data) => {
-    handleMessage(data.toString());
+    const message = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString() : Buffer.from(data as ArrayBuffer).toString();
+    handleMessage(message);
   });
 
   ws.on('close', () => {
