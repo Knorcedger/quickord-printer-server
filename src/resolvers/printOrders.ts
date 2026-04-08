@@ -130,6 +130,10 @@ export const PaymentType = z.enum([
   'ONLINE_BOX',
   'ONLINE_WOLT',
   'ONLINE_CARD',
+  'WEB_BANKING',
+  'IRIS',
+  'ROOM_CHARGE',
+  'QR_PAYS',
 ]);
 
 export const DeliveryInfo = z.object({
