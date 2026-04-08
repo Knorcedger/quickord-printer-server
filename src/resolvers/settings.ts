@@ -31,15 +31,21 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     }
 
     const printers: IPrinterSettings[] = req.body.printers.map(
-      (printer: IPrinterSettings) => ({
-        ...(oldSettings.printers.find(
-          (p) =>
-            (p.ip === printer.ip.replace('\r', '') && p.ip !== '') ||
-            (p.port === printer.port && p.port !== '')
-        ) || {}),
-        ...printer,
-        ip: printer.ip ? printer.ip.replace('\r', '') : undefined,
-      })
+      (printer: IPrinterSettings) => {
+        // Strip undefined values so they don't overwrite existing settings
+        const cleaned = Object.fromEntries(
+          Object.entries(printer).filter(([, v]) => v !== undefined)
+        );
+        return {
+          ...(oldSettings.printers.find(
+            (p) =>
+              (p.ip === printer.ip?.replace('\r', '') && p.ip !== '') ||
+              (p.port === printer.port && p.port !== '')
+          ) || {}),
+          ...cleaned,
+          ip: printer.ip ? printer.ip.replace('\r', '') : undefined,
+        };
+      }
     );
 
     // Force own venueId — accept first time, lock after
