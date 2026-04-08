@@ -313,11 +313,13 @@ export const formatToGreek = (date: Date | string): string => {
   });
 };
 
-// Module-level paper width — set once per print job via setActivePaperWidth()
-let activePaperWidth: string = '80';
+// Module-level paper width — set at the start of each print job via setActivePaperWidth().
+// NOTE: This is shared mutable state. Safe because print jobs are processed sequentially
+// per printer, but if concurrency changes, this should be replaced with per-call threading.
+let activePaperWidth: '80' | '58' = '80';
 
-export const setActivePaperWidth = (pw: string) => {
-  activePaperWidth = pw || '80';
+export const setActivePaperWidth = (pw?: string) => {
+  activePaperWidth = pw === '58' ? '58' : '80';
 };
 
 export const getLineWidth = (): number =>
@@ -325,7 +327,7 @@ export const getLineWidth = (): number =>
 
 export const formatLine = (left, right) => {
   const width = getLineWidth();
-  const space = width - 2 - left.length - right.length;
+  const space = width - left.length - right.length;
   return left + ' '.repeat(space > 0 ? space : 1) + right;
 };
 
