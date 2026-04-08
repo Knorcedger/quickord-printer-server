@@ -4,6 +4,7 @@ import signale from 'signale';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
+import nconf from 'nconf';
 import {
   getSettings,
   IPrinterSettings,
@@ -31,15 +32,25 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     }
 
     const printers: IPrinterSettings[] = req.body.printers.map(
-      (printer: IPrinterSettings) => ({
-        ...(oldSettings.printers.find(
-          (p) =>
-            (p.ip === printer.ip.replace('\r', '') && p.ip !== '') ||
-            (p.port === printer.port && p.port !== '')
-        ) || {}),
-        ...printer,
-        ip: printer.ip ? printer.ip.replace('\r', '') : undefined,
-      })
+      (printer: IPrinterSettings) => {
+        // Strip undefined values so they don't overwrite existing settings
+        const cleaned = Object.fromEntries(
+          Object.entries(printer).filter(([, v]) => v !== undefined)
+        );
+        const sanitizedIp =
+          printer.ip !== undefined ? printer.ip.replace('\r', '') : undefined;
+        return {
+          ...(oldSettings.printers.find(
+            (p) =>
+              (sanitizedIp !== undefined &&
+                p.ip === sanitizedIp &&
+                p.ip !== '') ||
+              (p.port === printer.port && p.port !== '')
+          ) || {}),
+          ...cleaned,
+          ...(sanitizedIp !== undefined ? { ip: sanitizedIp } : {}),
+        };
+      }
     );
 
     // Force own venueId — accept first time, lock after
@@ -48,6 +59,16 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       printers,
       venueId: ownVenueId || incomingVenueId,
     });
+
+    // Force 58mm paper width for specific venues (configured in config.json)
+    const VENUES_58MM: string[] = nconf.get('VENUES_58MM') || [];
+    const effectiveVenueId = newSettings.venueId || newSettings.modem?.venueId;
+    if (effectiveVenueId && VENUES_58MM.includes(effectiveVenueId)) {
+      newSettings.printers = newSettings.printers.map((p) => ({
+        ...p,
+        paperWidth: '58' as const,
+      }));
+    }
 
     updateSettings(newSettings);
 
