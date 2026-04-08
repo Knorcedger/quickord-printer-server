@@ -33,12 +33,12 @@ import {
   printProductDiscount,
   setActivePaperWidth,
   getLineWidth,
+  getVenues58mm,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings, PrinterTextSize, getSettings } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
-import nconf from 'nconf';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
 
 // Custom error classes for better error handling
@@ -124,11 +124,10 @@ export const applyPaperWidth = (
   printer: ThermalPrinter,
   settings?: Pick<IPrinterSettings, 'paperWidth'>
 ) => {
-  const VENUES_58MM: string[] = nconf.get('VENUES_58MM') || [];
   const venueId = getSettings().venueId || getSettings().modem?.venueId;
   const is58mm =
     settings?.paperWidth === '58' ||
-    (!!venueId && VENUES_58MM.includes(venueId));
+    (!!venueId && getVenues58mm().includes(venueId));
 
   setActivePaperWidth(is58mm ? '58' : '80');
   if (is58mm) {

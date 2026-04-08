@@ -9,6 +9,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import nconf from 'nconf';
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -311,6 +312,13 @@ export const formatToGreek = (date: Date | string): string => {
     minute: '2-digit',
     hour12: false,
   });
+};
+
+export const getVenues58mm = (): string[] => {
+  const raw = nconf.get('VENUES_58MM');
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') return raw.split(',').map((s) => s.trim()).filter(Boolean);
+  return [];
 };
 
 // Module-level paper width — set at the start of each print job via setActivePaperWidth().

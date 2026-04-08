@@ -1,9 +1,8 @@
 import * as fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
-import nconf from 'nconf';
-
 import logger from './logger';
+import { getVenues58mm } from './common';
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet, {
   description: 'The character set to use for the printer.',
@@ -210,7 +209,6 @@ export const loadSettings = async () => {
 
     logger.info('Settings loaded:', settings);
 
-    const VENUES_58MM: string[] = nconf.get('VENUES_58MM') || [];
     const effectiveVenueId = settings.venueId || settings.modem?.venueId;
 
     settings.printers = settings.printers?.map((printer) => {
@@ -218,7 +216,7 @@ export const loadSettings = async () => {
         ...printer,
         characterSet:
           CharacterSet[printer.characterSet] || CharacterSet.WPC1253_GREEK,
-        ...(effectiveVenueId && VENUES_58MM.includes(effectiveVenueId)
+        ...(effectiveVenueId && getVenues58mm().includes(effectiveVenueId)
           ? { paperWidth: '58' as const }
           : {}),
       };
