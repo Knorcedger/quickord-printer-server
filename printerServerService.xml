@@ -4,4 +4,6 @@
   <description>This service runs the printer server app.</description>
   <executable>printerServer.exe</executable>
   <log mode="roll" />
+  <onfailure action="restart" delay="10 sec" />
+  <resetfailure>1 hour</resetfailure>
 </service>

@@ -19,7 +19,7 @@ timeout /t 2 >nul
 set "killed=0"
 set "found_process=0"
 
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
     set "found_process=1"
     echo Killing process using port %PORT% with PID %%a
     taskkill /pid %%a /f
@@ -29,9 +29,15 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENI
 :: Wait after killing
 if "%killed%"=="1" timeout /t 2 >nul
 
+:: Force kill printerServer.exe by name as final fallback
+taskkill /IM printerServer.exe /F >nul 2>&1
+
+:: Wait a moment after kill
+timeout /t 1 >nul
+
 :: Check again if port is still in use by LISTENING process
 set "port_still_in_use=0"
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
     set "port_still_in_use=1"
 )
 
