@@ -126,11 +126,12 @@ const createSerialPort = async (port: string) => {
   serialport.write(Buffer.from('AT+GCI=B5\rAT+VCID=1\r'));
 
   serialport.on('data', (d: Buffer) => {
-    // Expected modem CID format:
-    // RING
-    // DATE = 0718
-    // TIME = 1730
-    // NMBR = 1234567890
+    // Expected modem CID formats:
+    // Direct modem:          CHC (virtual COM):
+    // RING                   RING
+    // DATE = 0718            DATE 0408
+    // TIME = 1730            TIME 1355
+    // NMBR = 1234567890      NMBR 6976641604
     // RING
 
     const chunk = d.toString();
@@ -140,12 +141,12 @@ const createSerialPort = async (port: string) => {
 
     // Process buffer when we have a complete message:
     // Either a second RING (end of CID block) or a newline after NMBR line
-    const hasCompleteNmbr = /NMBR\s*=\s*\+?\d+/.test(serialBuffer) &&
+    const hasCompleteNmbr = /NMBR\s*=?\s*\+?\d+/.test(serialBuffer) &&
       (serialBuffer.indexOf('NMBR') < serialBuffer.lastIndexOf('\n') ||
        (serialBuffer.match(/RING/g)?.length ?? 0) >= 2);
 
     if (hasCompleteNmbr) {
-      const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=\s*)\+?\d+/im)?.[0];
+      const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=?\s*)\+?\d+/im)?.[0];
 
       if (phoneNumber) {
         onDataCallback?.(phoneNumber);
