@@ -31,7 +31,6 @@
   "dependencies": {
     "@serialport/bindings-cpp": "^12.0.1",
     "@types/jszip": "^3.4.0",
-    "@types/ws": "^8.18.1",
     "adm-zip": "^0.5.15",
     "axios": "^1.11.0",
     "body-parser": "^1.20.2",
@@ -66,6 +65,7 @@
     "@types/ping": "^0.4.4",
     "@types/signale": "^1.4.7",
     "@types/unzipper": "^0.10.11",
+    "@types/ws": "^8.18.1",
     "@types/yauzl-promise": "^4.0.1",
     "concurrently": "^8.2.2",
     "esbuild": "^0.25.2",

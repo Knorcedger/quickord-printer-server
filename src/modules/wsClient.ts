@@ -21,21 +21,24 @@ function getBackendWsUrl(): string {
   return apiUrl.replace('/graphql', '').replace('https://', 'wss://').replace('http://', 'ws://');
 }
 
+// Cache venueId to avoid re-reading settings.json on every call
+let cachedVenueId: string | null = null;
+
 function getVenueId(): string {
+  if (cachedVenueId) return cachedVenueId;
   try {
-    const fs = require('fs');
-    if (fs.existsSync('./settings.json')) {
-      const settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
-      if (settings.venueId) return settings.venueId;
-      if (settings.modem?.venueId) return settings.modem.venueId;
-    }
+    // Try existing settings module first
+    const { getSettings } = require('./settings');
+    const settings = getSettings();
+    if (settings?.venueId) { cachedVenueId = settings.venueId; return cachedVenueId!; }
+    if (settings?.modem?.venueId) { cachedVenueId = settings.modem.venueId; return cachedVenueId!; }
   } catch {}
-  return nconf.get('VENUE_ID') || '';
+  cachedVenueId = nconf.get('VENUE_ID') || '';
+  return cachedVenueId!;
 }
 
-function getApiKey(): string {
-  return nconf.get('API_KEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
-}
+// Shared API key constant — same as used in modules/api.ts
+const API_KEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 
 async function sendToPrinter(
   ip: string,
@@ -113,6 +116,8 @@ function sendResult(jobId: string, status: string, error?: string): void {
         data: { jobId, status, error, venueId: getVenueId() },
       })
     );
+  } else {
+    logger.error(`Cannot send print result for job ${jobId} — WebSocket not open (status: ${status})`);
   }
 }
 
@@ -136,13 +141,22 @@ function connect(): void {
     ws!.send(
       JSON.stringify({
         type: 'printerServerRegister',
-        data: { venueId, apikey: getApiKey() },
+        data: { venueId, apikey: API_KEY },
       })
     );
   });
 
   ws.on('message', (data: WebSocket.Data) => {
-    const message = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString() : Buffer.from(data as ArrayBuffer).toString();
+    let message: string;
+    if (typeof data === 'string') {
+      message = data;
+    } else if (Buffer.isBuffer(data)) {
+      message = data.toString();
+    } else if (Array.isArray(data)) {
+      message = Buffer.concat(data).toString();
+    } else {
+      message = Buffer.from(data as ArrayBuffer).toString();
+    }
     handleMessage(message);
   });
 
