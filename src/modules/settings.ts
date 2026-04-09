@@ -1,8 +1,23 @@
 import * as fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
+import nconf from 'nconf';
 
 import logger from './logger';
+
+// Read VENUES_58MM from config.json (or env). Accepts either an array or a
+// comma-separated string so it can be passed via env vars in the future.
+export const getVenues58mm = (): string[] => {
+  const raw = nconf.get('VENUES_58MM');
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
 
 const CharacterSetEnum = z.nativeEnum(CharacterSet, {
   description: 'The character set to use for the printer.',
@@ -209,11 +224,16 @@ export const loadSettings = async () => {
 
     logger.info('Settings loaded:', settings);
 
+    const effectiveVenueId = settings.venueId || settings.modem?.venueId;
+    const force58mm =
+      !!effectiveVenueId && getVenues58mm().includes(effectiveVenueId);
+
     settings.printers = settings.printers?.map((printer) => {
       return {
         ...printer,
         characterSet:
           CharacterSet[printer.characterSet] || CharacterSet.WPC1253_GREEK,
+        ...(force58mm ? { paperWidth: '58' as const } : {}),
       };
     });
   } catch (error) {
