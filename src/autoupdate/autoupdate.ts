@@ -1,8 +1,7 @@
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, exec } from 'node:child_process';
 import * as path from 'node:path';
-import { exec } from 'node:child_process';
 
 import nconf from 'nconf';
 
@@ -63,7 +62,7 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   }
 }
 
-function launchUpdaterAndExit(): boolean {
+async function launchUpdaterAndExit(): Promise<boolean> {
   // updater.exe sits one level above builds/
   const cwd = process.cwd();
   const updaterPath = path.resolve(cwd, '..', 'updater.exe');
@@ -87,11 +86,12 @@ function launchUpdaterAndExit(): boolean {
 
   child.unref();
 
+  // Wait for cmd.exe `start` to dispatch the child before we exit, so the
+  // parent doesn't continue with loadSettings/setupPrinters in parallel
+  // with the updater that's about to taskkill us.
   console.log('Updater launched. Exiting printerServer...');
-  setTimeout(() => {
-    process.exit(0);
-  }, 500);
-  return true;
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  process.exit(0);
 }
 
 export default async function autoUpdate() {
@@ -128,7 +128,7 @@ export default async function autoUpdate() {
   console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
 
   // Delegate to updater.exe and exit
-  const launched = launchUpdaterAndExit();
+  const launched = await launchUpdaterAndExit();
   if (!launched) {
     console.error('Could not launch updater. Continuing without update.');
   }
