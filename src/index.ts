@@ -43,18 +43,9 @@ const main = async () => {
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
-  const args = process.argv.slice(2); // Get arguments after the script name
+  const args = process.argv.slice(2);
   if (args[0] !== '--noupdate') {
-    console.log('Arguments:', args);
-    let updatePath: string | null = null;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--update' && i + 1 < args.length) {
-        updatePath = args[i + 1] ?? null; // Get the next argument as the update path
-      }
-    }
-
-    console.log('Update path:', process.argv);
-    await autoUpdate(args); // Ensure updatePath is a string
+    await autoUpdate();
   }
 
   await loadSettings();
