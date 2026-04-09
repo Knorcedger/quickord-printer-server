@@ -31,11 +31,14 @@ import {
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
   printProductDiscount,
-  setActivePaperWidth,
-  getLineWidth,
 } from './common';
 import logger from './logger';
-import { IPrinterSettings, ISettings, PrinterTextSize } from './settings';
+import {
+  IPrinterSettings,
+  ISettings,
+  getSettings,
+  getVenues58mm,
+} from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
@@ -119,12 +122,18 @@ export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
 };
 
 // For 58mm paper printers, switch to Font B for smaller text.
+// Also honors the VENUES_58MM list as a per-print safety net, in case the
+// override hasn't propagated to the printer's settings object yet.
 export const applyPaperWidth = (
   printer: ThermalPrinter,
   settings?: Pick<IPrinterSettings, 'paperWidth'>
 ) => {
-  setActivePaperWidth(settings?.paperWidth || '80');
-  if (settings?.paperWidth === '58') {
+  const venueId = getSettings().venueId || getSettings().modem?.venueId;
+  const is58mm =
+    settings?.paperWidth === '58' ||
+    (!!venueId && getVenues58mm().includes(venueId));
+
+  if (is58mm) {
     printer.setTypeFontB();
   }
 };
@@ -1781,7 +1790,7 @@ const printPaymentReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = getLineWidth();
+        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -1793,9 +1802,7 @@ const printPaymentReceipt = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = lineWidth <= 32
-          ? ' '.repeat(Math.max(1, Math.min(spaceCount, 5)))
-          : ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, spaceCount));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
@@ -2007,7 +2014,7 @@ const printInvoice = async (
         );
         printer.bold(true);
         printer.alignLeft();
-        const lineWidth = getLineWidth();
+        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2017,9 +2024,7 @@ const printInvoice = async (
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = lineWidth <= 32
-          ? ' '.repeat(Math.max(1, Math.min(spaceCount, 5)))
-          : ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, spaceCount));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
         printPayments(printer, aadeInvoice, lang, settings.transliterate);
@@ -2192,7 +2197,7 @@ const printMyPelatesReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = getLineWidth();
+        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2203,9 +2208,7 @@ const printMyPelatesReceipt = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = lineWidth <= 32
-          ? ' '.repeat(Math.max(1, Math.min(spaceCount, 5)))
-          : ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, spaceCount));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
@@ -2402,7 +2405,7 @@ const printMyPelatesInvoice = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = getLineWidth();
+        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2413,9 +2416,7 @@ const printMyPelatesInvoice = async (
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
-        const spacing = lineWidth <= 32
-          ? ' '.repeat(Math.max(1, Math.min(spaceCount, 5)))
-          : ' '.repeat(Math.max(1, spaceCount));
+        const spacing = ' '.repeat(Math.max(1, spaceCount));
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
@@ -2644,7 +2645,8 @@ const printDeliveryNote = async (
         totalOriginalValue,
         totalNetValue,
         totalVatAmount,
-        sumAmount
+        sumAmount,
+        settings.paperWidth
       );
 
       printMarks(printer, aadeInvoice, lang, settings.transliterate);
@@ -3083,7 +3085,7 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = getLineWidth();
+          const lineWidth = settings.paperWidth === '58' ? 32 : 42;
           const paddedLine = productLine.padEnd(
             lineWidth - priceStr.length,
             ' '

@@ -313,27 +313,13 @@ export const formatToGreek = (date: Date | string): string => {
   });
 };
 
-// Module-level paper width — set at the start of each print job via setActivePaperWidth().
-// NOTE: This is shared mutable state. Safe because print jobs are processed sequentially
-// per printer, but if concurrency changes, this should be replaced with per-call threading.
-let activePaperWidth: '80' | '58' = '80';
-
-export const setActivePaperWidth = (pw?: string) => {
-  activePaperWidth = pw === '58' ? '58' : '80';
-};
-
-export const getLineWidth = (): number =>
-  activePaperWidth === '58' ? 32 : 42;
-
 export const formatLine = (left, right) => {
-  const width = getLineWidth();
-  const space = width - left.length - right.length;
+  const space = 40 - left.length - right.length;
   return left + ' '.repeat(space > 0 ? space : 1) + right;
 };
 
 export const drawLine2 = (printer: ThermalPrinter) => {
-  const width = getLineWidth();
-  printer.println('-'.repeat(width));
+  printer.println('------------------------------------------');
 };
 
 export type ServiceType = {
@@ -1056,7 +1042,8 @@ export const printDeliveryNoteVatBreakdown = (
   totalOriginalValue: number,
   totalNetValue: number,
   totalVatAmount: number,
-  totalFinalPrice: number
+  totalFinalPrice: number,
+  paperWidth?: '80' | '58'
 ) => {
   // Create a map with all VAT rates initialized to 0
   const vatRates = [24, 13, 6, 0];
@@ -1136,7 +1123,7 @@ export const printDeliveryNoteVatBreakdown = (
 
   // Summary section
   printer.newLine();
-  const lineWidth = getLineWidth();
+  const lineWidth = paperWidth === '58' ? 32 : 42;
 
   const summaryLines = [
     { label: 'ΑΡΧ. ΑΞΙΑ', value: totalOriginalValue.toFixed(2) + '€' },
