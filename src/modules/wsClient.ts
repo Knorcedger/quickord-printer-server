@@ -63,7 +63,19 @@ async function sendToPrinter(
   });
 }
 
-function handleMessage(raw: string): void {
+function checkPrinterConnectivity(ip: string, port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: ip, port }, () => {
+      socket.destroy();
+      resolve(true);
+    });
+    socket.setTimeout(2000);
+    socket.on('error', () => { socket.destroy(); resolve(false); });
+    socket.on('timeout', () => { socket.destroy(); resolve(false); });
+  });
+}
+
+async function handleMessage(raw: string): Promise<void> {
   try {
     const msg = JSON.parse(raw);
 
@@ -97,6 +109,20 @@ function handleMessage(raw: string): void {
 
       case 'checkPrintersRequest': {
         logger.info('Received printer check request');
+        const printersToCheck: { id: string; ip: string; port?: string }[] = msg.printers || [];
+        const results = await Promise.all(
+          printersToCheck.map(async (p) => {
+            const port = p.port ? parseInt(p.port, 10) : 9100;
+            const connected = await checkPrinterConnectivity(p.ip, Number.isFinite(port) ? port : 9100);
+            return { id: p.id, connected };
+          })
+        );
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'checkPrintersResponse',
+            data: { printers: results, venueId: getVenueId() },
+          }));
+        }
         break;
       }
 
