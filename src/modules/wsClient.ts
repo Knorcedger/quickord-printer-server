@@ -37,8 +37,8 @@ function getVenueId(): string {
   return cachedVenueId!;
 }
 
-// Shared API key constant — same as used in modules/api.ts
-const API_KEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+// Shared API key — same value used in modules/api.ts curl header
+const API_KEY = nconf.get('API_KEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 
 async function sendToPrinter(
   ip: string,
@@ -46,21 +46,20 @@ async function sendToPrinter(
   data: Buffer
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (!settled) { settled = true; fn(); }
+    };
+
     const socket = net.connect({ host: ip, port: port || 9100 }, () => {
       socket.write(data, () => {
-        socket.end(); // graceful close instead of destroy
-        resolve();
+        socket.end();
       });
     });
     socket.setTimeout(SOCKET_TIMEOUT);
-    socket.on('error', (err) => {
-      socket.destroy();
-      reject(err);
-    });
-    socket.on('timeout', () => {
-      socket.destroy();
-      reject(new Error('Connection timeout'));
-    });
+    socket.on('close', () => settle(() => resolve()));
+    socket.on('error', (err) => settle(() => { socket.destroy(); reject(err); }));
+    socket.on('timeout', () => settle(() => { socket.destroy(); reject(new Error('Connection timeout')); }));
   });
 }
 
@@ -79,7 +78,8 @@ function handleMessage(raw: string): void {
         }
 
         const buffer = Buffer.from(data, 'base64');
-        const port = printerPort ? parseInt(printerPort, 10) : 9100;
+        const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
+        const port = Number.isFinite(parsed) ? parsed : 9100;
 
         logger.info(`Received print job ${jobId} for ${printerIp}:${port} (${buffer.length} bytes)`);
 
