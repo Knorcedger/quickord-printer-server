@@ -25,7 +25,7 @@ function getBackendWsUrl(): string {
 let cachedVenueId: string | null = null;
 
 function getVenueId(): string {
-  if (cachedVenueId) return cachedVenueId;
+  if (cachedVenueId !== null) return cachedVenueId;
   try {
     // Try existing settings module first
     const { getSettings } = require('./settings');
@@ -101,7 +101,7 @@ async function handleMessage(raw: string): Promise<void> {
             sendResult(jobId, 'success');
           })
           .catch((err) => {
-            logger.error(`Print job ${jobId} failed for ${printerIp}:`, err.message);
+            logger.error(`Print job ${jobId} failed for ${printerIp}:`, err);
             sendResult(jobId, 'failed', err.message);
           });
         break;
@@ -109,7 +109,7 @@ async function handleMessage(raw: string): Promise<void> {
 
       case 'checkPrintersRequest': {
         logger.info('Received printer check request');
-        const printersToCheck: { id: string; ip: string; port?: string }[] = msg.printers || [];
+        const printersToCheck: { id: string; ip: string; port?: string }[] = msg.data?.printers || msg.printers || [];
         const results = await Promise.all(
           printersToCheck.map(async (p) => {
             const port = p.port ? parseInt(p.port, 10) : 9100;
@@ -192,7 +192,7 @@ function connect(): void {
   });
 
   ws.on('error', (err) => {
-    logger.error('WebSocket error:', err.message);
+    logger.error('WebSocket error:', err);
   });
 }
 
