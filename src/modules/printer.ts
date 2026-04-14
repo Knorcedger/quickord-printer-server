@@ -33,12 +33,7 @@ import {
   printProductDiscount,
 } from './common';
 import logger from './logger';
-import {
-  IPrinterSettings,
-  ISettings,
-  getSettings,
-  getVenues58mm,
-} from './settings';
+import { IPrinterSettings, ISettings } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
@@ -119,23 +114,6 @@ const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
-};
-
-// For 58mm paper printers, switch to Font B for smaller text.
-// Also honors the VENUES_58MM list as a per-print safety net, in case the
-// override hasn't propagated to the printer's settings object yet.
-export const applyPaperWidth = (
-  printer: ThermalPrinter,
-  settings?: Pick<IPrinterSettings, 'paperWidth'>
-) => {
-  const venueId = getSettings().venueId || getSettings().modem?.venueId;
-  const is58mm =
-    settings?.paperWidth === '58' ||
-    (!!venueId && getVenues58mm().includes(venueId));
-
-  if (is58mm) {
-    printer.setTypeFontB();
-  }
 };
 
 // Helper function to execute printer with proper error handling
@@ -504,7 +482,6 @@ const printTextFunc = async (
       try {
         printer.clear();
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
 
         await readMarkdown(text, printer, alignment, settings);
         printer.cut();
@@ -708,7 +685,6 @@ const printParkingTicket = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      applyPaperWidth(printer, settings);
       printer.bold(true);
       printer.println('PARKING TICKET');
       drawLine2(printer);
@@ -820,7 +796,6 @@ const printPelatologioRecord = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      applyPaperWidth(printer, settings);
       printer.bold(true);
       printer.println('PELATOLOGIO RECORD');
       printer.newLine();
@@ -1343,7 +1318,6 @@ const printOrderForm = async (
       console.log(aadeInvoice);
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      applyPaperWidth(printer, settings);
       printer.println(
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
@@ -1374,7 +1348,8 @@ const printOrderForm = async (
         order,
         settings,
         lang,
-        discounts
+        discounts,
+        false
       );
       if (discounts.length > 0) {
         printDiscountAndTip(
@@ -1491,7 +1466,6 @@ const printPaymentSlip = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      applyPaperWidth(printer, settings);
       printer.println(
         tr(
           `${translations.printOrder.paymentSlip[lang]}`,
@@ -1744,7 +1718,6 @@ const printPaymentReceipt = async (
     for (let copies = 0; copies < settings.copies; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
@@ -1775,7 +1748,8 @@ const printPaymentReceipt = async (
           order,
           settings,
           lang,
-          discounts
+          discounts,
+          false
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
@@ -1790,7 +1764,7 @@ const printPaymentReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
+        const lineWidth = 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -1955,7 +1929,6 @@ const printInvoice = async (
     for (let copies = 0; copies < settings.copies; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
         printer.println(
@@ -2001,7 +1974,8 @@ const printInvoice = async (
           order,
           settings,
           lang,
-          discounts
+          discounts,
+          false
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
@@ -2014,7 +1988,7 @@ const printInvoice = async (
         );
         printer.bold(true);
         printer.alignLeft();
-        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
+        const lineWidth = 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2144,7 +2118,6 @@ const printMyPelatesReceipt = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
         printer.alignCenter();
         printer.println(
           tr(`${translations.printOrder.reciept[lang]}`, settings.transliterate)
@@ -2197,7 +2170,7 @@ const printMyPelatesReceipt = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
+        const lineWidth = 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2337,7 +2310,6 @@ const printMyPelatesInvoice = async (
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
         printer.alignCenter();
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         printer.newLine();
@@ -2405,7 +2377,7 @@ const printMyPelatesInvoice = async (
         printer.bold(true);
         printer.alignLeft();
 
-        const lineWidth = settings.paperWidth === '58' ? 32 : 42;
+        const lineWidth = 42;
         const leftText = tr(
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
@@ -2645,8 +2617,7 @@ const printDeliveryNote = async (
         totalOriginalValue,
         totalNetValue,
         totalVatAmount,
-        sumAmount,
-        settings.paperWidth
+        sumAmount
       );
 
       printMarks(printer, aadeInvoice, lang, settings.transliterate);
@@ -2823,7 +2794,6 @@ export const printOrder = async (
 
       for (let copies = 0; copies < settings.copies; copies += 1) {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        applyPaperWidth(printer, settings);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();
@@ -3023,33 +2993,23 @@ export const printOrder = async (
                 )
               );
             }
-            if (
-              product.updateStatus?.includes('UPDATED') &&
-              product.quantityChanged &&
-              product.quantityChanged.is < product.quantityChanged.was &&
-              isEdit
-            ) {
+            if (product.updateStatus?.includes('UPDATED')) {
+              const qc = product.quantityChanged;
+              const qcIs = Number(qc?.is ?? 0);
+              const qcWas = Number(qc?.was ?? 0);
+              const qtyDiffers = !!qc && qcIs !== qcWas;
+
+              let labelKey:
+                | 'quantityReduced'
+                | 'quantityChanged'
+                | 'productChanged';
+              if (qtyDiffers && qcIs < qcWas) labelKey = 'quantityReduced';
+              else if (qtyDiffers && qcIs > qcWas) labelKey = 'quantityChanged';
+              else labelKey = 'productChanged';
+
               printer.println(
                 tr(
-                  `${translations.printOrder.quantityReduced[lang]}`,
-                  settings.transliterate
-                )
-              );
-            } else if (
-              product.updateStatus?.includes('UPDATED') &&
-              product.quantityChanged &&
-              isEdit
-            ) {
-              printer.println(
-                tr(
-                  `${translations.printOrder.quantityChanged[lang]}`,
-                  settings.transliterate
-                )
-              );
-            } else if (product.updateStatus?.includes('UPDATED')) {
-              printer.println(
-                tr(
-                  `${translations.printOrder.updated[lang]}`,
+                  `${translations.printOrder[labelKey][lang]}`,
                   settings.transliterate
                 )
               );
@@ -3069,6 +3029,8 @@ export const printOrder = async (
           if (
             isEdit &&
             product.quantityChanged &&
+            Number(product.quantityChanged.is) !==
+              Number(product.quantityChanged.was) &&
             !product.updateStatus?.includes('NEW')
           ) {
             const diff =
@@ -3085,7 +3047,7 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = settings.paperWidth === '58' ? 32 : 42;
+          const lineWidth = 42;
           const paddedLine = productLine.padEnd(
             lineWidth - priceStr.length,
             ' '

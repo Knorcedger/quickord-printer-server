@@ -6,7 +6,6 @@ import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
 import {
   getSettings,
-  getVenues58mm,
   IPrinterSettings,
   saveSettings,
   Settings,
@@ -59,15 +58,6 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       printers,
       venueId: ownVenueId || incomingVenueId,
     });
-
-    // Force 58mm paper width for specific venues (configured in config.json)
-    const effectiveVenueId = newSettings.venueId || newSettings.modem?.venueId;
-    if (effectiveVenueId && getVenues58mm().includes(effectiveVenueId)) {
-      newSettings.printers = newSettings.printers.map((p) => ({
-        ...p,
-        paperWidth: '58' as const,
-      }));
-    }
 
     updateSettings(newSettings);
 

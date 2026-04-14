@@ -398,6 +398,10 @@ export default {
       el: 'ΑΚΥΡΩΣΗ ΠΡΟΪΟΝΤΟΣ',
       en: 'CANCELLED PRODUCTS',
     },
+    productChanged: {
+      el: 'ΑΛΛΑΓΗ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT CHANGED',
+    },
     new: {
       el: 'ΝΕΟ',
       en: 'NEW',
