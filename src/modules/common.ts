@@ -591,7 +591,8 @@ export const printProducts = (
   order: any = {},
   settings,
   lang,
-  discounts: any[] = []
+  discounts: any[] = [],
+  showOptions: boolean = true
 ): [number, number, any[]] => {
   let sumAmount = 0;
   let sumQuantity = 0;
@@ -707,6 +708,7 @@ export const printProducts = (
       );
     }
     if (
+      showOptions &&
       settings.documentsToPrint?.includes('OPTION-DETAILS') &&
       matchedProduct?.options
     ) {

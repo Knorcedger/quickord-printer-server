@@ -1348,7 +1348,8 @@ const printOrderForm = async (
         order,
         settings,
         lang,
-        discounts
+        discounts,
+        false
       );
       if (discounts.length > 0) {
         printDiscountAndTip(
@@ -1747,7 +1748,8 @@ const printPaymentReceipt = async (
           order,
           settings,
           lang,
-          discounts
+          discounts,
+          false
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
@@ -1972,7 +1974,8 @@ const printInvoice = async (
           order,
           settings,
           lang,
-          discounts
+          discounts,
+          false
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
@@ -3001,8 +3004,7 @@ export const printOrder = async (
                 | 'quantityChanged'
                 | 'productChanged';
               if (qtyDiffers && qcIs < qcWas) labelKey = 'quantityReduced';
-              else if (qtyDiffers && qcIs > qcWas)
-                labelKey = 'quantityChanged';
+              else if (qtyDiffers && qcIs > qcWas) labelKey = 'quantityChanged';
               else labelKey = 'productChanged';
 
               printer.println(
