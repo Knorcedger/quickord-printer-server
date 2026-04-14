@@ -136,6 +136,7 @@ export interface AadeInvoice {
     name: string;
     quantity: number;
     net_value: number;
+    rec_type?: number;
   }[];
   payment_methods: {
     code: string;

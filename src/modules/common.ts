@@ -52,9 +52,7 @@ export const changeTextSize = (
       return;
     case 'NORMAL':
     default:
-      // Use setTextSize(0,0) instead of setTextNormal() to avoid resetting
-      // the font selection (Font B for 58mm paper support).
-      printer.setTextSize(0, 0);
+      printer.setTextNormal();
   }
 };
 
@@ -617,41 +615,68 @@ export const printProducts = (
   );
   drawLine2(printer);
   const vatBreakdown = new Map();
-  aadeInvoice?.details.forEach((detail: any) => {
-    sumQuantity += detail.quantity;
+  const detailsArr = aadeInvoice?.details ?? [];
+  detailsArr.forEach((detail: any, idx: number) => {
+    const isCredit = detail.rec_type === 7;
+    const sign = isCredit ? -1 : 1;
+
+    const rawNet = detail.net_value || 0;
+    const rawTax = detail?.tax?.value || 0;
+    const rawTotal = rawNet + rawTax;
+    const signedQuantity = sign * detail.quantity;
+    const signedNet = sign * rawNet;
+    const signedTotal = sign * rawTotal;
+
+    sumQuantity += signedQuantity;
+    sumAmount += signedTotal;
+
+    const matchedProduct = order?.products?.find((p: any) =>
+      p.content?.some(
+        (c: any) =>
+          typeof c?.title === 'string' &&
+          c.title.trim().toLowerCase() ===
+            String(detail.name).trim().toLowerCase()
+      )
+    );
+    const localizedTitle =
+      (matchedProduct && getTitle(matchedProduct.content, lang)) ||
+      detail.name;
 
     const name = tr(
-      normalizeGreek(detail.name.toUpperCase()),
+      normalizeGreek(String(localizedTitle).toUpperCase()),
       settings.transliterate
     );
-    console.log('Product:', detail.name, lang);
-    // First, find the product that contains the matchedContent
 
-    const quantity = detail.quantity.toFixed(0); // "1,000"
-    const value = (
-      (detail.net_value || 0) + (detail?.tax?.value || 0)
-    )?.toFixed(2);
-    const vat = `${detail.tax.rate}%`; // "24%"
-    sumAmount += parseFloat(value);
+    const quantity = signedQuantity.toFixed(0); // "-1" for credits
+    const value = rawTotal.toFixed(2);
+    const vat = `${detail.tax.rate}%`;
     const maxNameLength = 17;
-    const vatRate = Number(detail.tax.rate); // ensure number
-
-    const netValue = detail.net_value;
-    const total = parseFloat(value);
+    const vatRate = Number(detail.tax.rate);
 
     if (vatBreakdown.has(vatRate)) {
       const entry = vatBreakdown.get(vatRate);
-      entry.total += total;
-      entry.netValue += netValue;
-      entry.vatAmount = entry.total - entry.netValue; // update VAT
+      entry.total += signedTotal;
+      entry.netValue += signedNet;
+      entry.vatAmount = entry.total - entry.netValue;
     } else {
       vatBreakdown.set(vatRate, {
         vat: vatRate,
-        total,
-        netValue,
-        vatAmount: total - netValue,
+        total: signedTotal,
+        netValue: signedNet,
+        vatAmount: signedTotal - signedNet,
       });
     }
+
+    if (isCredit) {
+      if (idx > 0) drawLine2(printer);
+      printer.println(
+        tr(
+          `${translations.printOrder.quantityReduced[lang]}`,
+          settings.transliterate
+        )
+      );
+    }
+
     if (name.length > maxNameLength) {
       // Print wrapped product name in chunks
       for (let i = 0; i < name.length; i += maxNameLength) {
@@ -681,11 +706,6 @@ export const printProducts = (
           vat.padStart(10)
       );
     }
-    const matchedProduct = order?.products?.find((p: any) =>
-      p.content?.some(
-        (c: any) => c.language === lang && c.title === detail.name
-      )
-    );
     if (
       settings.documentsToPrint?.includes('OPTION-DETAILS') &&
       matchedProduct?.options
@@ -714,6 +734,14 @@ export const printProducts = (
       console.log('Found productDiscount:', productDiscount);
 
       printProductDiscount(printer, productDiscount, lang);
+    }
+
+    if (
+      isCredit &&
+      idx < detailsArr.length - 1 &&
+      detailsArr[idx + 1]?.rec_type !== 7
+    ) {
+      drawLine2(printer);
     }
   });
 
@@ -1042,8 +1070,7 @@ export const printDeliveryNoteVatBreakdown = (
   totalOriginalValue: number,
   totalNetValue: number,
   totalVatAmount: number,
-  totalFinalPrice: number,
-  paperWidth?: '80' | '58'
+  totalFinalPrice: number
 ) => {
   // Create a map with all VAT rates initialized to 0
   const vatRates = [24, 13, 6, 0];
@@ -1123,7 +1150,7 @@ export const printDeliveryNoteVatBreakdown = (
 
   // Summary section
   printer.newLine();
-  const lineWidth = paperWidth === '58' ? 32 : 42;
+  const lineWidth = 42;
 
   const summaryLines = [
     { label: 'ΑΡΧ. ΑΞΙΑ', value: totalOriginalValue.toFixed(2) + '€' },
