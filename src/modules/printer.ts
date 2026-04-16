@@ -3286,19 +3286,21 @@ export const printOrder = async (
         }
         printer.newLine();
         printer.newLine();
-        printer.alignCenter();
-        printer.println(
-          tr(
-            `${translations.printOrder.notReceiptNotice[lang]}`,
-            settings.transliterate
-          )
-        );
-        printer.println(
-          tr(
-            `${translations.printOrder.notReceiptNoticeContinue[lang]}`,
-            settings.transliterate
-          )
-        );
+        if (order.venue.hasAADE !== false) {
+          printer.alignCenter();
+          printer.println(
+            tr(
+              `${translations.printOrder.notReceiptNotice[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.println(
+            tr(
+              `${translations.printOrder.notReceiptNoticeContinue[lang]}`,
+              settings.transliterate
+            )
+          );
+        }
         printer.cut();
       }
 

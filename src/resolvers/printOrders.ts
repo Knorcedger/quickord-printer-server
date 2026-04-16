@@ -259,6 +259,11 @@ export const Order = z.object({
       invalid_type_error: 'title must be a string.',
       required_error: 'title is required.',
     }),
+    hasAADE: z
+      .boolean({
+        invalid_type_error: 'hasAADE must be a boolean.',
+      })
+      .optional(),
   }),
   waiterComment: z
     .string({
