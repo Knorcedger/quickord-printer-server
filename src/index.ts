@@ -260,7 +260,7 @@ const main = async () => {
         status = 400;
       }
 
-      res.status(status).send(`{"errors":[{"message":"${err.message}"}]}`);
+      res.status(status).json({ errors: [{ message: err.message }] });
     }
   );
 

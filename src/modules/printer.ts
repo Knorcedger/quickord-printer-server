@@ -383,7 +383,7 @@ export const printTestPage = async (
     return 'success';
   } catch (error) {
     logger.error('Print failed:', error);
-    const err = new Error('print failed');
+    const err = new Error('Print failed');
     (err as any).cause = error;
     throw err;
   }
