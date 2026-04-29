@@ -677,42 +677,44 @@ const printParkingTicket = async (
         continue;
       }
 
-      printer.clear();
       logger.info(`Printing parking ticket to ${printerIdentifier}`, {
         license,
         venueName,
       });
 
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.bold(true);
-      printer.println('PARKING TICKET');
-      drawLine2(printer);
-      printer.bold(false);
-      printer.bold(true);
-      printer.println(venueName);
-      printer.bold(false);
-      printer.println(address);
-      printer.println(phone);
-      drawLine2(printer);
-      printer.alignLeft();
-      printer.newLine();
-      printer.println(formatLine('LICENSE:', license));
-      printer.println(formatLine('DATE:', date));
-      printer.println(formatLine('ENTRY TIME:', entryTime));
-      printer.alignLeft();
-      //   printer.println(formatLine('Operating Hours:', operatingHours));
-      printer.bold(true);
-      printer.alignCenter();
-      printer.newLine();
-      printer.println('IMPORTANT NOTICE');
-      printer.bold(false);
-      printer.println('Keep this ticket. Vehicle must exit before');
-      printer.println(' closing time Overstay fees may apply');
-      drawLine2(printer);
-      printer.println('Thank you for parking with us!');
-      printer.println('Keep this ticket for your records');
-      printer.cut();
+      printer.clear();
+      for (let copies = 0; copies < settings.copies; copies += 1) {
+        printer.alignCenter();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        printer.bold(true);
+        printer.println('PARKING TICKET');
+        drawLine2(printer);
+        printer.bold(false);
+        printer.bold(true);
+        printer.println(venueName);
+        printer.bold(false);
+        printer.println(address);
+        printer.println(phone);
+        drawLine2(printer);
+        printer.alignLeft();
+        printer.newLine();
+        printer.println(formatLine('LICENSE:', license));
+        printer.println(formatLine('DATE:', date));
+        printer.println(formatLine('ENTRY TIME:', entryTime));
+        printer.alignLeft();
+        //   printer.println(formatLine('Operating Hours:', operatingHours));
+        printer.bold(true);
+        printer.alignCenter();
+        printer.newLine();
+        printer.println('IMPORTANT NOTICE');
+        printer.bold(false);
+        printer.println('Keep this ticket. Vehicle must exit before');
+        printer.println(' closing time Overstay fees may apply');
+        drawLine2(printer);
+        printer.println('Thank you for parking with us!');
+        printer.println('Keep this ticket for your records');
+        printer.cut();
+      }
 
       await printer.execute({
         waitForResponse: false,
