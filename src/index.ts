@@ -37,6 +37,7 @@ import autoUpdate from './autoupdate/autoupdate';
 import { apiCall, getLocalIP } from './modules/api';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { execSync } from 'child_process';
+import { initWebSocketClient } from './modules/wsClient';
 
 const main = async () => {
   const SERVER_PORT =
@@ -300,6 +301,9 @@ const main = async () => {
         'No venueId configured, skipping printer server IP registration'
       );
     }
+
+    // Connect to backend via WebSocket for receiving print commands
+    initWebSocketClient();
   });
 };
 
