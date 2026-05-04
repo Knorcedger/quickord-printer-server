@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
@@ -120,15 +119,17 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
   }
 
   try {
-    // Use curl with flags:
-    // -s = silent
-    // -L = follow redirects
-    // -A = custom User-Agent
-    // --fail = exit non-zero if HTTP error
-    const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
-    const imageBuffer = execSync(cmd);
+    const response = await fetch(url, {
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
 
-    // Process the image with sharp
     const processedImage = await sharp(imageBuffer)
       .resize(384)
       .grayscale()
