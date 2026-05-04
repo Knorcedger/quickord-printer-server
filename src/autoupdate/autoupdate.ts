@@ -188,16 +188,15 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   try {
     console.log('Fetching latest release info from:', versionUrl);
 
-    // Download via curl
-    const jsonData = await new Promise<string>((resolve, reject) => {
-      const cmd = `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`;
-      exec(cmd, (err, stdout, stderr) => {
-        if (err) return reject(err);
-        resolve(stdout);
-      });
+    const response = await fetch(versionUrl, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'quickord-printer-server' },
     });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
 
-    const releaseData = JSON.parse(jsonData) as { tag_name?: string };
+    const releaseData = (await response.json()) as { tag_name?: string };
     const tagName = releaseData.tag_name;
 
     if (!tagName) {
@@ -246,15 +245,13 @@ export async function downloadLatestCode(): Promise<string | null> {
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  // Download via curl
-  await new Promise<void>((resolvePromise, reject) => {
-    const cmd = `curl -L "${url}" -o "${zipPath}"`;
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) return reject(err);
-      console.log(stdout || stderr);
-      resolvePromise();
-    });
-  });
+  const downloadResponse = await fetch(url, { redirect: 'follow' });
+  if (!downloadResponse.ok || !downloadResponse.body) {
+    throw new Error(
+      `Failed to download update: HTTP ${downloadResponse.status} ${downloadResponse.statusText}`
+    );
+  }
+  await pipeline(downloadResponse.body, createWriteStream(zipPath));
 
   // Extract zip
   const tempCodePath = path.resolve(srcDir, 'code');
