@@ -901,7 +901,6 @@ export const receiptData = (
           .map((key) => order?.[key])
           .find(Boolean);
 
-        console.log('HERE -> Order:', order);
         const tableNumbersStr =
           orderType === 'DINE_IN' &&
           Array.isArray(order?.tableNumbers) &&
