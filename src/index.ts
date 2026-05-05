@@ -54,7 +54,14 @@ const main = async () => {
     }
 
     console.log('Update path:', process.argv);
-    await autoUpdate(args); // Ensure updatePath is a string
+    try {
+      await autoUpdate(args); // Ensure updatePath is a string
+    } catch (err) {
+      logger.error(
+        'Auto-update failed (network not ready?), continuing startup:',
+        err
+      );
+    }
   }
 
   await loadSettings();
