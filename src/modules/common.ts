@@ -640,8 +640,7 @@ export const printProducts = (
       )
     );
     const localizedTitle =
-      (matchedProduct && getTitle(matchedProduct.content, lang)) ||
-      detail.name;
+      (matchedProduct && getTitle(matchedProduct.content, lang)) || detail.name;
 
     const name = tr(
       normalizeGreek(String(localizedTitle).toUpperCase()),
@@ -902,11 +901,16 @@ export const receiptData = (
           .map((key) => order?.[key])
           .find(Boolean);
 
+        console.log('HERE -> Order:', order);
+        const tableNumbersStr =
+          orderType === 'DINE_IN' &&
+          Array.isArray(order?.tableNumbers) &&
+          order.tableNumbers.length > 0
+            ? `, ${order.tableNumbers.join(', ')}`
+            : '';
         printer.println(
           tr(
-            `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${
-              externalOrderId ? `: #${externalOrderId}` : ''
-            }`,
+            `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${tableNumbersStr}${externalOrderId ? `: #${externalOrderId}` : ''}`,
             settings.transliterate
           )
         );
@@ -915,8 +919,14 @@ export const receiptData = (
       }
     } else {
       if (orderType.toLowerCase() !== 'generic') {
+        const tableNumbersStr =
+          orderType === 'DINE_IN' &&
+          Array.isArray(order?.tableNumbers) &&
+          order.tableNumbers.length > 0
+            ? `, ${order.tableNumbers.join(', ')}`
+            : '';
         printer.println(
-          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
+          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}${tableNumbersStr}`
         );
       } else {
         printer.println(`#${orderNumber}`);
