@@ -236,7 +236,10 @@ export async function downloadLatestCode(): Promise<string | null> {
     console.log('Update available!');
     console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
   } else {
-    console.log('Could not fetch latest version from API. Proceeding with download to check...');
+    console.log(
+      'Could not fetch latest version from API (network not ready?). Skipping update.'
+    );
+    return null;
   }
 
   // Proceed with download
