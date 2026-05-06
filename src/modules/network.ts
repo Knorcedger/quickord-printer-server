@@ -2,7 +2,7 @@ import * as net from 'net';
 import * as os from 'os';
 import * as ping from 'ping';
 
-function getSubnetFromGateway(): string {
+function getSubnetFromGateway(): string | null {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name] || []) {
@@ -12,10 +12,9 @@ function getSubnetFromGateway(): string {
       }
     }
   }
-  throw new Error('No active IPv4 network interface found');
+  return null;
 }
 
-const subnet = getSubnetFromGateway();
 const ports = [9100, 515, 631];
 
 async function checkPort(
@@ -46,6 +45,14 @@ async function checkPort(
 export default async function scanNetworkForConnections(): Promise<
   { ip: string; port: number }[]
 > {
+  const subnet = getSubnetFromGateway();
+  if (!subnet) {
+    console.warn(
+      '⚠️ No active IPv4 network interface found, skipping network scan'
+    );
+    return [];
+  }
+
   console.log(`🔍 Scanning ${subnet}.0/24 for devices...`);
 
   const printers: { id: string; ip: string; port: number }[] = [];
