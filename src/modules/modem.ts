@@ -12,13 +12,19 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempt = 0;
 let isReconnecting = false;
 let currentSettings: IModemSettings | null = null;
-// eslint-disable-next-line no-unused-vars
 let onDataCallback: (data: string) => void;
 let serialBuffer = '';
 
 const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
+const INIT_CMD_TIMEOUT_MS = 2000;
+const INIT_CMD_RETRIES = 5;
+const RING_WITHOUT_CID_WARN_MS = 4000;
+
+// Listeners attached during init() to capture OK/ERROR responses to AT commands.
+let initResponseListener: ((chunk: string) => void) | null = null;
+let ringWithoutCidTimer: ReturnType<typeof setTimeout> | null = null;
 
 const cleanup = () => {
   if (keepaliveInterval) {
@@ -31,6 +37,11 @@ const cleanup = () => {
   }
   isReconnecting = false;
   reconnectAttempt = 0;
+  initResponseListener = null;
+  if (ringWithoutCidTimer) {
+    clearTimeout(ringWithoutCidTimer);
+    ringWithoutCidTimer = null;
+  }
 
   if (modem) {
     modem.removeAllListeners(); // Remove listeners BEFORE close to prevent triggering reconnect
@@ -100,6 +111,69 @@ const startKeepalive = () => {
   }, KEEPALIVE_INTERVAL_MS);
 };
 
+const sendInitCommand = (
+  port: SerialPort<AutoDetectTypes>,
+  cmd: string
+): Promise<void> => {
+  let attempt = 0;
+
+  const tryOnce = (): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        initResponseListener = null;
+        reject(new Error(`timeout waiting for response to ${cmd.trim()}`));
+      }, INIT_CMD_TIMEOUT_MS);
+
+      initResponseListener = (chunk) => {
+        if (settled) return;
+        if (/\bERROR\b/.test(chunk)) {
+          settled = true;
+          clearTimeout(timer);
+          initResponseListener = null;
+          reject(new Error(`modem replied ERROR to ${cmd.trim()}`));
+        } else if (/\bOK\b/.test(chunk)) {
+          settled = true;
+          clearTimeout(timer);
+          initResponseListener = null;
+          resolve();
+        }
+      };
+
+      port.write(Buffer.from(`${cmd}\r`), (err) => {
+        if (err && !settled) {
+          settled = true;
+          clearTimeout(timer);
+          initResponseListener = null;
+          reject(err);
+        }
+      });
+    });
+
+  const attemptLoop = async (): Promise<void> => {
+    try {
+      await tryOnce();
+      signale.info(`[modem] init '${cmd.trim()}' OK`);
+    } catch (err) {
+      attempt++;
+      signale.warn(
+        `[modem] init '${cmd.trim()}' attempt ${attempt} failed: ${(err as Error).message}`
+      );
+      if (attempt >= INIT_CMD_RETRIES) {
+        throw new Error(
+          `init command '${cmd.trim()}' failed after ${INIT_CMD_RETRIES} attempts`
+        );
+      }
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+      return attemptLoop();
+    }
+  };
+
+  return attemptLoop();
+};
+
 const createSerialPort = async (port: string) => {
   serialBuffer = '';
 
@@ -110,20 +184,7 @@ const createSerialPort = async (port: string) => {
     path: port,
   });
 
-  // AT+VCID=1 -> this enables caller id on the modem
-  // AT+GCI=B5 -> this changes the setup country (B5 is for USA but caller id is not working with Greece(46))
   serialport.setEncoding('utf-8');
-
-  await new Promise<void>((resolve, reject) => {
-    serialport.open((err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-  await new Promise((resolve) => {
-    setTimeout(() => resolve(''), 500);
-  });
-  serialport.write(Buffer.from('AT+GCI=B5\rAT+VCID=1\r'));
 
   serialport.on('data', (d: Buffer) => {
     // Expected modem CID formats:
@@ -137,13 +198,27 @@ const createSerialPort = async (port: string) => {
     const chunk = d.toString();
     signale.debug(`[modem raw] ${JSON.stringify(chunk)}`);
 
+    initResponseListener?.(chunk);
+
     serialBuffer += chunk;
+
+    if (/\bRING\b/.test(chunk) && !ringWithoutCidTimer) {
+      ringWithoutCidTimer = setTimeout(() => {
+        ringWithoutCidTimer = null;
+        if (!/NMBR/.test(serialBuffer)) {
+          signale.warn(
+            '[modem] RING received without NMBR (CID block) — VCID may not be enabled'
+          );
+        }
+      }, RING_WITHOUT_CID_WARN_MS);
+    }
 
     // Process buffer when we have a complete message:
     // Either a second RING (end of CID block) or a newline after NMBR line
-    const hasCompleteNmbr = /NMBR\s*=?\s*\+?\d+/.test(serialBuffer) &&
+    const hasCompleteNmbr =
+      /NMBR\s*=?\s*\+?\d+/.test(serialBuffer) &&
       (serialBuffer.indexOf('NMBR') < serialBuffer.lastIndexOf('\n') ||
-       (serialBuffer.match(/RING/g)?.length ?? 0) >= 2);
+        (serialBuffer.match(/RING/g)?.length ?? 0) >= 2);
 
     if (hasCompleteNmbr) {
       const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=?\s*)\+?\d+/im)?.[0];
@@ -153,11 +228,17 @@ const createSerialPort = async (port: string) => {
       }
 
       serialBuffer = '';
+      if (ringWithoutCidTimer) {
+        clearTimeout(ringWithoutCidTimer);
+        ringWithoutCidTimer = null;
+      }
     }
 
     // Prevent buffer from growing indefinitely if no NMBR arrives
     if (serialBuffer.length > 1024) {
-      signale.warn(`[modem] Buffer overflow, clearing. Content: ${JSON.stringify(serialBuffer)}`);
+      signale.warn(
+        `[modem] Buffer overflow, clearing. Content: ${JSON.stringify(serialBuffer)}`
+      );
       serialBuffer = '';
     }
   });
@@ -171,6 +252,29 @@ const createSerialPort = async (port: string) => {
     modem = null;
     scheduleReconnect();
   });
+
+  await new Promise<void>((resolve, reject) => {
+    serialport.open((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+  await new Promise((resolve) => {
+    setTimeout(() => resolve(''), 500);
+  });
+
+  // Wake the modem first — after a cold PC boot the COM port may enumerate
+  // before the modem firmware is ready to process AT commands.
+  // AT+GCI=B5 -> setup country (B5/USA; CID does not work with Greece/46)
+  // AT+VCID=1 -> enables caller ID
+  try {
+    await sendInitCommand(serialport, 'AT');
+    await sendInitCommand(serialport, 'AT+GCI=B5');
+    await sendInitCommand(serialport, 'AT+VCID=1');
+  } catch (err) {
+    signale.error(`[modem] init failed: ${(err as Error).message}`);
+    throw err;
+  }
 
   startKeepalive();
 
