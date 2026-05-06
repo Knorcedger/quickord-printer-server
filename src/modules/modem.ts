@@ -18,14 +18,16 @@ let serialBuffer = '';
 const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
-const INIT_CMD_TIMEOUT_MS = 2000;
+const INIT_CMD_TIMEOUT_MS = 3000;
 const INIT_CMD_RETRIES = 5;
 const RING_WITHOUT_CID_WARN_MS = 4000;
+const POST_OPEN_DRAIN_MS = 1500;
 
-// Listeners attached during init() to capture OK/ERROR responses to AT commands.
-let initResponseListener: ((chunk: string) => void) | null = null;
+// Listener attached during init to capture chunks for OK/ERROR detection.
+let initChunkListener: ((chunk: string) => void) | null = null;
 let ringWithoutCidTimer: ReturnType<typeof setTimeout> | null = null;
 let lastNmbrAt = 0;
+let consecutiveVcidReissues = 0;
 const RECENT_NMBR_WINDOW_MS = 30_000;
 
 const cleanup = () => {
@@ -39,7 +41,8 @@ const cleanup = () => {
   }
   isReconnecting = false;
   reconnectAttempt = 0;
-  initResponseListener = null;
+  initChunkListener = null;
+  consecutiveVcidReissues = 0;
   if (ringWithoutCidTimer) {
     clearTimeout(ringWithoutCidTimer);
     ringWithoutCidTimer = null;
@@ -113,42 +116,75 @@ const startKeepalive = () => {
   }, KEEPALIVE_INTERVAL_MS);
 };
 
+const reissueVcid = (reason: string) => {
+  if (!modem || !modem.isOpen) return;
+  consecutiveVcidReissues++;
+  signale.info(`[modem] re-issuing AT+VCID=1 (${reason})`);
+  if (consecutiveVcidReissues >= 2) {
+    signale.error(
+      `[modem] VCID re-issue triggered ${consecutiveVcidReissues}x in a row — previous reissue may have failed silently`
+    );
+  }
+  modem.write('AT+VCID=1\r', (err) => {
+    if (err) signale.error('[modem] reissue VCID write failed:', err.message);
+  });
+};
+
+// Send an init AT command and wait for an OK/ERROR that follows the echoed
+// command in the response stream. Echo-matching guards against false-positive
+// OKs from stale boot-time output already buffered when we attach our listener.
 const sendInitCommand = (
   port: SerialPort<AutoDetectTypes>,
   cmd: string
 ): Promise<void> => {
   let attempt = 0;
+  const cmdTrim = cmd.trim();
+  // Anchor echo match to line start + line terminator so e.g. residual "ATE1"
+  // echo doesn't false-match an "AT" command.
+  const echoRegex = new RegExp(
+    `(?:^|[\\r\\n])${cmdTrim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\r|\\n)`
+  );
 
   const tryOnce = (): Promise<void> =>
     new Promise<void>((resolve, reject) => {
       let settled = false;
+      let buf = '';
       const timer = setTimeout(() => {
         if (settled) return;
         settled = true;
-        initResponseListener = null;
-        reject(new Error(`timeout waiting for response to ${cmd.trim()}`));
+        initChunkListener = null;
+        reject(
+          new Error(
+            `timeout waiting for echo+OK to ${cmdTrim} (got: ${JSON.stringify(buf)})`
+          )
+        );
       }, INIT_CMD_TIMEOUT_MS);
 
-      initResponseListener = (chunk) => {
+      initChunkListener = (chunk) => {
         if (settled) return;
-        if (/\bERROR\b/.test(chunk)) {
+        buf += chunk;
+        const echoMatch = echoRegex.exec(buf);
+        if (!echoMatch) return; // wait until we've seen our command echoed back
+        const after = buf.slice(echoMatch.index + echoMatch[0].length);
+        if (/\bERROR\b/.test(after)) {
           settled = true;
           clearTimeout(timer);
-          initResponseListener = null;
-          reject(new Error(`modem replied ERROR to ${cmd.trim()}`));
-        } else if (/\bOK\b/.test(chunk)) {
+          initChunkListener = null;
+          reject(new Error(`modem replied ERROR to ${cmdTrim}`));
+        } else if (/\bOK\b/.test(after)) {
           settled = true;
           clearTimeout(timer);
-          initResponseListener = null;
+          initChunkListener = null;
           resolve();
         }
       };
 
+      signale.info(`[modem] init -> ${cmdTrim}`);
       port.write(Buffer.from(`${cmd}\r`), (err) => {
         if (err && !settled) {
           settled = true;
           clearTimeout(timer);
-          initResponseListener = null;
+          initChunkListener = null;
           reject(err);
         }
       });
@@ -157,15 +193,15 @@ const sendInitCommand = (
   const attemptLoop = async (): Promise<void> => {
     try {
       await tryOnce();
-      signale.info(`[modem] init '${cmd.trim()}' OK`);
+      signale.info(`[modem] init '${cmdTrim}' OK`);
     } catch (err) {
       attempt++;
       signale.warn(
-        `[modem] init '${cmd.trim()}' attempt ${attempt} failed: ${(err as Error).message}`
+        `[modem] init '${cmdTrim}' attempt ${attempt} failed: ${(err as Error).message}`
       );
       if (attempt >= INIT_CMD_RETRIES) {
         throw new Error(
-          `init command '${cmd.trim()}' failed after ${INIT_CMD_RETRIES} attempts`
+          `init command '${cmdTrim}' failed after ${INIT_CMD_RETRIES} attempts`
         );
       }
       await new Promise((r) => setTimeout(r, 500 * attempt));
@@ -200,7 +236,7 @@ const createSerialPort = async (port: string) => {
     const chunk = d.toString();
     signale.debug(`[modem raw] ${JSON.stringify(chunk)}`);
 
-    initResponseListener?.(chunk);
+    initChunkListener?.(chunk);
 
     serialBuffer += chunk;
 
@@ -211,10 +247,14 @@ const createSerialPort = async (port: string) => {
     if (/\bRING\b/.test(chunk) && !ringWithoutCidTimer && !recentNmbr) {
       ringWithoutCidTimer = setTimeout(() => {
         ringWithoutCidTimer = null;
-        if (!/NMBR/.test(serialBuffer) && Date.now() - lastNmbrAt >= RECENT_NMBR_WINDOW_MS) {
+        if (
+          !/NMBR/.test(serialBuffer) &&
+          Date.now() - lastNmbrAt >= RECENT_NMBR_WINDOW_MS
+        ) {
           signale.warn(
             '[modem] RING received without NMBR (CID block) — VCID may not be enabled'
           );
+          reissueVcid('RING without NMBR');
         }
       }, RING_WITHOUT_CID_WARN_MS);
     }
@@ -231,6 +271,7 @@ const createSerialPort = async (port: string) => {
 
       if (phoneNumber) {
         lastNmbrAt = Date.now();
+        consecutiveVcidReissues = 0;
         onDataCallback?.(phoneNumber);
       }
 
@@ -266,22 +307,55 @@ const createSerialPort = async (port: string) => {
       else resolve();
     });
   });
-  await new Promise((resolve) => {
-    setTimeout(() => resolve(''), 500);
-  });
 
-  // Wake the modem first — after a cold PC boot the COM port may enumerate
-  // before the modem firmware is ready to process AT commands.
+  // Drain any boot-time / leftover output from the modem so it doesn't get
+  // mistaken for a response to our init commands.
+  let drained = '';
+  const drainListener = (chunk: string) => {
+    drained += chunk;
+  };
+  initChunkListener = drainListener;
+  await new Promise((resolve) => {
+    setTimeout(() => resolve(''), POST_OPEN_DRAIN_MS);
+  });
+  initChunkListener = null;
+  if (drained.length) {
+    signale.info(
+      `[modem] drained pre-init output: ${JSON.stringify(drained.slice(0, 256))}`
+    );
+  }
+  // The data handler kept appending to serialBuffer while draining; reset it
+  // so init responses don't get mixed with stale data when looking for NMBR.
+  serialBuffer = '';
+
+  // ATE1 fire-and-forget: the rest of init relies on echo-matching, so we
+  // must force echo on first. Can't use sendInitCommand here because if the
+  // modem booted with ATE0 it won't echo "ATE1" back and we'd timeout waiting
+  // for the echo. Just write + drain briefly; subsequent commands will verify
+  // echo is on by virtue of their own echo-matching.
+  signale.info('[modem] init -> ATE1 (fire-and-forget)');
+  serialport.write('ATE1\r');
+  await new Promise((resolve) => setTimeout(resolve, 200));
+
+  // AT       -> wake/sanity check
   // AT+GCI=B5 -> setup country (B5/USA; CID does not work with Greece/46)
   // AT+VCID=1 -> enables caller ID
-  try {
-    await sendInitCommand(serialport, 'AT');
-    await sendInitCommand(serialport, 'AT+GCI=B5');
-    await sendInitCommand(serialport, 'AT+VCID=1');
-  } catch (err) {
-    signale.error(`[modem] init failed: ${(err as Error).message}`);
-    throw err;
-  }
+  // Failures are logged but non-fatal: some older modems (e.g. AD102) may not
+  // support AT+GCI, and on others VCID is already persisted in NVRAM. Keeping
+  // the port open lets call detection still work; the runtime
+  // RING-without-NMBR watchdog will re-issue VCID if needed.
+  const trySoft = async (cmd: string) => {
+    try {
+      await sendInitCommand(serialport, cmd);
+    } catch (err) {
+      signale.warn(
+        `[modem] init '${cmd}' did not complete: ${(err as Error).message} — continuing anyway`
+      );
+    }
+  };
+  await trySoft('AT');
+  await trySoft('AT+GCI=B5');
+  await trySoft('AT+VCID=1');
 
   startKeepalive();
 
