@@ -19,9 +19,10 @@ const KEEPALIVE_INTERVAL_MS = 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
 const INIT_CMD_TIMEOUT_MS = 3000;
-const INIT_CMD_RETRIES = 5;
+const INIT_CMD_RETRIES = 2;
 const RING_WITHOUT_CID_WARN_MS = 4000;
 const POST_OPEN_DRAIN_MS = 1500;
+const MAX_CONSECUTIVE_VCID_REISSUES = 3;
 
 // Listener attached during init to capture chunks for OK/ERROR detection.
 let initChunkListener: ((chunk: string) => void) | null = null;
@@ -88,6 +89,14 @@ const scheduleReconnect = () => {
         modem = null;
       }
 
+      // Reset call-state bookkeeping so a stale counter from the previous
+      // (failing) port doesn't carry into the fresh connection.
+      consecutiveVcidReissues = 0;
+      if (ringWithoutCidTimer) {
+        clearTimeout(ringWithoutCidTimer);
+        ringWithoutCidTimer = null;
+      }
+
       modem = await createSerialPort(currentSettings!.port);
       reconnectAttempt = 0;
       isReconnecting = false;
@@ -119,9 +128,22 @@ const startKeepalive = () => {
 const reissueVcid = (reason: string) => {
   if (!modem || !modem.isOpen) return;
   consecutiveVcidReissues++;
+  if (consecutiveVcidReissues >= MAX_CONSECUTIVE_VCID_REISSUES) {
+    signale.error(
+      `[modem] VCID re-issue hit ${consecutiveVcidReissues}x in a row — modem appears stuck, forcing reconnect`
+    );
+    consecutiveVcidReissues = 0;
+    if (modem) {
+      modem.removeAllListeners();
+      if (modem.isOpen) modem.close();
+      modem = null;
+    }
+    scheduleReconnect();
+    return;
+  }
   signale.info(`[modem] re-issuing AT+VCID=1 (${reason})`);
   if (consecutiveVcidReissues >= 2) {
-    signale.error(
+    signale.warn(
       `[modem] VCID re-issue triggered ${consecutiveVcidReissues}x in a row — previous reissue may have failed silently`
     );
   }
@@ -356,6 +378,10 @@ const createSerialPort = async (port: string) => {
   await trySoft('AT');
   await trySoft('AT+GCI=B5');
   await trySoft('AT+VCID=1');
+
+  // Clear AT/OK echoes accumulated during init so the NMBR detector starts
+  // from a clean buffer.
+  serialBuffer = '';
 
   startKeepalive();
 
