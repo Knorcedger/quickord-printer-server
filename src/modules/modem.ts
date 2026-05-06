@@ -25,6 +25,8 @@ const RING_WITHOUT_CID_WARN_MS = 4000;
 // Listeners attached during init() to capture OK/ERROR responses to AT commands.
 let initResponseListener: ((chunk: string) => void) | null = null;
 let ringWithoutCidTimer: ReturnType<typeof setTimeout> | null = null;
+let lastNmbrAt = 0;
+const RECENT_NMBR_WINDOW_MS = 30_000;
 
 const cleanup = () => {
   if (keepaliveInterval) {
@@ -202,10 +204,14 @@ const createSerialPort = async (port: string) => {
 
     serialBuffer += chunk;
 
-    if (/\bRING\b/.test(chunk) && !ringWithoutCidTimer) {
+    // The CID block (DATE/TIME/NMBR) is sent only once, between the first and
+    // second RING. Subsequent RINGs of the same call legitimately have no NMBR,
+    // so suppress the warning if we received one recently.
+    const recentNmbr = Date.now() - lastNmbrAt < RECENT_NMBR_WINDOW_MS;
+    if (/\bRING\b/.test(chunk) && !ringWithoutCidTimer && !recentNmbr) {
       ringWithoutCidTimer = setTimeout(() => {
         ringWithoutCidTimer = null;
-        if (!/NMBR/.test(serialBuffer)) {
+        if (!/NMBR/.test(serialBuffer) && Date.now() - lastNmbrAt >= RECENT_NMBR_WINDOW_MS) {
           signale.warn(
             '[modem] RING received without NMBR (CID block) — VCID may not be enabled'
           );
@@ -224,6 +230,7 @@ const createSerialPort = async (port: string) => {
       const phoneNumber = serialBuffer.match(/(?<=NMBR\s*=?\s*)\+?\d+/im)?.[0];
 
       if (phoneNumber) {
+        lastNmbrAt = Date.now();
         onDataCallback?.(phoneNumber);
       }
 
