@@ -558,9 +558,75 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}`;
-    printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
+    const lineWidth = 42;
+    const continuationIndent = `${indent}  `;
+    const firstPrefix = `${indent}- ${optionLabel}`;
+    const lines = wrapChoicesByCommas(
+      choiceValues,
+      lineWidth,
+      firstPrefix,
+      continuationIndent,
+      priceStr.length
+    );
+    lines.forEach((wrapped, idx) => {
+      const suffix = idx === 0 ? priceStr : '';
+      printer.println(`${tr(wrapped, settings.transliterate)}${suffix}`);
+    });
   });
+};
+
+const wrapChoicesByCommas = (
+  choices: string[],
+  width: number,
+  firstPrefix: string,
+  continuationIndent: string,
+  firstLineReserved: number
+): string[] => {
+  if (choices.length === 0) return [firstPrefix];
+
+  const lines: string[] = [];
+  let current = firstPrefix;
+  const availableFor = (lineIdx: number) =>
+    lineIdx === 0 ? width - firstLineReserved : width;
+
+  const pushCurrent = () => {
+    lines.push(current);
+    current = continuationIndent;
+  };
+
+  const hardChunkInto = (segment: string) => {
+    let rem = segment;
+    while (rem.length > 0) {
+      const avail = availableFor(lines.length) - current.length;
+      if (avail <= 0) {
+        pushCurrent();
+        continue;
+      }
+      current += rem.slice(0, avail);
+      rem = rem.slice(avail);
+      if (rem.length > 0) pushCurrent();
+    }
+  };
+
+  choices.forEach((choice, i) => {
+    const sep = i === 0 ? '' : ', ';
+    if (current.length + sep.length + choice.length <= availableFor(lines.length)) {
+      current += sep + choice;
+      return;
+    }
+    if (i > 0) {
+      if (current.length + 1 <= availableFor(lines.length)) current += ',';
+      pushCurrent();
+    }
+    if (current.length + choice.length <= availableFor(lines.length)) {
+      current += choice;
+    } else {
+      hardChunkInto(choice);
+    }
+  });
+
+  if (current.length > 0) lines.push(current);
+  return lines;
 };
 
 export const printProductDiscount = (
