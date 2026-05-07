@@ -558,9 +558,90 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}`;
-    printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
+    const lineWidth = 42;
+    const continuationIndent = `${indent}  `;
+    const firstPrefix = `${indent}- ${optionLabel}`;
+    const lines = wrapChoicesByCommas(
+      choiceValues,
+      lineWidth,
+      firstPrefix,
+      continuationIndent,
+      priceStr.length
+    );
+    lines.forEach((wrapped, idx) => {
+      const isLast = idx === lines.length - 1;
+      let out = wrapped;
+      if (isLast && priceStr.length > 0) {
+        const padded =
+          out.length + priceStr.length <= lineWidth
+            ? out.padEnd(lineWidth - priceStr.length)
+            : out;
+        out = padded + priceStr;
+      }
+      printer.println(tr(out, settings.transliterate));
+    });
   });
+};
+
+const wrapChoicesByCommas = (
+  choices: string[],
+  width: number,
+  firstPrefix: string,
+  continuationIndent: string,
+  lastLineReserved: number
+): string[] => {
+  if (choices.length === 0) return [firstPrefix];
+
+  const lines: string[] = [];
+  let current = firstPrefix;
+
+  const pushCurrent = () => {
+    lines.push(current);
+    current = continuationIndent;
+  };
+
+  const hardChunkInto = (segment: string) => {
+    let rem = segment;
+    while (rem.length > 0) {
+      const avail = width - current.length;
+      if (avail <= 0) {
+        pushCurrent();
+        continue;
+      }
+      current += rem.slice(0, avail);
+      rem = rem.slice(avail);
+      if (rem.length > 0) pushCurrent();
+    }
+  };
+
+  choices.forEach((choice, i) => {
+    const sep = i === 0 ? '' : ', ';
+    if (current.length + sep.length + choice.length <= width) {
+      current += sep + choice;
+      return;
+    }
+    if (i > 0) {
+      if (current.length + 1 <= width) current += ',';
+      pushCurrent();
+    }
+    if (current.length + choice.length <= width) {
+      current += choice;
+    } else {
+      hardChunkInto(choice);
+    }
+  });
+
+  if (current.length > 0) lines.push(current);
+
+  if (
+    lastLineReserved > 0 &&
+    lines.length > 0 &&
+    lines[lines.length - 1]!.length + lastLineReserved > width
+  ) {
+    lines.push(continuationIndent);
+  }
+
+  return lines;
 };
 
 export const printProductDiscount = (

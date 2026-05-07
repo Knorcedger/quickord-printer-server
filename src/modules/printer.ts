@@ -2794,7 +2794,12 @@ export const printOrder = async (
 
       printer.clear();
 
+      let copyExecError: unknown = null;
       for (let copies = 0; copies < settings.copies; copies += 1) {
+        if (copies > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
@@ -3304,34 +3309,52 @@ export const printOrder = async (
           );
         }
         printer.cut();
+
+        if (!dontPrint) {
+          try {
+            await executePrinter(
+              printer,
+              printerIdentifier,
+              `order print copy ${copies + 1}/${settings.copies}`,
+              {
+                orderId: order._id,
+                orderNumber: order.number,
+                orderType: order.orderType,
+                copy: copies + 1,
+                totalCopies: settings.copies,
+              }
+            );
+          } catch (execError) {
+            copyExecError = execError;
+            break;
+          }
+        }
       }
 
       if (!dontPrint) {
-        try {
-          await executePrinter(printer, printerIdentifier, 'order print', {
-            orderId: order._id,
-            orderNumber: order.number,
-            orderType: order.orderType,
-          });
-          successes.push(printerIdentifier);
-        } catch (execError) {
-          if (execError instanceof PrinterConnectionError) {
+        if (copyExecError) {
+          if (copyExecError instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
             );
-            errors.push({ printerIdentifier, error: execError });
+            errors.push({ printerIdentifier, error: copyExecError });
           } else {
             logger.error(`Failed to print order to ${printerIdentifier}:`, {
               error:
-                execError instanceof Error
-                  ? execError.message
-                  : String(execError),
+                copyExecError instanceof Error
+                  ? copyExecError.message
+                  : String(copyExecError),
               orderId: order._id,
               orderNumber: order.number,
-              stack: execError instanceof Error ? execError.stack : undefined,
+              stack:
+                copyExecError instanceof Error
+                  ? copyExecError.stack
+                  : undefined,
             });
-            errors.push({ printerIdentifier, error: execError });
+            errors.push({ printerIdentifier, error: copyExecError });
           }
+        } else {
+          successes.push(printerIdentifier);
         }
       }
     } catch (error) {
