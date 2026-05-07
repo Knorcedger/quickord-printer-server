@@ -2797,7 +2797,7 @@ export const printOrder = async (
       let copyExecError: unknown = null;
       for (let copies = 0; copies < settings.copies; copies += 1) {
         if (copies > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
