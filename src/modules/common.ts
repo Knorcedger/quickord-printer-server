@@ -635,7 +635,8 @@ const wrapChoicesByCommas = (
 
   if (
     lastLineReserved > 0 &&
-    lines[lines.length - 1].length + lastLineReserved > width
+    lines.length > 0 &&
+    lines[lines.length - 1]!.length + lastLineReserved > width
   ) {
     lines.push(continuationIndent);
   }
