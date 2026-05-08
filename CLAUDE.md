@@ -88,6 +88,16 @@ npm run build
 
 Run `deploy.sh` on Windows. This builds the exe via nexe, copies native node_modules (@serialport, etc.), and creates the full zip with service files. Requires C++ build tools, Python, and nasm.
 
+## Windows Service Deployment
+
+On customer machines the server runs as a Windows service via **WinSW**:
+
+- `printerServerService.exe` - WinSW binary (renamed). Wraps `printerServer.exe` as a service named `printerServer`.
+- `printerServerService.xml` - WinSW config (id, executable, start mode, dependencies). Read only at `install` time — changes are NOT auto-applied to existing installations.
+- `install_printer_service.bat` / `uninstall_printer_service.bat` / `start_printer_service.bat` / `stop_printer_service.bat` - wrappers around `printerServerService.exe install/uninstall/start/stop`.
+
+To change service config (start mode, dependencies) on already-installed machines, either reinstall the service or run `sc.exe config printerServer ...`. `autoupdate.ts` applies service config via `sc.exe` on every `--update` phase (idempotent).
+
 ## Key Patterns
 
 - **Transliteration**: All printed text passes through `tr(text, settings.transliterate)` from `common.ts`. When enabled, converts Greek → Latin characters. Every `printer.println()` / `printer.print()` call with translatable text must use this wrapper.
