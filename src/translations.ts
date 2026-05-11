@@ -10,10 +10,12 @@ export default {
       en: {
         MUCH: 'much',
         LITTLE: 'little',
+        WITHOUT: 'without',
       },
       el: {
         MUCH: 'πολύ',
         LITTLE: 'λίγο',
+        WITHOUT: 'χωρίς',
       },
     },
     customerEmail: {
