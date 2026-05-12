@@ -2885,19 +2885,17 @@ export const printOrder = async (
             printer.bold(false);
           }
         }
+        const boldOrderType =
+          settings.textOptions?.includes('BOLD_ORDER_TYPE');
         printer.bold(true);
         printer.print(
           tr(
-            `${translations.printOrder.orderType[lang]}:`,
+            `${translations.printOrder.orderType[lang]}: `,
             settings.transliterate
           )
         );
         printer.bold(false);
-        if (
-          order.orderType === 'DINE_IN' ||
-          order.orderType === 'TAKE_AWAY_INSIDE' ||
-          order.orderType === 'TAKE_AWAY_PACKAGE'
-        ) {
+        if (boldOrderType) {
           printer.bold(true);
           printer.setTextSize(1, 0);
         }
@@ -3233,7 +3231,7 @@ export const printOrder = async (
           if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment.toUpperCase()}`,
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
               settings.transliterate
             )
           );
@@ -3244,7 +3242,7 @@ export const printOrder = async (
           if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.customerComments[lang]}:${order.customerComment}`,
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
               settings.transliterate
             )
           );
@@ -3509,6 +3507,7 @@ export const printOrderComments = async (
       });
 
       const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
+      const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
 
       let copyExecError: unknown = null;
       for (let copies = 0; copies < settings.copies; copies += 1) {
@@ -3523,7 +3522,7 @@ export const printOrderComments = async (
         printer.alignCenter();
         printer.println(
           tr(
-            `${translations.printOrder.orderFormOrder[lang]}`,
+            `${translations.printOrder.orderCommentsTitle[lang]}`,
             settings.transliterate
           )
         );
@@ -3547,24 +3546,48 @@ export const printOrderComments = async (
           );
           printer.bold(false);
         }
+        printer.bold(true);
+        printer.print(
+          tr(
+            `${translations.printOrder.orderType[lang]}: `,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        if (boldOrderType) {
+          printer.bold(true);
+          printer.setTextSize(1, 0);
+        }
+        printer.println(
+          tr(
+            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        printer.setTextSize(0, 0);
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
         drawLine2(printer);
 
         if (order.waiterComment) {
           if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment.toUpperCase()}`,
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
               settings.transliterate
             )
           );
           if (boldComments) printer.setTextSize(0, 0);
         }
         if (order.customerComment) {
-          if (order.waiterComment) printer.newLine();
+          if (order.waiterComment) {
+            printer.newLine();
+            drawLine2(printer);
+          }
           if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.customerComments[lang]}:${order.customerComment}`,
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
               settings.transliterate
             )
           );
