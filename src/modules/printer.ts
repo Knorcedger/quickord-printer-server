@@ -2954,9 +2954,7 @@ export const printOrder = async (
           settings.textOptions?.forEach((textOption) => {
             switch (textOption) {
               case 'BOLD_PRODUCTS':
-                printer.bold(true);
                 printer.setTextSize(1, 0);
-                printer.bold(false);
                 break;
               default:
                 break;
@@ -3022,11 +3020,9 @@ export const printOrder = async (
               );
             }
           }
-          // Bold if enabled
-          if (settings.textOptions.includes('BOLD_PRODUCTS')) {
-            printer.bold(true);
+          const boldProducts = settings.textOptions.includes('BOLD_PRODUCTS');
+          if (boldProducts) {
             printer.setTextSize(1, 0);
-            printer.bold(false);
           } else {
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
@@ -3054,7 +3050,7 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = 42;
+          const lineWidth = boldProducts ? 21 : 42;
           const paddedLine = productLine.padEnd(
             lineWidth - priceStr.length,
             ' '
