@@ -2954,9 +2954,7 @@ export const printOrder = async (
           settings.textOptions?.forEach((textOption) => {
             switch (textOption) {
               case 'BOLD_PRODUCTS':
-                printer.bold(true);
                 printer.setTextSize(1, 0);
-                printer.bold(false);
                 break;
               default:
                 break;
@@ -3022,11 +3020,11 @@ export const printOrder = async (
               );
             }
           }
-          // TEMP dev test: BOLD_PRODUCTS = emphasized weight only (no double-width)
           const boldProducts = settings.textOptions.includes('BOLD_PRODUCTS');
-          changeTextSize(printer, settings?.textSize || 'NORMAL');
           if (boldProducts) {
-            printer.bold(true);
+            printer.setTextSize(1, 0);
+          } else {
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
 
           // Pad title and amount for alignment
@@ -3052,7 +3050,7 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = 42;
+          const lineWidth = boldProducts ? 21 : 42;
           const paddedLine = productLine.padEnd(
             lineWidth - priceStr.length,
             ' '
@@ -3158,9 +3156,6 @@ export const printOrder = async (
 
           // Reset text size after bold
           changeTextSize(printer, settings?.textSize || 'NORMAL');
-          if (boldProducts) {
-            printer.bold(false);
-          }
 
           // Draw separator
           drawLine2(printer);

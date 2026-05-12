@@ -558,7 +558,9 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const lineWidth = 42;
+    const lineWidth = settings?.textOptions?.includes('BOLD_PRODUCTS')
+      ? 21
+      : 42;
     const continuationIndent = `${indent}  `;
     const firstPrefix = `${indent}- ${optionLabel}`;
     const lines = wrapChoicesByCommas(
