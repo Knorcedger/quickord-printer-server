@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import signale from 'signale';
 
+import { registerPrinterServerIp } from '../modules/api';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
@@ -21,6 +22,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     // Venue guard: reject settings sync from a different venue
     const ownVenueId = oldSettings.venueId || oldSettings.modem?.venueId;
     const incomingVenueId = req.body.venueId;
+    const isFirstClaim = !ownVenueId && !!incomingVenueId;
 
     if (ownVenueId && incomingVenueId && incomingVenueId !== ownVenueId) {
       logger.warn(
@@ -85,6 +87,10 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('Settings updated:', newSettings);
 
     res.status(200).send({ newSettings, status: 'updated' });
+
+    if (isFirstClaim && newSettings.venueId) {
+      await registerPrinterServerIp(newSettings.venueId);
+    }
   } catch (error) {
     logger.error('Error updating settings:', error);
     res.status(400).send({ error: error.message });
