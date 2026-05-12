@@ -3022,13 +3022,11 @@ export const printOrder = async (
               );
             }
           }
-          // Bold if enabled
-          if (settings.textOptions.includes('BOLD_PRODUCTS')) {
+          // TEMP dev test: BOLD_PRODUCTS = emphasized weight only (no double-width)
+          const boldProducts = settings.textOptions.includes('BOLD_PRODUCTS');
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          if (boldProducts) {
             printer.bold(true);
-            printer.setTextSize(1, 0);
-            printer.bold(false);
-          } else {
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
 
           // Pad title and amount for alignment
@@ -3160,6 +3158,9 @@ export const printOrder = async (
 
           // Reset text size after bold
           changeTextSize(printer, settings?.textSize || 'NORMAL');
+          if (boldProducts) {
+            printer.bold(false);
+          }
 
           // Draw separator
           drawLine2(printer);
