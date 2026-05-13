@@ -82,6 +82,10 @@ export default {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
     },
+    orderCommentsTitle: {
+      el: 'ΣΧΟΛΙΑ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER COMMENTS',
+    },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
       en: 'ORDER FORM',

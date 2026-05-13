@@ -80,6 +80,39 @@ export class InvalidInputError extends Error {
   }
 }
 
+export type PrintResult = {
+  successes: string[];
+  errors: Array<{ printerIdentifier: string; error: unknown }>;
+  skipped: Array<{ printerIdentifier: string; reason: string }>;
+};
+
+export type PrintHttpResponse = {
+  status: string;
+  successfulPrinters: string[];
+  failedPrinters: Array<{ printer: string; error: string }>;
+  skippedPrinters: Array<{ printer: string; reason: string }>;
+};
+
+export const buildPrintResponse = (result: PrintResult): PrintHttpResponse => {
+  const { status } = determinePrintStatus(
+    result.successes,
+    result.errors,
+    result.skipped
+  );
+  return {
+    status,
+    successfulPrinters: result.successes,
+    failedPrinters: result.errors.map((e) => ({
+      printer: e.printerIdentifier,
+      error: e.error instanceof Error ? e.error.message : String(e.error),
+    })),
+    skippedPrinters: result.skipped.map((s) => ({
+      printer: s.printerIdentifier,
+      reason: s.reason,
+    })),
+  };
+};
+
 // Helper function to determine status and HTTP code based on print results
 export const determinePrintStatus = (
   successes: string[],
@@ -2852,19 +2885,17 @@ export const printOrder = async (
             printer.bold(false);
           }
         }
+        const boldOrderType =
+          settings.textOptions?.includes('BOLD_ORDER_TYPE');
         printer.bold(true);
         printer.print(
           tr(
-            `${translations.printOrder.orderType[lang]}:`,
+            `${translations.printOrder.orderType[lang]}: `,
             settings.transliterate
           )
         );
         printer.bold(false);
-        if (
-          order.orderType === 'DINE_IN' ||
-          order.orderType === 'TAKE_AWAY_INSIDE' ||
-          order.orderType === 'TAKE_AWAY_PACKAGE'
-        ) {
+        if (boldOrderType) {
           printer.bold(true);
           printer.setTextSize(1, 0);
         }
@@ -3194,23 +3225,28 @@ export const printOrder = async (
           printer.println('');
         }
 
+        const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
         if (order.waiterComment) {
           printer.newLine();
+          if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment.toUpperCase()}`,
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
               settings.transliterate
             )
           );
+          if (boldComments) printer.setTextSize(0, 0);
         }
         if (order.customerComment) {
           printer.newLine();
+          if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.customerComments[lang]}:${order.customerComment}`,
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
               settings.transliterate
             )
           );
+          if (boldComments) printer.setTextSize(0, 0);
         }
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
@@ -3382,6 +3418,248 @@ export const printOrders = async (
       project,
       'el'
     );
+    allSuccesses.push(...result.successes);
+    allErrors.push(...result.errors);
+    allSkipped.push(...result.skipped);
+  }
+
+  return { successes: allSuccesses, errors: allErrors, skipped: allSkipped };
+};
+
+export type OrderCommentsInput = Pick<
+  z.infer<typeof Order>,
+  | '_id'
+  | 'createdAt'
+  | 'number'
+  | 'orderType'
+  | 'tableNumber'
+  | 'venue'
+  | 'waiterComment'
+  | 'customerComment'
+>;
+
+export const printOrderComments = async (
+  order: OrderCommentsInput,
+  lang: SupportedLanguages = 'el'
+) => {
+  const successes: string[] = [];
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
+  if (!order.waiterComment && !order.customerComment) {
+    return {
+      successes,
+      errors,
+      skipped: [
+        {
+          printerIdentifier: 'all',
+          reason: 'Order has no waiter or customer comments to print',
+        },
+      ],
+    };
+  }
+
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
+    try {
+      printer?.clear();
+      if (!settings || !printer) {
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured or missing settings',
+        });
+        continue;
+      }
+
+      if (settings.orderMethodsToPrint !== undefined) {
+        if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
+          skipped.push({
+            printerIdentifier,
+            reason: `Order method ${order.orderType} not in printer's orderMethodsToPrint configuration`,
+          });
+          continue;
+        }
+      }
+
+      if (!settings.documentsToPrint?.includes('COMMENTS')) {
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured to print COMMENTS documents',
+        });
+        continue;
+      }
+
+      const orderCreationDate = new Date(order.createdAt);
+      const date =
+        orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || '';
+      const time = orderCreationDate.toLocaleTimeString('el-GR', {
+        hour: '2-digit',
+        hour12: false,
+        minute: '2-digit',
+      });
+
+      const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
+      const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
+
+      let copyExecError: unknown = null;
+      for (let copies = 0; copies < settings.copies; copies += 1) {
+        if (copies > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+        printer.newLine();
+        printer.alignCenter();
+        printer.println(
+          tr(
+            `${translations.printOrder.orderCommentsTitle[lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.alignLeft();
+        printer.newLine();
+        printer.table([
+          `${date}`,
+          `${time}`,
+          tr(
+            `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+            settings.transliterate
+          ),
+        ]);
+        if (order?.orderType === 'DINE_IN' && order?.tableNumber) {
+          printer.bold(true);
+          printer.println(
+            tr(
+              `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+              settings.transliterate
+            )
+          );
+          printer.bold(false);
+        }
+        printer.bold(true);
+        printer.print(
+          tr(
+            `${translations.printOrder.orderType[lang]}: `,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        if (boldOrderType) {
+          printer.bold(true);
+          printer.setTextSize(1, 0);
+        }
+        printer.println(
+          tr(
+            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        printer.setTextSize(0, 0);
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        drawLine2(printer);
+
+        if (order.waiterComment) {
+          if (boldComments) printer.setTextSize(1, 0);
+          printer.println(
+            tr(
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
+              settings.transliterate
+            )
+          );
+          if (boldComments) printer.setTextSize(0, 0);
+        }
+        if (order.customerComment) {
+          if (order.waiterComment) {
+            printer.newLine();
+            drawLine2(printer);
+          }
+          if (boldComments) printer.setTextSize(1, 0);
+          printer.println(
+            tr(
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
+              settings.transliterate
+            )
+          );
+          if (boldComments) printer.setTextSize(0, 0);
+        }
+
+        printer.cut();
+
+        try {
+          await executePrinter(
+            printer,
+            printerIdentifier,
+            `order comments print copy ${copies + 1}/${settings.copies}`,
+            {
+              orderId: order._id,
+              orderNumber: order.number,
+              orderType: order.orderType,
+              copy: copies + 1,
+              totalCopies: settings.copies,
+            }
+          );
+        } catch (execError) {
+          copyExecError = execError;
+          break;
+        }
+      }
+
+      if (copyExecError) {
+        if (copyExecError instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print order comments - printer ${printerIdentifier} is not connected or unreachable`
+          );
+        } else {
+          logger.error(
+            `Failed to print order comments to ${printerIdentifier}:`,
+            {
+              error:
+                copyExecError instanceof Error
+                  ? copyExecError.message
+                  : String(copyExecError),
+              orderId: order._id,
+              orderNumber: order.number,
+            }
+          );
+        }
+        errors.push({ printerIdentifier, error: copyExecError });
+      } else {
+        successes.push(printerIdentifier);
+      }
+    } catch (error) {
+      logger.error(
+        `Error preparing order comments print for ${printerIdentifier}:`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          orderId: order._id,
+          orderNumber: order.number,
+        }
+      );
+      errors.push({ printerIdentifier, error });
+    }
+  }
+
+  return { successes, errors, skipped };
+};
+
+export const printOrdersComments = async (orders: OrderCommentsInput[]) => {
+  const allSuccesses: string[] = [];
+  const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
+  for (const order of orders) {
+    const result = await printOrderComments(order, 'el');
     allSuccesses.push(...result.successes);
     allErrors.push(...result.errors);
     allSkipped.push(...result.skipped);

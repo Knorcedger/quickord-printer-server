@@ -24,6 +24,7 @@ import {
   PrinterTextSize,
 } from './modules/settings';
 import { dedup } from './modules/dedup';
+import printOrderComments from './resolvers/printOrderComments';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
@@ -212,6 +213,7 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
+  app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(dedup, paymentReceipt);
