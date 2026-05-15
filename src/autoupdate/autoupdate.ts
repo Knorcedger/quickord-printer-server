@@ -339,6 +339,21 @@ export function copyWithCmd(
   });
 }
 
+function applyServiceConfig(): Promise<void> {
+  return new Promise((resolve) => {
+    const cmd =
+      'sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc';
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Failed to apply service config:', stderr || error.message);
+      } else {
+        console.log('Service config applied:', stdout.trim());
+      }
+      resolve();
+    });
+  });
+}
+
 function copySettingsFile(settingsPath, destDir) {
   return new Promise((resolve, reject) => {
     const command = `xcopy "${settingsPath}" "${path.join(destDir, 'builds')}\\" /Y`;
@@ -391,6 +406,7 @@ export default async function autoUpdate(path: string[]) {
     console.log('paths: ', srcDir, destDir);
 
     await copyWithCmd(srcDir, destDir);
+    await applyServiceConfig();
     path[0] = '--remove';
     path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
     console.log(path2);

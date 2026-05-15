@@ -5,6 +5,7 @@ import logger from '../modules/logger';
 import {
   printOrders as printerPrintOrders,
   determinePrintStatus,
+  buildPrintResponse,
 } from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',
@@ -60,9 +61,9 @@ export const Product = z.object({
         choices: z.array(
           z.object({
             amountLevel: z
-              .enum(['MUCH', 'LITTLE'], {
+              .enum(['MUCH', 'LITTLE', 'WITHOUT'], {
                 invalid_type_error:
-                  'choice amountLevel must be MUCH or LITTLE.',
+                  'choice amountLevel must be MUCH, LITTLE or WITHOUT.',
               })
               .optional()
               .nullable(),
@@ -320,28 +321,13 @@ const printOrders = async (
 
     const result = await printerPrintOrders(orders, project);
 
-    // Determine the appropriate status and HTTP code
-    const { status, httpCode } = determinePrintStatus(
+    const { httpCode } = determinePrintStatus(
       result.successes,
       result.errors,
       result.skipped
     );
 
-    // Format the response with detailed printer status
-    const response: any = {
-      status,
-      successfulPrinters: result.successes,
-      failedPrinters: result.errors.map((e) => ({
-        printer: e.printerIdentifier,
-        error: e.error instanceof Error ? e.error.message : String(e.error),
-      })),
-      skippedPrinters: result.skipped.map((s) => ({
-        printer: s.printerIdentifier,
-        reason: s.reason,
-      })),
-    };
-
-    res.status(httpCode).send(response);
+    res.status(httpCode).send(buildPrintResponse(result));
   } catch (error) {
     logger.error('Error printing orders:', error);
     const errorMessage =

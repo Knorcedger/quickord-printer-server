@@ -10,10 +10,12 @@ export default {
       en: {
         MUCH: 'much',
         LITTLE: 'little',
+        WITHOUT: 'without',
       },
       el: {
         MUCH: 'πολύ',
         LITTLE: 'λίγο',
+        WITHOUT: 'χωρίς',
       },
     },
     customerEmail: {
@@ -79,6 +81,10 @@ export default {
     orderFormOrder: {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
+    },
+    orderCommentsTitle: {
+      el: 'ΣΧΟΛΙΑ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER COMMENTS',
     },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',

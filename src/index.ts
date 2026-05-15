@@ -24,6 +24,7 @@ import {
   PrinterTextSize,
 } from './modules/settings';
 import { dedup } from './modules/dedup';
+import printOrderComments from './resolvers/printOrderComments';
 import printOrders from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
@@ -34,7 +35,7 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
-import { apiCall, getLocalIP } from './modules/api';
+import { getLocalIP, registerPrinterServerIp } from './modules/api';
 import { paymentMyPelatesReceipt } from './modules/printer';
 
 const main = async () => {
@@ -215,6 +216,7 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
+  app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(dedup, paymentReceipt);
@@ -285,26 +287,7 @@ const main = async () => {
     const venueId = getSettings().venueId || getSettings().modem?.venueId;
 
     if (venueId) {
-      const localIp = getLocalIP();
-      logger.info(
-        `Registering printer server IP: ${localIp} for venue: ${venueId}`
-      );
-      apiCall(
-        `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
-      )
-        .then((res) => {
-          if (res?.errors) {
-            logger.error(
-              'Failed to register printer server IP:',
-              JSON.stringify(res.errors)
-            );
-          } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
-            logger.info('Printer server IP registered successfully');
-          }
-        })
-        .catch((err) => {
-          logger.error('Failed to register printer server IP:', err);
-        });
+      registerPrinterServerIp(venueId);
     } else {
       logger.info(
         'No venueId configured, skipping printer server IP registration'

@@ -54,3 +54,29 @@ export const apiCall = async (query: string): Promise<any> => {
 
   return responseJson;
 };
+
+export const registerPrinterServerIp = async (
+  venueId: string
+): Promise<void> => {
+  const localIp = getLocalIP();
+  logger.info(
+    `Registering printer server IP: ${localIp} for venue: ${venueId}`
+  );
+
+  try {
+    const res = await apiCall(
+      `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
+    );
+
+    if (res?.errors) {
+      logger.error(
+        'Failed to register printer server IP:',
+        JSON.stringify(res.errors)
+      );
+    } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
+      logger.info('Printer server IP registered successfully');
+    }
+  } catch (err) {
+    logger.error('Failed to register printer server IP:', err);
+  }
+};
