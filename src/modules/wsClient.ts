@@ -1,11 +1,21 @@
 /**
  * WebSocket client that connects to the Quickord backend.
- * Receives raw ESC/POS print commands and sends them to local printers via TCP.
+ * Receives raw ESC/POS print commands and sends them to local printers
+ * via TCP (network printers) or a local device path (shared/USB/serial
+ * printers, e.g. \\localhost\POS-80 on Windows).
  */
 import WebSocket from 'ws';
 import * as net from 'node:net';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import {
+  printer as ThermalPrinter,
+  types as PrinterTypes,
+} from 'node-thermal-printer';
 import nconf from 'nconf';
 import logger from './logger';
+
+const execAsync = promisify(exec);
 
 nconf.argv().env().file({ file: './config.json' });
 
@@ -37,8 +47,18 @@ function getVenueId(): string {
   return cachedVenueId!;
 }
 
-// Shared API key — same value used in modules/api.ts curl header
-const API_KEY = nconf.get('API_KEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+// Per-venue WS registration secret. Stored in settings.json (synced DB ->
+// local by the frontend, same path as venueId), with an env fallback for
+// manual provisioning. Fail-closed: no hardcoded fallback, so a leaked
+// shared key can no longer impersonate other venues.
+function getWsSecret(): string {
+  try {
+    const { getSettings } = require('./settings');
+    const secret = getSettings()?.wsSecret;
+    if (secret) return secret;
+  } catch {}
+  return nconf.get('VENUE_WS_SECRET') || '';
+}
 
 async function sendToPrinter(
   ip: string,
@@ -63,6 +83,52 @@ async function sendToPrinter(
   });
 }
 
+// A Windows shared-printer write is fire-and-forget at the spooler:
+// fs.writeFile to \\host\share reports success even when the physical
+// printer is offline or the share does not exist. Gate on the printer's
+// WMI WorkOffline state first (mirrors the legacy print path) so an
+// offline printer fails loudly instead of returning a false success.
+// Stricter than legacy: only an explicit `false` (share found AND not
+// offline) counts as online — empty output means "share not found".
+async function isWindowsSharedPrinterOnline(
+  shareName: string
+): Promise<boolean> {
+  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
+  try {
+    const { stdout } = await execAsync(command);
+    return stdout.trim().toLowerCase() === 'false';
+  } catch {
+    return false;
+  }
+}
+
+// Local (non-TCP) printers: shared / USB / serial devices addressed by a
+// device path in `printerPort` (e.g. \\localhost\POS-80 on Windows, or a
+// serial device). The backend already produced the full ESC/POS buffer,
+// so this is a pure raw passthrough — node-thermal-printer's File interface
+// writes the bytes straight to the device, mirroring the legacy print path.
+async function sendToLocalPrinter(
+  deviceInterface: string,
+  data: Buffer
+): Promise<void> {
+  // UNC share path (\\host\share): the raw write below silently
+  // "succeeds" at the spooler, so verify the printer is actually online
+  // before claiming success.
+  if (deviceInterface.startsWith('\\\\')) {
+    const shareName = deviceInterface.split('\\').pop() || '';
+    const online = await isWindowsSharedPrinterOnline(shareName);
+    if (!online) {
+      throw new Error(`Printer offline or not found: ${deviceInterface}`);
+    }
+  }
+
+  const printer = new ThermalPrinter({
+    interface: deviceInterface,
+    type: PrinterTypes.EPSON,
+  });
+  await printer.raw(data);
+}
+
 function checkPrinterConnectivity(ip: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.connect({ host: ip, port }, () => {
@@ -83,26 +149,40 @@ async function handleMessage(raw: string): Promise<void> {
       case 'printRaw': {
         const { jobId, printerIp, printerPort, data } = msg;
 
-        if (!jobId || !printerIp || !data) {
+        // A job needs an id, a payload, and at least one transport target:
+        // an IP for TCP printers, or a device path in printerPort for
+        // local shared/USB/serial printers.
+        if (!jobId || !data || (!printerIp && !printerPort)) {
           logger.error('Invalid printRaw message: missing required fields');
           if (jobId) sendResult(jobId, 'failed', 'Missing required fields');
           return;
         }
 
         const buffer = Buffer.from(data, 'base64');
-        const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
-        const port = Number.isFinite(parsed) ? parsed : 9100;
 
-        logger.info(`Received print job ${jobId} for ${printerIp}:${port} (${buffer.length} bytes)`);
+        let dispatch: Promise<unknown>;
+        let target: string;
 
-        sendToPrinter(printerIp, port, buffer)
+        if (printerIp) {
+          const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
+          const port = Number.isFinite(parsed) ? parsed : 9100;
+          target = `${printerIp}:${port}`;
+          logger.info(`Received print job ${jobId} for ${target} (${buffer.length} bytes)`);
+          dispatch = sendToPrinter(printerIp, port, buffer);
+        } else {
+          target = printerPort;
+          logger.info(`Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`);
+          dispatch = sendToLocalPrinter(printerPort, buffer);
+        }
+
+        dispatch
           .then(() => {
-            logger.info(`Print job ${jobId} sent successfully to ${printerIp}`);
+            logger.info(`Print job ${jobId} sent successfully to ${target}`);
             sendResult(jobId, 'success');
           })
           .catch((err) => {
-            logger.error(`Print job ${jobId} failed for ${printerIp}:`, err);
-            sendResult(jobId, 'failed', err.message);
+            logger.error(`Print job ${jobId} failed for ${target}:`, err);
+            sendResult(jobId, 'failed', err?.message ?? String(err));
           });
         break;
       }
@@ -150,9 +230,17 @@ function sendResult(jobId: string, status: string, error?: string): void {
 function connect(): void {
   const url = getBackendWsUrl();
   const venueId = getVenueId();
+  const secret = getWsSecret();
 
   if (!venueId) {
     logger.info('No venueId configured, skipping WebSocket connection');
+    return;
+  }
+
+  if (!secret) {
+    logger.error(
+      'No wsSecret configured (settings.json / VENUE_WS_SECRET), refusing WebSocket connection'
+    );
     return;
   }
 
@@ -167,7 +255,7 @@ function connect(): void {
     ws!.send(
       JSON.stringify({
         type: 'printerServerRegister',
-        data: { venueId, apikey: API_KEY },
+        data: { secret, venueId },
       })
     );
   });

@@ -188,6 +188,9 @@ export const Settings = z.object({
   modem: ModemSettings.optional(),
   printers: z.array(PrinterSettings),
   venueId: z.string().optional(),
+  // Per-venue secret for authenticating the WS registration with the backend.
+  // Synced DB -> local via the frontend's settings push, same path as venueId.
+  wsSecret: z.string().optional(),
 });
 
 export type ISettings = z.infer<typeof Settings>;

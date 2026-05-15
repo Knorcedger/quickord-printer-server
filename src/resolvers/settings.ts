@@ -53,11 +53,14 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       }
     );
 
-    // Force own venueId — accept first time, lock after
+    // Force own venueId — accept first time, lock after.
+    // Preserve an existing wsSecret if a sync omits it, so a stale FE push
+    // can't wipe the secret already on disk.
     const newSettings = Settings.parse({
       ...req.body,
       printers,
       venueId: ownVenueId || incomingVenueId,
+      wsSecret: req.body.wsSecret || oldSettings.wsSecret,
     });
 
     // Force 58mm paper width for specific venues (configured in config.json)
