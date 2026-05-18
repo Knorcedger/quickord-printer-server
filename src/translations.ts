@@ -388,6 +388,26 @@ export default {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF INVOICE',
     },
+    invoiceDeliveryNote: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'INVOICE - DELIVERY NOTE',
+    },
+    deliveryNoteTitle: {
+      el: 'ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'DELIVERY NOTE',
+    },
+    movePurposeAbbr: {
+      el: 'ΣΚ. ΔΙΑΚ/ΣΗΣ',
+      en: 'DISP. PURP.',
+    },
+    issuedFromHeadquarters: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΕΔΡΑ',
+      en: 'ISSUED FROM HEADQUARTERS',
+    },
+    issuedFromBranch: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΥΠΟΚΑΤΑΣΤΗΜΑ',
+      en: 'ISSUED FROM BRANCH',
+    },
     paymentSlipEnd: {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
       en: 'THANK YOU FOR YOUR PAYMENT',

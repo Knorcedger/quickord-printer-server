@@ -163,7 +163,13 @@ export const PaymentMethod = Object.freeze({
   WEB_BANK: { description: 'Web-banking', value: '6' },
 });
 
-export const readMarkdown = async (text, printer, alignment, settings) => {
+export const readMarkdown = async (
+  text,
+  printer,
+  alignment,
+  settings,
+  uppercase = false
+) => {
   if (alignment === 'left') {
     printer.alignLeft();
   } else if (alignment === 'center') {
@@ -186,7 +192,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -214,7 +225,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -242,7 +258,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -279,7 +300,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(tr(buffer, settings?.transliterate));
+      printer.println(
+        tr(uppercase ? buffer.toUpperCase() : buffer, settings?.transliterate)
+      );
       buffer = '';
       index++;
       continue;
@@ -904,6 +927,34 @@ export const printVatBreakdown = (
 
   drawLine2(printer);
 };
+/**
+ * Resolves the document title for an AADE invoice. Mirrors the FE rule
+ * (InvoiceTemplate.tsx): code 1.1/9.3 + move_purpose means the document also
+ * acts as a delivery note, so the title changes accordingly.
+ *
+ * TODO: the real source of truth should be an `isDeliveryNote` flag on the
+ * invoice header, but it is not being stored correctly yet, so for now we
+ * infer it from header.code + move_purpose like the FE does.
+ */
+export const getInvoiceTypeLabel = (
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages
+): string => {
+  const code = aadeInvoice?.header?.code;
+  const hasMovePurpose = !!aadeInvoice?.move_purpose?.code;
+
+  if (code === '5.1') {
+    return translations.printOrder.invoiceCreditNote[lang];
+  }
+  if (code === '9.3' && hasMovePurpose) {
+    return translations.printOrder.deliveryNoteTitle[lang];
+  }
+  if (code === '1.1' && hasMovePurpose) {
+    return translations.printOrder.invoiceDeliveryNote[lang];
+  }
+  return translations.printOrder.invoice[lang];
+};
+
 export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
@@ -913,7 +964,7 @@ export const venueData = async (
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    await readMarkdown(issuerText.toUpperCase(), printer, 'center', settings);
+    await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);
@@ -973,6 +1024,17 @@ export const receiptData = (
       settings.transliterate
     )
   );
+
+  // For invoice-delivery-notes (1.1/9.3 + move_purpose) also show the
+  // dispatch purpose code, e.g. "ΣΚ. ΔΙΑΚ/ΣΗΣ: 1"
+  if (aadeInvoice?.move_purpose?.code) {
+    printer.println(
+      tr(
+        `${translations.printOrder.movePurposeAbbr[lang]}: ${aadeInvoice.move_purpose.code}`,
+        settings.transliterate
+      )
+    );
+  }
 
   printer.alignLeft();
   if (orderType !== 'MYPELATES') {
