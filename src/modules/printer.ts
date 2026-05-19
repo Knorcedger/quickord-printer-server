@@ -31,6 +31,7 @@ import {
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
   printProductDiscount,
+  getInvoiceTypeLabel,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings } from './settings';
@@ -1982,16 +1983,15 @@ const printInvoice = async (
         printer.newLine();
 
         // Determine invoice type label based on AADE code
-        let invoiceTypeLabel: string;
-        switch (aadeInvoice?.header?.code) {
-          case '5.1':
-            invoiceTypeLabel = translations.printOrder.invoiceCreditNote[lang];
-            break;
-          default:
-            invoiceTypeLabel = translations.printOrder.invoice[lang];
-            break;
-        }
+        const invoiceTypeLabel = getInvoiceTypeLabel(aadeInvoice, lang);
         printer.println(invoiceTypeLabel);
+
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
 
         receiptData(
           printer,
@@ -2363,8 +2363,14 @@ const printMyPelatesInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
         printer.println(
-          tr(`${translations.printOrder.invoice[lang]}`, settings.transliterate)
+          tr(getInvoiceTypeLabel(aadeInvoice, lang), settings.transliterate)
         );
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
         receiptData(
           printer,
           aadeInvoice,
@@ -2885,8 +2891,7 @@ export const printOrder = async (
             printer.bold(false);
           }
         }
-        const boldOrderType =
-          settings.textOptions?.includes('BOLD_ORDER_TYPE');
+        const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
         printer.bold(true);
         printer.print(
           tr(
