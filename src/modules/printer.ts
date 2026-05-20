@@ -1751,7 +1751,9 @@ const printPaymentReceipt = async (
       continue;
     }
     console.log('Printing ALP');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
@@ -1855,7 +1857,7 @@ const printPaymentReceipt = async (
             orderNumber,
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -1962,7 +1964,9 @@ const printInvoice = async (
       continue;
     }
     console.log('printing invoice');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
@@ -2065,7 +2069,7 @@ const printInvoice = async (
           orderNumber,
           mark: aadeInvoice?.mark,
           copy: copies + 1,
-          totalCopies: settings.copies,
+          totalCopies: copyCount,
         });
         successCount++;
         if (copies === 0) {
@@ -2149,7 +2153,9 @@ const printMyPelatesReceipt = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
@@ -2254,7 +2260,7 @@ const printMyPelatesReceipt = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -2341,7 +2347,9 @@ const printMyPelatesInvoice = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
@@ -2453,7 +2461,7 @@ const printMyPelatesInvoice = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -3515,7 +3523,9 @@ export const printOrderComments = async (
       const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
 
       let copyExecError: unknown = null;
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      // `copies` setting applies only to orders & parking tickets; comments always print once.
+      const copyCount = 1;
+      for (let copies = 0; copies < copyCount; copies += 1) {
         if (copies > 0) {
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
@@ -3605,13 +3615,13 @@ export const printOrderComments = async (
           await executePrinter(
             printer,
             printerIdentifier,
-            `order comments print copy ${copies + 1}/${settings.copies}`,
+            `order comments print copy ${copies + 1}/${copyCount}`,
             {
               orderId: order._id,
               orderNumber: order.number,
               orderType: order.orderType,
               copy: copies + 1,
-              totalCopies: settings.copies,
+              totalCopies: copyCount,
             }
           );
         } catch (execError) {
