@@ -128,11 +128,39 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
     const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
     const imageBuffer = execSync(cmd);
 
-    // Process the image with sharp
-    const processedImage = await sharp(imageBuffer)
-      .resize(384)
+    // Bayer 8x8 ordered-dither matrix, normalized to 0-255
+    const BAYER_8 = [
+      [0, 32, 8, 40, 2, 34, 10, 42],
+      [48, 16, 56, 24, 50, 18, 58, 26],
+      [12, 44, 4, 36, 14, 46, 6, 38],
+      [60, 28, 52, 20, 62, 30, 54, 22],
+      [3, 35, 11, 43, 1, 33, 9, 41],
+      [51, 19, 59, 27, 49, 17, 57, 25],
+      [15, 47, 7, 39, 13, 45, 5, 37],
+      [63, 31, 55, 23, 61, 29, 53, 21],
+    ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
+
+    const { data, info } = await sharp(imageBuffer)
+      .resize(300)
+      .ensureAlpha()
+      .flatten({ background: '#ffffff' }) // transparent → white
       .grayscale()
-      .threshold(128)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const { width, height, channels } = info;
+    const out = Buffer.alloc(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const gray = data[(y * width + x) * channels]!; // 0=black, 255=white
+        const t = BAYER_8[y & 7]![x & 7]!;
+        out[y * width + x] = gray > t ? 255 : 0;
+      }
+    }
+
+    const processedImage = await sharp(out, {
+      raw: { width, height, channels: 1 },
+    })
       .png()
       .toBuffer();
 
