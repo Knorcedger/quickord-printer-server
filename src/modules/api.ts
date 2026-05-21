@@ -1,9 +1,19 @@
 import nconf from 'nconf';
 import os from 'os';
 
+import {
+  curlExecJson,
+  FetchFailureDetails,
+  httpStatusError,
+  tryFetchWithFallback,
+  withTempJsonPayload,
+} from './http';
 import logger from './logger';
 
 nconf.argv().env().file({ file: './config.json' });
+
+const APIKEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+const APPID = 'desktop';
 
 export const getLocalIP = (): string => {
   const interfaces = os.networkInterfaces();
@@ -32,27 +42,79 @@ export const getLocalIP = (): string => {
   return fallback || '127.0.0.1';
 };
 
-export const apiCall = async (query: string): Promise<any> => {
-  const response = await fetch(nconf.get('QUICKORD_API_URL'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs',
-      appId: 'desktop',
-    },
-    body: JSON.stringify({ query }),
+const escapeGraphqlString = (s: string): string =>
+  s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+
+// Reports a printer-server fetch failure to the BE by calling the existing
+// `addError` GraphQL mutation. Uses curl directly to avoid recursion through
+// the fetch path that just failed. Skipped when the network is fully down.
+const reportFetchFailure = async (
+  failure: FetchFailureDetails
+): Promise<void> => {
+  if (failure.networkDown) return;
+
+  const apiUrl = nconf.get('QUICKORD_API_URL');
+  if (!apiUrl) return;
+
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
+  const detailsJson = JSON.stringify({
+    fetchErrorCode: failure.fetchErrorCode,
+    fetchErrorCause: failure.fetchErrorCause,
+    responseStatus: failure.responseStatus,
+    curlOk: failure.curlOk,
   });
 
-  const responseJson = (await response.json()) as {
-    data?: unknown;
-    errors?: unknown;
-  };
+  const mutation = `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(failure.url)}", query: "${escapeGraphqlString(detailsJson)}") { _id } }`;
 
-  if (responseJson?.errors) {
-    logger.error('API call error:', JSON.stringify(responseJson.errors));
+  try {
+    await withTempJsonPayload({ query: mutation }, (tempFilePath) =>
+      curlExecJson(
+        `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+      )
+    );
+    logger.info('Reported fetch failure to BE');
+  } catch (err) {
+    logger.error('Failed to report fetch failure to BE:', err);
+  }
+};
+
+export const apiCall = async (query: string): Promise<any> => {
+  const apiUrl = nconf.get('QUICKORD_API_URL');
+
+  const result = await tryFetchWithFallback<{ data?: any; errors?: any }>({
+    url: apiUrl,
+    method: 'POST',
+    fetchFn: async () => {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: APIKEY,
+          appId: APPID,
+        },
+        body: JSON.stringify({ query }),
+      });
+      if (!response.ok) throw httpStatusError(response);
+      const data = (await response.json()) as { data?: any; errors?: any };
+      return { data };
+    },
+    curlFn: () =>
+      withTempJsonPayload({ query }, (tempFilePath) =>
+        curlExecJson(
+          `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+        )
+      ),
+  });
+
+  if (result.viaFallback && result.fetchFailure) {
+    reportFetchFailure(result.fetchFailure).catch(() => {});
   }
 
-  return responseJson;
+  if (result.data?.errors) {
+    logger.error('API call error:', JSON.stringify(result.data.errors));
+  }
+
+  return result.data;
 };
 
 export const registerPrinterServerIp = async (
@@ -80,3 +142,5 @@ export const registerPrinterServerIp = async (
     logger.error('Failed to register printer server IP:', err);
   }
 };
+
+export { reportFetchFailure };

@@ -14,6 +14,12 @@ import * as path from 'node:path';
 import JSZip from 'jszip';
 
 import nconf from 'nconf';
+import {
+  curlExec,
+  curlExecJson,
+  httpStatusError,
+  tryFetchWithFallback,
+} from '../modules/http';
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -188,15 +194,23 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   try {
     console.log('Fetching latest release info from:', versionUrl);
 
-    const response = await fetch(versionUrl, {
-      redirect: 'follow',
-      headers: { 'User-Agent': 'quickord-printer-server' },
+    const result = await tryFetchWithFallback<{ tag_name?: string }>({
+      url: versionUrl,
+      method: 'GET',
+      fetchFn: async () => {
+        const response = await fetch(versionUrl, {
+          redirect: 'follow',
+          headers: { 'User-Agent': 'quickord-printer-server' },
+        });
+        if (!response.ok) throw httpStatusError(response);
+        return { data: (await response.json()) as { tag_name?: string } };
+      },
+      curlFn: () =>
+        curlExecJson(
+          `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`
+        ),
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-
-    const releaseData = (await response.json()) as { tag_name?: string };
+    const releaseData = result.data;
     const tagName = releaseData.tag_name;
 
     if (!tagName) {
@@ -248,13 +262,19 @@ export async function downloadLatestCode(): Promise<string | null> {
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  const downloadResponse = await fetch(url, { redirect: 'follow' });
-  if (!downloadResponse.ok || !downloadResponse.body) {
-    throw new Error(
-      `Failed to download update: HTTP ${downloadResponse.status} ${downloadResponse.statusText}`
-    );
-  }
-  await pipeline(downloadResponse.body, createWriteStream(zipPath));
+  await tryFetchWithFallback<void>({
+    url,
+    method: 'GET',
+    fetchFn: async () => {
+      const response = await fetch(url, { redirect: 'follow' });
+      if (!response.ok || !response.body) throw httpStatusError(response);
+      await pipeline(response.body, createWriteStream(zipPath));
+      return { data: undefined as void };
+    },
+    curlFn: async () => {
+      await curlExec(`curl -L "${url}" -o "${zipPath}"`);
+    },
+  });
 
   // Extract zip
   const tempCodePath = path.resolve(srcDir, 'code');

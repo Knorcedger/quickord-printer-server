@@ -8,6 +8,12 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import {
+  curlExecBuffer,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './http';
+import { reportFetchFailure } from './api';
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -119,18 +125,30 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
   }
 
   try {
-    const response = await fetch(url, {
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    const result = await tryFetchWithFallback<Buffer>({
+      url,
+      method: 'GET',
+      fetchFn: async () => {
+        const response = await fetch(url, {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          },
+        });
+        if (!response.ok) throw httpStatusError(response);
+        return { data: Buffer.from(await response.arrayBuffer()) };
       },
+      curlFn: () =>
+        curlExecBuffer(
+          `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`
+        ),
     });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText}`);
-    }
-    const imageBuffer = Buffer.from(await response.arrayBuffer());
 
-    const processedImage = await sharp(imageBuffer)
+    if (result.viaFallback && result.fetchFailure) {
+      reportFetchFailure(result.fetchFailure).catch(() => {});
+    }
+
+    const processedImage = await sharp(result.data)
       .resize(384)
       .grayscale()
       .threshold(128)

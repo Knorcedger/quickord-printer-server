@@ -36,6 +36,11 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { getLocalIP, registerPrinterServerIp } from './modules/api';
+import {
+  curlExecJson,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
 
 const main = async () => {
@@ -119,15 +124,28 @@ const main = async () => {
   // Simple HTTPS request (works inside exe)
 
   async function fetchLatestVersion() {
+    const url =
+      'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
     try {
-      const response = await fetch(
-        'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest'
-      );
-      const json = (await response.json()) as {
+      const result = await tryFetchWithFallback<{
         name?: string;
         tag_name?: string;
-      };
-      return json.name || json.tag_name || 'unknown';
+      }>({
+        url,
+        method: 'GET',
+        fetchFn: async () => {
+          const response = await fetch(url);
+          if (!response.ok) throw httpStatusError(response);
+          return {
+            data: (await response.json()) as {
+              name?: string;
+              tag_name?: string;
+            },
+          };
+        },
+        curlFn: () => curlExecJson(`curl -s -L "${url}"`),
+      });
+      return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
       console.error('fetch failed:', err);
       return 'unknown';
