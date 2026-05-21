@@ -1368,7 +1368,9 @@ const printOrderForm = async (
         project,
         order
       );
-      printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
+      if (waiterName) {
+        printer.println(waiterName.toUpperCase());
+      }
       if (aadeInvoice.closed) {
         printer.setTextSize(1, 0);
         printer.bold(true);
