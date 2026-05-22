@@ -31,6 +31,7 @@ import {
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
   printProductDiscount,
+  getInvoiceTypeLabel,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings } from './settings';
@@ -1367,7 +1368,9 @@ const printOrderForm = async (
         project,
         order
       );
-      printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
+      if (waiterName) {
+        printer.println(waiterName.toUpperCase());
+      }
       if (aadeInvoice.closed) {
         printer.setTextSize(1, 0);
         printer.bold(true);
@@ -1750,7 +1753,9 @@ const printPaymentReceipt = async (
       continue;
     }
     console.log('Printing ALP');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
@@ -1854,7 +1859,7 @@ const printPaymentReceipt = async (
             orderNumber,
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -1961,7 +1966,9 @@ const printInvoice = async (
       continue;
     }
     console.log('printing invoice');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
@@ -1982,16 +1989,15 @@ const printInvoice = async (
         printer.newLine();
 
         // Determine invoice type label based on AADE code
-        let invoiceTypeLabel: string;
-        switch (aadeInvoice?.header?.code) {
-          case '5.1':
-            invoiceTypeLabel = translations.printOrder.invoiceCreditNote[lang];
-            break;
-          default:
-            invoiceTypeLabel = translations.printOrder.invoice[lang];
-            break;
-        }
+        const invoiceTypeLabel = getInvoiceTypeLabel(aadeInvoice, lang);
         printer.println(invoiceTypeLabel);
+
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
 
         receiptData(
           printer,
@@ -2065,7 +2071,7 @@ const printInvoice = async (
           orderNumber,
           mark: aadeInvoice?.mark,
           copy: copies + 1,
-          totalCopies: settings.copies,
+          totalCopies: copyCount,
         });
         successCount++;
         if (copies === 0) {
@@ -2149,7 +2155,9 @@ const printMyPelatesReceipt = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
@@ -2254,7 +2262,7 @@ const printMyPelatesReceipt = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -2341,7 +2349,9 @@ const printMyPelatesInvoice = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    // `copies` setting applies only to orders & parking tickets; this document always prints once.
+    const copyCount = 1;
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
@@ -2363,8 +2373,14 @@ const printMyPelatesInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
         printer.println(
-          tr(`${translations.printOrder.invoice[lang]}`, settings.transliterate)
+          tr(getInvoiceTypeLabel(aadeInvoice, lang), settings.transliterate)
         );
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
         receiptData(
           printer,
           aadeInvoice,
@@ -2447,7 +2463,7 @@ const printMyPelatesInvoice = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -2885,8 +2901,7 @@ export const printOrder = async (
             printer.bold(false);
           }
         }
-        const boldOrderType =
-          settings.textOptions?.includes('BOLD_ORDER_TYPE');
+        const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
         printer.bold(true);
         printer.print(
           tr(
@@ -3510,7 +3525,9 @@ export const printOrderComments = async (
       const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
 
       let copyExecError: unknown = null;
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      // `copies` setting applies only to orders & parking tickets; comments always print once.
+      const copyCount = 1;
+      for (let copies = 0; copies < copyCount; copies += 1) {
         if (copies > 0) {
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
@@ -3600,13 +3617,13 @@ export const printOrderComments = async (
           await executePrinter(
             printer,
             printerIdentifier,
-            `order comments print copy ${copies + 1}/${settings.copies}`,
+            `order comments print copy ${copies + 1}/${copyCount}`,
             {
               orderId: order._id,
               orderNumber: order.number,
               orderType: order.orderType,
               copy: copies + 1,
-              totalCopies: settings.copies,
+              totalCopies: copyCount,
             }
           );
         } catch (execError) {

@@ -271,6 +271,23 @@ const main = async () => {
       });
     });
 
+  // 404 catch-all — must come AFTER all route handlers but BEFORE the error
+  // handler. Without this, Express's default 404 returns an HTML page
+  // ("Cannot POST /xxx") which breaks JSON-expecting clients (FE does
+  // response.json() → "Unexpected token '<'"). Returning JSON keeps client
+  // error reporting clean and signals "endpoint not present in this PS
+  // version" unambiguously.
+  app.use((req: Request<{}, any, any>, res: Response<{}, any>) => {
+    res.status(404).json({
+      errors: [
+        {
+          code: 'ROUTE_NOT_FOUND',
+          message: `Route ${req.method} ${req.url} not found on this printer-server version`,
+        },
+      ],
+    });
+  });
+
   // eslint-disable-next-line no-unused-vars
   app.use(
     (
