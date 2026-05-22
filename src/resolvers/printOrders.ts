@@ -240,6 +240,7 @@ export const Order = z.object({
     invalid_type_error: 'tableNumber must be a string.',
     required_error: 'tableNumber is required.',
   }),
+  tableNumbers: z.array(z.any()).optional(),
   tip: z
     .number({
       invalid_type_error: 'tip must be a number.',

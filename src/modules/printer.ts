@@ -146,6 +146,46 @@ export const determinePrintStatus = (
 export const DEFAULT_CODE_PAGE = 7;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
+// How long a single TCP connect probe waits before timing out.
+// Raised from the library default of 3000ms because WiFi printers waking
+// from power-save can take several seconds to answer the first SYN.
+const PRINTER_CONNECT_TIMEOUT_MS = 6000;
+
+// Status-check retry policy: a waking printer often fails the first probe.
+// Give it a few attempts within a single GET /available before declaring offline.
+const PRINTER_CHECK_RETRIES = 3;
+const PRINTER_CHECK_RETRY_DELAY_MS = 600;
+
+// Last-known connection state per printer id, used to debounce a single
+// transient failure across checks so the UI doesn't flap to offline.
+const lastConnectedState = new Map<string, boolean>();
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Retries the network connection probe a few times before giving up, so a
+// printer that is slow to wake from WiFi power-save gets a chance to respond
+// within a single status check.
+const isNetworkPrinterConnectedWithRetry = async (
+  printer: ThermalPrinter,
+  identifier: string
+): Promise<boolean> => {
+  for (let attempt = 1; attempt <= PRINTER_CHECK_RETRIES; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const connected = await printer.isPrinterConnected();
+    if (connected) {
+      return true;
+    }
+    if (attempt < PRINTER_CHECK_RETRIES) {
+      logger.info(
+        `Printer ${identifier} probe ${attempt}/${PRINTER_CHECK_RETRIES} failed, retrying…`
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(PRINTER_CHECK_RETRY_DELAY_MS);
+    }
+  }
+  return false;
+};
+
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
@@ -213,6 +253,7 @@ export const setupPrinters = async (settings: ISettings) => {
     const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
       characterSet: printerSettings.characterSet,
       interface: interfaceString || '',
+      options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
       type: PrinterTypes.EPSON,
     };
 
@@ -221,14 +262,7 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([
-      new ThermalPrinter({
-        characterSet: printerSettings.characterSet,
-        interface: interfaceString || '',
-        type: PrinterTypes.EPSON,
-      }),
-      printerSettings,
-    ]);
+    printers.push([new ThermalPrinter(config), printerSettings]);
   });
 };
 
@@ -247,6 +281,7 @@ export const setupPrinter = (settings: IPrinterSettings) => {
     characterSet:
       CharacterSet[settings.characterSet] || CharacterSet.PC869_GREEK,
     interface: interfaceString || '',
+    options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
     type: PrinterTypes.EPSON,
   };
 
@@ -295,7 +330,10 @@ export const checkPrinters = async () => {
     try {
       let connected = false;
       if (settings.ip !== '') {
-        connected = await printer?.isPrinterConnected();
+        connected = await isNetworkPrinterConnectedWithRetry(
+          printer,
+          printerIdentifier
+        );
         logger.info(
           `Network printer ${printerIdentifier} connection status: ${connected}`
         );
@@ -318,11 +356,24 @@ export const checkPrinters = async () => {
         }
       }
 
+      const printerId = settings?.id || '';
+
       if (connected) {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
+        lastConnectedState.set(printerId, true);
+        connectedPrinterIds.push({ id: printerId, connected: true });
         logger.info(`Printer ${printerIdentifier} is online`);
+      } else if (lastConnectedState.get(printerId) === true) {
+        // Debounce: it was online last check, so give it one grace cycle
+        // before flipping the UI to offline. Store false so the next failed
+        // check is reported as offline.
+        lastConnectedState.set(printerId, false);
+        connectedPrinterIds.push({ id: printerId, connected: true });
+        logger.warn(
+          `Printer ${printerIdentifier} failed probe but was online last check, reporting online for one grace cycle`
+        );
       } else {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+        lastConnectedState.set(printerId, false);
+        connectedPrinterIds.push({ id: printerId, connected: false });
         printer?.clear();
         logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
       }
@@ -2882,11 +2933,15 @@ export const printOrder = async (
           ),
         ]);
         if (order?.orderType === 'DINE_IN') {
-          if (order?.tableNumber) {
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+          if (tablesLabel) {
             printer.bold(true);
             printer.table([
               tr(
-                `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
                 settings.transliterate
               ),
               ...(order.waiterName
@@ -3448,6 +3503,7 @@ export type OrderCommentsInput = Pick<
   | 'number'
   | 'orderType'
   | 'tableNumber'
+  | 'tableNumbers'
   | 'venue'
   | 'waiterComment'
   | 'customerComment'
@@ -3553,15 +3609,21 @@ export const printOrderComments = async (
             settings.transliterate
           ),
         ]);
-        if (order?.orderType === 'DINE_IN' && order?.tableNumber) {
-          printer.bold(true);
-          printer.println(
-            tr(
-              `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
-              settings.transliterate
-            )
-          );
-          printer.bold(false);
+        if (order?.orderType === 'DINE_IN') {
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+          if (tablesLabel) {
+            printer.bold(true);
+            printer.println(
+              tr(
+                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+                settings.transliterate
+              )
+            );
+            printer.bold(false);
+          }
         }
         printer.bold(true);
         printer.print(
