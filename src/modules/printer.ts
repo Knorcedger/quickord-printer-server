@@ -7,6 +7,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import { z } from 'zod';
+import nconf from 'nconf';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
@@ -186,6 +187,135 @@ const isNetworkPrinterConnectedWithRetry = async (
   return false;
 };
 
+// --- WiFi printer keep-alive ----------------------------------------------
+// Many WiFi thermal printers (the T80C-class units we ship) drop their WiFi
+// association after a short idle period and are slow to re-associate, so the
+// next status check or print finds them "offline" until they wake (see the
+// retry logic above). A lightweight periodic probe keeps the radio awake
+// between real jobs.
+//
+// The probe is the exact same zero-byte TCP connect that checkPrinters and the
+// library already perform, so it can never print garbage or beep. The only
+// real risk is colliding with a real job on printers that accept a single TCP
+// connection at a time, so keep-alive is idle-gated: it skips any printer that
+// is currently busy or had real activity within the cooldown window. USB
+// printers have no radio to keep awake and are ignored entirely.
+// Probe well under the printer's idle/sleep threshold so the radio stays
+// associated. Measured on a T80C the threshold was >6 min, but it varies per
+// venue AP, so 90s keeps a wide cross-venue margin at negligible cost. Tune
+// per-deployment via "PRINTER_KEEPALIVE_INTERVAL_MS".
+const PRINTER_KEEPALIVE_INTERVAL_MS = 90000;
+const PRINTER_KEEPALIVE_COOLDOWN_MS = 10000;
+
+// Per-printer-instance activity, used to keep keep-alive from colliding with
+// real print jobs / status checks on single-socket printers.
+const printerActivity = new WeakMap<
+  ThermalPrinter,
+  { busy: boolean; lastActivityAt: number }
+>();
+
+const markPrinterBusy = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: true, lastActivityAt: Date.now() });
+};
+
+const markPrinterIdle = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: false, lastActivityAt: Date.now() });
+};
+
+// True when the printer is free for a keep-alive probe: not mid-operation and
+// not within the cooldown window after its last real activity.
+const isPrinterFreeForKeepalive = (printer: ThermalPrinter): boolean => {
+  const activity = printerActivity.get(printer);
+  if (!activity) return true;
+  if (activity.busy) return false;
+  return Date.now() - activity.lastActivityAt >= PRINTER_KEEPALIVE_COOLDOWN_MS;
+};
+
+let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+let keepaliveRunning = false;
+
+// Probes each idle network printer once to keep its WiFi radio associated.
+const runKeepaliveCycle = async () => {
+  for (let i = 0; i < printers.length; i += 1) {
+    const printer = printers[i]?.[0];
+    const settings = printers[i]?.[1];
+    // Only network printers have a radio to keep awake.
+    if (!printer || !settings || settings.ip === '') {
+      continue;
+    }
+    if (!isPrinterFreeForKeepalive(printer)) {
+      continue;
+    }
+
+    markPrinterBusy(printer);
+    try {
+      // Only refresh state on a successful probe. A single failed keep-alive
+      // attempt (no retries) is weak evidence; leave "offline" decisions to
+      // checkPrinters, which retries and applies the grace-cycle debounce.
+      const connected = await printer.isPrinterConnected();
+      if (connected) {
+        lastConnectedState.set(settings.id || '', true);
+      }
+    } catch (error) {
+      logger.warn(
+        `Keep-alive probe errored for ${settings.name || settings.ip}`,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    } finally {
+      markPrinterIdle(printer);
+    }
+  }
+};
+
+export const stopPrinterKeepalive = () => {
+  if (keepaliveInterval) {
+    clearInterval(keepaliveInterval);
+    keepaliveInterval = null;
+  }
+};
+
+// Starts the WiFi keep-alive loop. Idempotent: clears any existing loop first,
+// so it is safe to (re)call whenever printers are (re)configured. Disable by
+// setting "PRINTER_KEEPALIVE_ENABLED": false in config.json; override the
+// cadence with "PRINTER_KEEPALIVE_INTERVAL_MS".
+export const startPrinterKeepalive = () => {
+  stopPrinterKeepalive();
+
+  if (nconf.get('PRINTER_KEEPALIVE_ENABLED') === false) {
+    logger.info('Printer keep-alive disabled via config');
+    return;
+  }
+
+  const hasNetworkPrinter = printers.some(([, s]) => Boolean(s) && s.ip !== '');
+  if (!hasNetworkPrinter) {
+    return;
+  }
+
+  const intervalMs =
+    Number(nconf.get('PRINTER_KEEPALIVE_INTERVAL_MS')) ||
+    PRINTER_KEEPALIVE_INTERVAL_MS;
+
+  keepaliveInterval = setInterval(() => {
+    if (keepaliveRunning) {
+      // Previous cycle still in flight (e.g. several unreachable printers each
+      // hitting the connect timeout); skip rather than overlap probes.
+      return;
+    }
+    keepaliveRunning = true;
+    runKeepaliveCycle()
+      .catch((error) => {
+        logger.error('Printer keep-alive cycle failed:', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        keepaliveRunning = false;
+      });
+  }, intervalMs);
+
+  logger.info(`Printer keep-alive started (every ${intervalMs}ms)`);
+};
+
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
@@ -197,6 +327,9 @@ const executePrinter = async (
   operation: string,
   context?: Record<string, any>
 ): Promise<void> => {
+  // Mark busy so the keep-alive loop never opens a competing connection on a
+  // single-socket printer mid-job; markPrinterIdle also starts the cooldown.
+  markPrinterBusy(printer);
   try {
     await printer.execute({ waitForResponse: false });
     printer?.clear();
@@ -233,6 +366,8 @@ const executePrinter = async (
       });
       throw new PrinterExecutionError(operation, printerIdentifier, error);
     }
+  } finally {
+    markPrinterIdle(printer);
   }
 };
 
@@ -264,6 +399,9 @@ export const setupPrinters = async (settings: ISettings) => {
 
     printers.push([new ThermalPrinter(config), printerSettings]);
   });
+
+  // (Re)start the WiFi keep-alive loop for the freshly configured printers.
+  startPrinterKeepalive();
 };
 
 export const setupPrinter = (settings: IPrinterSettings) => {
@@ -327,6 +465,8 @@ export const checkPrinters = async () => {
       settings.name || settings.id || settings.ip || settings.port;
     logger.info(`Checking printer connection: ${printerIdentifier}`);
 
+    // Hold off keep-alive while this status check probes the same socket.
+    markPrinterBusy(printer);
     try {
       let connected = false;
       if (settings.ip !== '') {
@@ -383,6 +523,8 @@ export const checkPrinters = async () => {
         stack: error instanceof Error ? error.stack : undefined,
       });
       connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+    } finally {
+      markPrinterIdle(printer);
     }
   }
 
