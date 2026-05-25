@@ -970,7 +970,8 @@ export const paymentSlip = async (
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.tip || 0
     );
 
     // Format the response with detailed printer status
@@ -1466,7 +1467,8 @@ const printPaymentSlip = async (
   orderNumber: number,
   discounts: any[] = [],
   project: string = 'centrix',
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  tip: number = 0
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1510,30 +1512,8 @@ const printPaymentSlip = async (
           settings.transliterate
         )
       );
-      printer.println(aadeInvoice?.issuer.name);
-      printer.println(aadeInvoice?.issuer.activity);
-      printer.println(
-        tr(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`,
-          settings.transliterate
-        )
-      );
-
-      printer.println(
-        tr(
-          `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`,
-          settings.transliterate
-        )
-      );
-      printer.println(
-        tr(
-          `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`,
-          settings.transliterate
-        )
-      );
-      if (issuerText) {
-        printer.println(issuerText);
-      }
+      // issuerText (when present) replaces the issuer details, like the ALP.
+      await venueData(printer, aadeInvoice, issuerText, settings, lang);
       printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
@@ -1585,7 +1565,7 @@ const printPaymentSlip = async (
         if (discount.amount && discount.type) {
           let discountAmount = '';
           if (discount.type === 'FIXED') {
-            discountAmount = (discount.amount / 100).toString() + '€';
+            discountAmount = (discount.amount / 100).toFixed(2) + '€';
           } else if (
             discount.type === 'PERCENTAGE' ||
             discount.type === 'PERCENT'
@@ -1610,13 +1590,28 @@ const printPaymentSlip = async (
       printer.println(
         tr(`${translations.printOrder.payments[lang]}:`, settings.transliterate)
       );
-      aadeInvoice?.payment_methods.forEach((detail: any) => {
+      const paymentMethods = aadeInvoice?.payment_methods ?? [];
+      // The tip is collected on top of the fiscal amount, so fold it into the
+      // primary (largest) payment so the printed amounts reflect money actually
+      // collected. `tip` is in cents.
+      let tipIdx = -1;
+      if (tip > 0) {
+        let max = 0;
+        paymentMethods.forEach((m: any, idx: number) => {
+          if (m.amount > max) {
+            max = m.amount;
+            tipIdx = idx;
+          }
+        });
+      }
+      paymentMethods.forEach((detail: any, idx: number) => {
         printer.newLine();
+        const amount = detail.amount + (idx === tipIdx ? tip / 100 : 0);
         const methodDescription =
           PaymentMethod[detail.code]?.description ||
           translations.printOrder.unknown[lang];
         printer.println(
-          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${detail.amount.toFixed(2)}€`
+          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${amount.toFixed(2)}€`
         );
       });
       drawLine2(printer);
@@ -1793,10 +1788,11 @@ const printPaymentReceipt = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -1810,7 +1806,8 @@ const printPaymentReceipt = async (
           settings.transliterate
         );
 
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
@@ -1820,7 +1817,10 @@ const printPaymentReceipt = async (
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
@@ -2020,10 +2020,11 @@ const printInvoice = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -2034,7 +2035,8 @@ const printInvoice = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
@@ -2042,7 +2044,10 @@ const printInvoice = async (
         const spacing = ' '.repeat(Math.max(1, spaceCount));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
