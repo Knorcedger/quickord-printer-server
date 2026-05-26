@@ -16,6 +16,7 @@ export const OrderComments = z.object({
   number: z.number(),
   orderType: OrderType,
   tableNumber: z.any().optional(),
+  tableNumbers: z.array(z.any()).optional(),
   venue: z.object({
     address: z.string(),
     title: z.string(),
