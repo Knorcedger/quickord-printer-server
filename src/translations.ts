@@ -361,7 +361,7 @@ export default {
       en: 'PRICE',
     },
     reciept: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ',
       en: 'RECEIPT',
     },
     invoice: {
@@ -381,7 +381,7 @@ export default {
       en: 'PAYMENT SLIP',
     },
     recieptEnd: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF RECEIPT',
     },
     invoiceEnd: {
@@ -427,6 +427,10 @@ export default {
     productChanged: {
       el: 'ΑΛΛΑΓΗ ΠΡΟΪΟΝΤΟΣ',
       en: 'PRODUCT CHANGED',
+    },
+    productMoved: {
+      el: 'ΜΕΤΑΦΟΡΑ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT MOVED',
     },
     new: {
       el: 'ΝΕΟ',

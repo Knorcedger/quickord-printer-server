@@ -7,6 +7,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import { z } from 'zod';
+import nconf from 'nconf';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
@@ -146,6 +147,175 @@ export const determinePrintStatus = (
 export const DEFAULT_CODE_PAGE = 7;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
+// How long a single TCP connect probe waits before timing out.
+// Raised from the library default of 3000ms because WiFi printers waking
+// from power-save can take several seconds to answer the first SYN.
+const PRINTER_CONNECT_TIMEOUT_MS = 6000;
+
+// Status-check retry policy: a waking printer often fails the first probe.
+// Give it a few attempts within a single GET /available before declaring offline.
+const PRINTER_CHECK_RETRIES = 3;
+const PRINTER_CHECK_RETRY_DELAY_MS = 600;
+
+// Last-known connection state per printer id, used to debounce a single
+// transient failure across checks so the UI doesn't flap to offline.
+const lastConnectedState = new Map<string, boolean>();
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Retries the network connection probe a few times before giving up, so a
+// printer that is slow to wake from WiFi power-save gets a chance to respond
+// within a single status check.
+const isNetworkPrinterConnectedWithRetry = async (
+  printer: ThermalPrinter,
+  identifier: string
+): Promise<boolean> => {
+  for (let attempt = 1; attempt <= PRINTER_CHECK_RETRIES; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const connected = await printer.isPrinterConnected();
+    if (connected) {
+      return true;
+    }
+    if (attempt < PRINTER_CHECK_RETRIES) {
+      logger.info(
+        `Printer ${identifier} probe ${attempt}/${PRINTER_CHECK_RETRIES} failed, retrying…`
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(PRINTER_CHECK_RETRY_DELAY_MS);
+    }
+  }
+  return false;
+};
+
+// --- WiFi printer keep-alive ----------------------------------------------
+// Many WiFi thermal printers (the T80C-class units we ship) drop their WiFi
+// association after a short idle period and are slow to re-associate, so the
+// next status check or print finds them "offline" until they wake (see the
+// retry logic above). A lightweight periodic probe keeps the radio awake
+// between real jobs.
+//
+// The probe is the exact same zero-byte TCP connect that checkPrinters and the
+// library already perform, so it can never print garbage or beep. The only
+// real risk is colliding with a real job on printers that accept a single TCP
+// connection at a time, so keep-alive is idle-gated: it skips any printer that
+// is currently busy or had real activity within the cooldown window. USB
+// printers have no radio to keep awake and are ignored entirely.
+// Probe well under the printer's idle/sleep threshold so the radio stays
+// associated. Measured on a T80C the threshold was >6 min, but it varies per
+// venue AP, so 90s keeps a wide cross-venue margin at negligible cost. Tune
+// per-deployment via "PRINTER_KEEPALIVE_INTERVAL_MS".
+const PRINTER_KEEPALIVE_INTERVAL_MS = 90000;
+const PRINTER_KEEPALIVE_COOLDOWN_MS = 10000;
+
+// Per-printer-instance activity, used to keep keep-alive from colliding with
+// real print jobs / status checks on single-socket printers.
+const printerActivity = new WeakMap<
+  ThermalPrinter,
+  { busy: boolean; lastActivityAt: number }
+>();
+
+const markPrinterBusy = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: true, lastActivityAt: Date.now() });
+};
+
+const markPrinterIdle = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: false, lastActivityAt: Date.now() });
+};
+
+// True when the printer is free for a keep-alive probe: not mid-operation and
+// not within the cooldown window after its last real activity.
+const isPrinterFreeForKeepalive = (printer: ThermalPrinter): boolean => {
+  const activity = printerActivity.get(printer);
+  if (!activity) return true;
+  if (activity.busy) return false;
+  return Date.now() - activity.lastActivityAt >= PRINTER_KEEPALIVE_COOLDOWN_MS;
+};
+
+let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+let keepaliveRunning = false;
+
+// Probes each idle network printer once to keep its WiFi radio associated.
+const runKeepaliveCycle = async () => {
+  for (let i = 0; i < printers.length; i += 1) {
+    const printer = printers[i]?.[0];
+    const settings = printers[i]?.[1];
+    // Only network printers have a radio to keep awake.
+    if (!printer || !settings || settings.ip === '') {
+      continue;
+    }
+    if (!isPrinterFreeForKeepalive(printer)) {
+      continue;
+    }
+
+    markPrinterBusy(printer);
+    try {
+      // Only refresh state on a successful probe. A single failed keep-alive
+      // attempt (no retries) is weak evidence; leave "offline" decisions to
+      // checkPrinters, which retries and applies the grace-cycle debounce.
+      const connected = await printer.isPrinterConnected();
+      if (connected) {
+        lastConnectedState.set(settings.id || '', true);
+      }
+    } catch (error) {
+      logger.warn(
+        `Keep-alive probe errored for ${settings.name || settings.ip}`,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    } finally {
+      markPrinterIdle(printer);
+    }
+  }
+};
+
+export const stopPrinterKeepalive = () => {
+  if (keepaliveInterval) {
+    clearInterval(keepaliveInterval);
+    keepaliveInterval = null;
+  }
+};
+
+// Starts the WiFi keep-alive loop. Idempotent: clears any existing loop first,
+// so it is safe to (re)call whenever printers are (re)configured. Disable by
+// setting "PRINTER_KEEPALIVE_ENABLED": false in config.json; override the
+// cadence with "PRINTER_KEEPALIVE_INTERVAL_MS".
+export const startPrinterKeepalive = () => {
+  stopPrinterKeepalive();
+
+  if (nconf.get('PRINTER_KEEPALIVE_ENABLED') === false) {
+    logger.info('Printer keep-alive disabled via config');
+    return;
+  }
+
+  const hasNetworkPrinter = printers.some(([, s]) => Boolean(s) && s.ip !== '');
+  if (!hasNetworkPrinter) {
+    return;
+  }
+
+  const intervalMs =
+    Number(nconf.get('PRINTER_KEEPALIVE_INTERVAL_MS')) ||
+    PRINTER_KEEPALIVE_INTERVAL_MS;
+
+  keepaliveInterval = setInterval(() => {
+    if (keepaliveRunning) {
+      // Previous cycle still in flight (e.g. several unreachable printers each
+      // hitting the connect timeout); skip rather than overlap probes.
+      return;
+    }
+    keepaliveRunning = true;
+    runKeepaliveCycle()
+      .catch((error) => {
+        logger.error('Printer keep-alive cycle failed:', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        keepaliveRunning = false;
+      });
+  }, intervalMs);
+
+  logger.info(`Printer keep-alive started (every ${intervalMs}ms)`);
+};
+
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
@@ -157,6 +327,9 @@ const executePrinter = async (
   operation: string,
   context?: Record<string, any>
 ): Promise<void> => {
+  // Mark busy so the keep-alive loop never opens a competing connection on a
+  // single-socket printer mid-job; markPrinterIdle also starts the cooldown.
+  markPrinterBusy(printer);
   try {
     await printer.execute({ waitForResponse: false });
     printer?.clear();
@@ -193,6 +366,8 @@ const executePrinter = async (
       });
       throw new PrinterExecutionError(operation, printerIdentifier, error);
     }
+  } finally {
+    markPrinterIdle(printer);
   }
 };
 
@@ -213,6 +388,7 @@ export const setupPrinters = async (settings: ISettings) => {
     const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
       characterSet: printerSettings.characterSet,
       interface: interfaceString || '',
+      options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
       type: PrinterTypes.EPSON,
     };
 
@@ -221,15 +397,11 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([
-      new ThermalPrinter({
-        characterSet: printerSettings.characterSet,
-        interface: interfaceString || '',
-        type: PrinterTypes.EPSON,
-      }),
-      printerSettings,
-    ]);
+    printers.push([new ThermalPrinter(config), printerSettings]);
   });
+
+  // (Re)start the WiFi keep-alive loop for the freshly configured printers.
+  startPrinterKeepalive();
 };
 
 export const setupPrinter = (settings: IPrinterSettings) => {
@@ -247,6 +419,7 @@ export const setupPrinter = (settings: IPrinterSettings) => {
     characterSet:
       CharacterSet[settings.characterSet] || CharacterSet.PC869_GREEK,
     interface: interfaceString || '',
+    options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
     type: PrinterTypes.EPSON,
   };
 
@@ -292,10 +465,15 @@ export const checkPrinters = async () => {
       settings.name || settings.id || settings.ip || settings.port;
     logger.info(`Checking printer connection: ${printerIdentifier}`);
 
+    // Hold off keep-alive while this status check probes the same socket.
+    markPrinterBusy(printer);
     try {
       let connected = false;
       if (settings.ip !== '') {
-        connected = await printer?.isPrinterConnected();
+        connected = await isNetworkPrinterConnectedWithRetry(
+          printer,
+          printerIdentifier
+        );
         logger.info(
           `Network printer ${printerIdentifier} connection status: ${connected}`
         );
@@ -318,11 +496,24 @@ export const checkPrinters = async () => {
         }
       }
 
+      const printerId = settings?.id || '';
+
       if (connected) {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
+        lastConnectedState.set(printerId, true);
+        connectedPrinterIds.push({ id: printerId, connected: true });
         logger.info(`Printer ${printerIdentifier} is online`);
+      } else if (lastConnectedState.get(printerId) === true) {
+        // Debounce: it was online last check, so give it one grace cycle
+        // before flipping the UI to offline. Store false so the next failed
+        // check is reported as offline.
+        lastConnectedState.set(printerId, false);
+        connectedPrinterIds.push({ id: printerId, connected: true });
+        logger.warn(
+          `Printer ${printerIdentifier} failed probe but was online last check, reporting online for one grace cycle`
+        );
       } else {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+        lastConnectedState.set(printerId, false);
+        connectedPrinterIds.push({ id: printerId, connected: false });
         printer?.clear();
         logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
       }
@@ -332,6 +523,8 @@ export const checkPrinters = async () => {
         stack: error instanceof Error ? error.stack : undefined,
       });
       connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+    } finally {
+      markPrinterIdle(printer);
     }
   }
 
@@ -970,7 +1163,8 @@ export const paymentSlip = async (
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.tip || 0
     );
 
     // Format the response with detailed printer status
@@ -1466,7 +1660,8 @@ const printPaymentSlip = async (
   orderNumber: number,
   discounts: any[] = [],
   project: string = 'centrix',
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  tip: number = 0
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1510,30 +1705,8 @@ const printPaymentSlip = async (
           settings.transliterate
         )
       );
-      printer.println(aadeInvoice?.issuer.name);
-      printer.println(aadeInvoice?.issuer.activity);
-      printer.println(
-        tr(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`,
-          settings.transliterate
-        )
-      );
-
-      printer.println(
-        tr(
-          `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`,
-          settings.transliterate
-        )
-      );
-      printer.println(
-        tr(
-          `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`,
-          settings.transliterate
-        )
-      );
-      if (issuerText) {
-        printer.println(issuerText);
-      }
+      // issuerText (when present) replaces the issuer details, like the ALP.
+      await venueData(printer, aadeInvoice, issuerText, settings, lang);
       printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
@@ -1585,7 +1758,7 @@ const printPaymentSlip = async (
         if (discount.amount && discount.type) {
           let discountAmount = '';
           if (discount.type === 'FIXED') {
-            discountAmount = (discount.amount / 100).toString() + '€';
+            discountAmount = (discount.amount / 100).toFixed(2) + '€';
           } else if (
             discount.type === 'PERCENTAGE' ||
             discount.type === 'PERCENT'
@@ -1610,13 +1783,28 @@ const printPaymentSlip = async (
       printer.println(
         tr(`${translations.printOrder.payments[lang]}:`, settings.transliterate)
       );
-      aadeInvoice?.payment_methods.forEach((detail: any) => {
+      const paymentMethods = aadeInvoice?.payment_methods ?? [];
+      // The tip is collected on top of the fiscal amount, so fold it into the
+      // primary (largest) payment so the printed amounts reflect money actually
+      // collected. `tip` is in cents.
+      let tipIdx = -1;
+      if (tip > 0) {
+        let max = 0;
+        paymentMethods.forEach((m: any, idx: number) => {
+          if (m.amount > max) {
+            max = m.amount;
+            tipIdx = idx;
+          }
+        });
+      }
+      paymentMethods.forEach((detail: any, idx: number) => {
         printer.newLine();
+        const amount = detail.amount + (idx === tipIdx ? tip / 100 : 0);
         const methodDescription =
           PaymentMethod[detail.code]?.description ||
           translations.printOrder.unknown[lang];
         printer.println(
-          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${detail.amount.toFixed(2)}€`
+          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${amount.toFixed(2)}€`
         );
       });
       drawLine2(printer);
@@ -1793,10 +1981,11 @@ const printPaymentReceipt = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -1810,7 +1999,8 @@ const printPaymentReceipt = async (
           settings.transliterate
         );
 
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
@@ -1820,7 +2010,10 @@ const printPaymentReceipt = async (
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
@@ -2020,10 +2213,11 @@ const printInvoice = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -2034,7 +2228,8 @@ const printInvoice = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
@@ -2042,7 +2237,10 @@ const printInvoice = async (
         const spacing = ' '.repeat(Math.max(1, spaceCount));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
@@ -2882,11 +3080,15 @@ export const printOrder = async (
           ),
         ]);
         if (order?.orderType === 'DINE_IN') {
-          if (order?.tableNumber) {
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+          if (tablesLabel) {
             printer.bold(true);
             printer.table([
               tr(
-                `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
                 settings.transliterate
               ),
               ...(order.waiterName
@@ -3036,15 +3238,21 @@ export const printOrder = async (
             return;
           }
           if (isEdit) {
-            if (product.updateStatus?.includes('NEW')) {
+            if (product.lastEditStatus?.includes('TRANSFERRED')) {
+              printer.println(
+                tr(
+                  `${translations.printOrder.productMoved[lang]}`,
+                  settings.transliterate
+                )
+              );
+            } else if (product.updateStatus?.includes('NEW')) {
               printer.println(
                 tr(
                   `${translations.printOrder.new[lang]}`,
                   settings.transliterate
                 )
               );
-            }
-            if (product.updateStatus?.includes('UPDATED')) {
+            } else if (product.updateStatus?.includes('UPDATED')) {
               const qc = product.quantityChanged;
               const qcIs = Number(qc?.is ?? 0);
               const qcWas = Number(qc?.was ?? 0);
@@ -3448,6 +3656,7 @@ export type OrderCommentsInput = Pick<
   | 'number'
   | 'orderType'
   | 'tableNumber'
+  | 'tableNumbers'
   | 'venue'
   | 'waiterComment'
   | 'customerComment'
@@ -3553,15 +3762,21 @@ export const printOrderComments = async (
             settings.transliterate
           ),
         ]);
-        if (order?.orderType === 'DINE_IN' && order?.tableNumber) {
-          printer.bold(true);
-          printer.println(
-            tr(
-              `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
-              settings.transliterate
-            )
-          );
-          printer.bold(false);
+        if (order?.orderType === 'DINE_IN') {
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+          if (tablesLabel) {
+            printer.bold(true);
+            printer.println(
+              tr(
+                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+                settings.transliterate
+              )
+            );
+            printer.bold(false);
+          }
         }
         printer.bold(true);
         printer.print(
