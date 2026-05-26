@@ -13,6 +13,13 @@ const updateStatusEnumValues = [
   'UNCHANGED',
   'UPDATED',
 ] as const;
+const lastEditStatusEnumValues = [
+  'INITIAL',
+  'NEW',
+  'UNCHANGED',
+  'UPDATED',
+  'TRANSFERRED',
+] as const;
 export const Product = z.object({
   _id: z.string({
     invalid_type_error: 'product _id must be a string.',
@@ -49,6 +56,7 @@ export const Product = z.object({
     invalid_type_error: 'Invalid update status.',
     required_error: 'Update status is required.',
   }),
+  lastEditStatus: z.enum(lastEditStatusEnumValues).optional(),
   options: z
     .array(
       z.object({
