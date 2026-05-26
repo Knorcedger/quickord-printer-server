@@ -527,7 +527,8 @@ export const printPayments = (
   printer,
   aadeInvoice,
   lang,
-  transliterate: boolean = false
+  transliterate: boolean = false,
+  tip: number = 0
 ) => {
   printer.bold(false);
   printer.alignCenter();
@@ -535,14 +536,29 @@ export const printPayments = (
   printer.println(
     tr(`${translations.printOrder.payments[lang]}:`, transliterate)
   );
-  aadeInvoice?.payment_methods.forEach((detail: any) => {
-    if (detail.amount > 0) {
+  const methods = aadeInvoice?.payment_methods ?? [];
+  // The tip is collected on top of the fiscal amount, so it isn't part of any
+  // payment_method amount. Fold it into the primary (largest) payment so the
+  // printed payments reflect the money actually collected. `tip` is in cents.
+  let tipIdx = -1;
+  if (tip > 0) {
+    let max = 0;
+    methods.forEach((m: any, i: number) => {
+      if (m.amount > max) {
+        max = m.amount;
+        tipIdx = i;
+      }
+    });
+  }
+  methods.forEach((detail: any, i: number) => {
+    const amount = detail.amount + (i === tipIdx ? tip / 100 : 0);
+    if (amount > 0) {
       const method = PaymentMethod[detail.code];
       const methodDescription =
         method?.description || translations.printOrder.unknown[lang];
       console.log('Printing payment method:', methodDescription, method);
       printer.println(
-        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${detail.amount.toFixed(2)}€`
+        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${amount.toFixed(2)}€`
       );
     }
     drawLine2(printer);
@@ -906,7 +922,7 @@ export const printDiscountAndTip = (
     if (discount.amount && discount.type) {
       let discountAmount = '';
       if (discount.type === 'FIXED') {
-        discountAmount = (discount.amount / 100).toString() + '€';
+        discountAmount = (discount.amount / 100).toFixed(2) + '€';
       } else if (
         discount.type === 'PERCENTAGE' ||
         discount.type === 'PERCENT'
