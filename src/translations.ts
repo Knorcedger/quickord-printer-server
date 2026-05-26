@@ -428,6 +428,10 @@ export default {
       el: 'ΑΛΛΑΓΗ ΠΡΟΪΟΝΤΟΣ',
       en: 'PRODUCT CHANGED',
     },
+    productMoved: {
+      el: 'ΜΕΤΑΦΟΡΑ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT MOVED',
+    },
     new: {
       el: 'ΝΕΟ',
       en: 'NEW',

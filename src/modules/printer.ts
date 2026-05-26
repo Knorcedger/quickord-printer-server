@@ -3036,15 +3036,21 @@ export const printOrder = async (
             return;
           }
           if (isEdit) {
-            if (product.updateStatus?.includes('NEW')) {
+            if (product.lastEditStatus?.includes('TRANSFERRED')) {
+              printer.println(
+                tr(
+                  `${translations.printOrder.productMoved[lang]}`,
+                  settings.transliterate
+                )
+              );
+            } else if (product.updateStatus?.includes('NEW')) {
               printer.println(
                 tr(
                   `${translations.printOrder.new[lang]}`,
                   settings.transliterate
                 )
               );
-            }
-            if (product.updateStatus?.includes('UPDATED')) {
+            } else if (product.updateStatus?.includes('UPDATED')) {
               const qc = product.quantityChanged;
               const qcIs = Number(qc?.is ?? 0);
               const qcWas = Number(qc?.was ?? 0);
