@@ -88,7 +88,7 @@ export const Product = z.object({
             content: z.array(
               z.object({
                 language: z.string(),
-                title: z.string(),
+                title: z.string().nullable().optional(),
               })
             ),
           })
