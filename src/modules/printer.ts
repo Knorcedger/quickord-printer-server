@@ -3079,31 +3079,69 @@ export const printOrder = async (
             settings.transliterate
           ),
         ]);
+
+        const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
+
         if (order?.orderType === 'DINE_IN') {
           const tablesLabel =
             Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
               ? order.tableNumbers.join(', ')
               : order?.tableNumber;
+
           if (tablesLabel) {
-            printer.bold(true);
-            printer.table([
-              tr(
-                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+            if (boldOrderType) {
+              const labelText = tr(
+                `${translations.printOrder.tableNumber[lang]}: `,
                 settings.transliterate
-              ),
-              ...(order.waiterName
-                ? [
-                    tr(
-                      `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
-                      settings.transliterate
-                    ),
-                  ]
-                : []),
-            ]);
-            printer.bold(false);
+              );
+              const numberText = tr(`${tablesLabel}`, settings.transliterate);
+              const waiterText = order.waiterName
+                ? tr(
+                    `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
+                    settings.transliterate
+                  )
+                : '';
+              const lineWidth = 42;
+              const usedWidth = labelText.length + numberText.length * 2;
+              const padding = Math.max(
+                1,
+                lineWidth - usedWidth - waiterText.length
+              );
+
+              printer.bold(true);
+              printer.print(labelText);
+              printer.setTextSize(1, 0);
+              printer.print(numberText);
+              printer.setTextSize(0, 0);
+              changeTextSize(printer, settings?.textSize || 'NORMAL');
+              printer.bold(true);
+
+              if (waiterText) {
+                printer.print(' '.repeat(padding));
+                printer.print(waiterText);
+              }
+              printer.newLine();
+              printer.bold(false);
+            } else {
+              printer.bold(true);
+              printer.table([
+                tr(
+                  `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+                  settings.transliterate
+                ),
+                ...(order.waiterName
+                  ? [
+                      tr(
+                        `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
+                        settings.transliterate
+                      ),
+                    ]
+                  : []),
+              ]);
+              printer.bold(false);
+            }
           }
         }
-        const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
         printer.bold(true);
         printer.print(
           tr(
