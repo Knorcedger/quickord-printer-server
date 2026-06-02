@@ -36,8 +36,12 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
 import { getLocalIP, registerPrinterServerIp } from './modules/api';
+import {
+  curlExecJson,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { execSync } from 'child_process';
 
 const main = async () => {
   const SERVER_PORT =
@@ -120,13 +124,30 @@ const main = async () => {
   // Simple HTTPS request (works inside exe)
 
   async function fetchLatestVersion() {
+    const url =
+      'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
     try {
-      const cmd = `curl -s -L https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest`;
-      const output = execSync(cmd, { encoding: 'utf-8' });
-      const json = JSON.parse(output);
-      return json.name || json.tag_name || 'unknown';
+      const result = await tryFetchWithFallback<{
+        name?: string;
+        tag_name?: string;
+      }>({
+        url,
+        method: 'GET',
+        fetchFn: async () => {
+          const response = await fetch(url);
+          if (!response.ok) throw httpStatusError(response);
+          return {
+            data: (await response.json()) as {
+              name?: string;
+              tag_name?: string;
+            },
+          };
+        },
+        curlFn: () => curlExecJson(`curl -s -L "${url}"`),
+      });
+      return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
-      console.error('curl failed:', err);
+      console.error('fetch failed:', err);
       return 'unknown';
     }
   }
