@@ -2925,9 +2925,11 @@ export const printOrder = async (
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   // FULL-ORDER is an explicit, on-demand print of the whole order: prices+VAT
-  // always shown, no VAT-analysis table, and category/order-method filters
-  // bypassed. We force the relevant settings so the existing ORDER render path
-  // is reused as-is.
+  // always shown, no VAT-analysis table, customizations always included, and
+  // category/order-method filters bypassed. We force the relevant settings so
+  // the existing ORDER render path is reused as-is. OPTION-DETAILS is injected
+  // into documentsToPrint so customizations are always rendered, even if the
+  // printer was configured for FULL-ORDER without OPTION-DETAILS.
   const isFull = mode === 'FULL-ORDER';
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -2935,7 +2937,17 @@ export const printOrder = async (
     const rawSettings = printers[i]?.[1];
     const settings =
       isFull && rawSettings
-        ? { ...rawSettings, priceOnOrder: true, vatAnalysis: false }
+        ? {
+            ...rawSettings,
+            priceOnOrder: true,
+            vatAnalysis: false,
+            documentsToPrint: Array.from(
+              new Set([
+                ...(rawSettings.documentsToPrint ?? []),
+                'OPTION-DETAILS',
+              ])
+            ),
+          }
         : rawSettings;
     const printer = printers[i]?.[0];
     const printerIdentifier =

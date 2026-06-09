@@ -234,8 +234,7 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
-  // No dedup: FULL-ORDER is an explicit, on-demand action that must reprint.
-  app.route('/print-full-order').post(printFullOrders);
+  app.route('/print-full-order').post(dedup, printFullOrders);
   app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);
