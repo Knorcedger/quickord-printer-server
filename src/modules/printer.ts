@@ -838,6 +838,7 @@ export const parkingTicket = async (
       req.body.phone,
       req.body.date,
       req.body.entryTime,
+      req.body.issuerText || '',
       //  req.body.operatingHours,
       req.body.lang || 'el'
     );
@@ -875,6 +876,7 @@ const printParkingTicket = async (
   phone: string,
   date: string,
   entryTime: string,
+  issuerText: string = '',
   // operatingHours: string,
   lang: SupportedLanguages = 'el'
 ) => {
@@ -917,11 +919,15 @@ const printParkingTicket = async (
         printer.println('PARKING TICKET');
         drawLine2(printer);
         printer.bold(false);
-        printer.bold(true);
-        printer.println(venueName);
-        printer.bold(false);
-        printer.println(address);
-        printer.println(phone);
+        if (issuerText) {
+          await readMarkdown(issuerText, printer, 'center', settings, true);
+        } else {
+          printer.bold(true);
+          printer.println(venueName);
+          printer.bold(false);
+          printer.println(address);
+          printer.println(phone);
+        }
         drawLine2(printer);
         printer.alignLeft();
         printer.newLine();
