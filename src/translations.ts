@@ -82,6 +82,10 @@ export default {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
     },
+    fullOrderTitle: {
+      el: 'ΣΥΝΟΛΙΚΗ ΠΑΡΑΓΓΕΛΙΑ',
+      en: 'FULL ORDER',
+    },
     orderCommentsTitle: {
       el: 'ΣΧΟΛΙΑ ΠΑΡΑΓΓΕΛΙΑΣ',
       en: 'ORDER COMMENTS',

@@ -2917,15 +2917,38 @@ export const printOrder = async (
   order: z.infer<typeof Order>,
   appId: string = 'desktop',
   project: string = 'centrix',
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
 ) => {
   const successes: string[] = [];
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
+  // FULL-ORDER is an explicit, on-demand print of the whole order: prices+VAT
+  // always shown, no VAT-analysis table, customizations always included, and
+  // category/order-method filters bypassed. We force the relevant settings so
+  // the existing ORDER render path is reused as-is. OPTION-DETAILS is injected
+  // into documentsToPrint so customizations are always rendered, even if the
+  // printer was configured for FULL-ORDER without OPTION-DETAILS.
+  const isFull = mode === 'FULL-ORDER';
+
   for (let i = 0; i < printers.length; i += 1) {
     let dontPrint = false;
-    const settings = printers[i]?.[1];
+    const rawSettings = printers[i]?.[1];
+    const settings =
+      isFull && rawSettings
+        ? {
+            ...rawSettings,
+            priceOnOrder: true,
+            vatAnalysis: false,
+            documentsToPrint: Array.from(
+              new Set([
+                ...(rawSettings.documentsToPrint ?? []),
+                'OPTION-DETAILS',
+              ])
+            ),
+          }
+        : rawSettings;
     const printer = printers[i]?.[0];
     const printerIdentifier =
       settings?.name ||
@@ -2944,7 +2967,7 @@ export const printOrder = async (
         });
         continue;
       }
-      if (settings.orderMethodsToPrint !== undefined) {
+      if (!isFull && settings.orderMethodsToPrint !== undefined) {
         if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
           console.log(
             `orderType ${order.orderType} is not in orderMethodsToPrint`
@@ -2962,7 +2985,10 @@ export const printOrder = async (
         order.orderType === 'WOLT' ||
         order.orderType === 'BOX';
 
-      let productsToPrint = isOrderFromPlatform
+      // FULL-ORDER bypasses category filtering and prints every product.
+      const printAll = isOrderFromPlatform || isFull;
+
+      let productsToPrint = printAll
         ? order.products
         : order.products.filter((product) =>
             product.categories.some((category) =>
@@ -3004,17 +3030,18 @@ export const printOrder = async (
         continue;
       }
       if (settings.documentsToPrint !== undefined) {
-        if (!settings.documentsToPrint?.includes('ORDER')) {
-          console.log('ORDER is not in documentsToPrint');
+        const requiredDocument = isFull ? 'FULL-ORDER' : 'ORDER';
+        if (!settings.documentsToPrint?.includes(requiredDocument)) {
+          console.log(`${requiredDocument} is not in documentsToPrint`);
           skipped.push({
             printerIdentifier,
-            reason: 'Printer not configured to print ORDER documents',
+            reason: `Printer not configured to print ${requiredDocument} documents`,
           });
           continue;
         }
       }
       const isEdit = order?.isEdit || false;
-      if (isEdit === true) {
+      if (!isFull && isEdit === true) {
         productsToPrint = productsToPrint.filter(
           (product) =>
             product?.updateStatus?.includes('NEW') ||
@@ -3053,7 +3080,11 @@ export const printOrder = async (
         printer.alignCenter();
         printer.println(
           tr(
-            `${translations.printOrder.orderFormOrder[lang]}`,
+            `${
+              isFull
+                ? translations.printOrder.fullOrderTitle[lang]
+                : translations.printOrder.orderFormOrder[lang]
+            }`,
             settings.transliterate
           )
         );
@@ -3666,7 +3697,8 @@ export const printOrder = async (
 
 export const printOrders = async (
   orders: z.infer<typeof Order>[],
-  project: string = 'centrix'
+  project: string = 'centrix',
+  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
 ) => {
   const allSuccesses: string[] = [];
   const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -3677,7 +3709,8 @@ export const printOrders = async (
       order,
       order.appId || 'desktop',
       project,
-      'el'
+      'el',
+      mode
     );
     allSuccesses.push(...result.successes);
     allErrors.push(...result.errors);

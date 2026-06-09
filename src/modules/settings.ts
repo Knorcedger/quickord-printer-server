@@ -79,7 +79,7 @@ export const PrinterSettings = z.object({
       required_error: 'documentsToPrint is required.',
     })
     .optional()
-    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'RATEUS', 'TEXT']),
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'TEXT']),
   printerType: z
     .enum(['KIOSK', 'DESKTOP'], {
       description: 'The type of the printer.',
