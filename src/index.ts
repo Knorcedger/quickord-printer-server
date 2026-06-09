@@ -25,7 +25,7 @@ import {
 } from './modules/settings';
 import { dedup } from './modules/dedup';
 import printOrderComments from './resolvers/printOrderComments';
-import printOrders from './resolvers/printOrders';
+import printOrders, { printFullOrders } from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
 import { parkingTicket } from './modules/printer';
@@ -234,6 +234,8 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
+  // No dedup: FULL-ORDER is an explicit, on-demand action that must reprint.
+  app.route('/print-full-order').post(printFullOrders);
   app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);

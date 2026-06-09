@@ -345,4 +345,37 @@ const printOrders = async (
   }
 };
 
+// FULL-ORDER print: same validation/flow as printOrders but prints the whole
+// order (bypassing category/order-method filters, no VAT analysis).
+export const printFullOrders = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    const orders = Orders.parse(req.body);
+
+    logger.info('full orders to print:', orders);
+
+    const project =
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix';
+
+    const result = await printerPrintOrders(orders, project, 'FULL-ORDER');
+
+    const { httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
+    res.status(httpCode).send(buildPrintResponse(result));
+  } catch (error) {
+    logger.error('Error printing full orders:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    res.status(500).send({ error: errorMessage });
+  }
+};
+
 export default printOrders;
