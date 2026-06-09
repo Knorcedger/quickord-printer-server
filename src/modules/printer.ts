@@ -3403,12 +3403,17 @@ export const printOrder = async (
             (product.vat && settings.priceOnOrder === undefined) ||
             settings.priceOnOrder === true
           ) {
-            printer.println(
-              tr(
-                `${translations.printOrder.vat[lang]}: ${product.vat}%`,
-                settings.transliterate
-              )
-            );
+            if (
+              settings.vatAnalysis === true ||
+              settings.vatAnalysis === undefined
+            ) {
+              printer.println(
+                tr(
+                  `${translations.printOrder.vat[lang]}: ${product.vat}%`,
+                  settings.transliterate
+                )
+              );
+            }
 
             const vatRate = product.vat;
 
