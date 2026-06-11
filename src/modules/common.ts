@@ -5,10 +5,15 @@ import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import {
+  curlExecBuffer,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './http';
+import { reportFetchFailure } from './api';
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -52,9 +57,7 @@ export const changeTextSize = (
       return;
     case 'NORMAL':
     default:
-      // Use setTextSize(0,0) instead of setTextNormal() to avoid resetting
-      // the font selection (Font B for 58mm paper support).
-      printer.setTextSize(0, 0);
+      printer.setTextNormal();
   }
 };
 
@@ -122,19 +125,67 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
   }
 
   try {
-    // Use curl with flags:
-    // -s = silent
-    // -L = follow redirects
-    // -A = custom User-Agent
-    // --fail = exit non-zero if HTTP error
-    const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
-    const imageBuffer = execSync(cmd);
+    const result = await tryFetchWithFallback<Buffer>({
+      url,
+      method: 'GET',
+      fetchFn: async () => {
+        const response = await fetch(url, {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          },
+        });
+        if (!response.ok) throw httpStatusError(response);
+        return { data: Buffer.from(await response.arrayBuffer()) };
+      },
+      curlFn: () =>
+        // Use curl with flags:
+        // -s = silent
+        // -L = follow redirects
+        // -A = custom User-Agent
+        // --fail = exit non-zero if HTTP error
+        curlExecBuffer(
+          `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`
+        ),
+    });
 
-    // Process the image with sharp
-    const processedImage = await sharp(imageBuffer)
-      .resize(384)
+    if (result.viaFallback && result.fetchFailure) {
+      reportFetchFailure(result.fetchFailure).catch(() => {});
+    }
+
+    // Bayer 8x8 ordered-dither matrix, normalized to 0-255
+    const BAYER_8 = [
+      [0, 32, 8, 40, 2, 34, 10, 42],
+      [48, 16, 56, 24, 50, 18, 58, 26],
+      [12, 44, 4, 36, 14, 46, 6, 38],
+      [60, 28, 52, 20, 62, 30, 54, 22],
+      [3, 35, 11, 43, 1, 33, 9, 41],
+      [51, 19, 59, 27, 49, 17, 57, 25],
+      [15, 47, 7, 39, 13, 45, 5, 37],
+      [63, 31, 55, 23, 61, 29, 53, 21],
+    ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
+
+    const { data, info } = await sharp(result.data)
+      .resize(300)
+      .ensureAlpha()
+      .flatten({ background: '#ffffff' }) // transparent → white
       .grayscale()
-      .threshold(128)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const { width, height, channels } = info;
+    const out = Buffer.alloc(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const gray = data[(y * width + x) * channels]!; // 0=black, 255=white
+        const t = BAYER_8[y & 7]![x & 7]!;
+        out[y * width + x] = gray > t ? 255 : 0;
+      }
+    }
+
+    const processedImage = await sharp(out, {
+      raw: { width, height, channels: 1 },
+    })
       .png()
       .toBuffer();
 
@@ -165,7 +216,13 @@ export const PaymentMethod = Object.freeze({
   WEB_BANK: { description: 'Web-banking', value: '6' },
 });
 
-export const readMarkdown = async (text, printer, alignment, settings) => {
+export const readMarkdown = async (
+  text,
+  printer,
+  alignment,
+  settings,
+  uppercase = false
+) => {
   if (alignment === 'left') {
     printer.alignLeft();
   } else if (alignment === 'center') {
@@ -188,7 +245,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -216,7 +278,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -244,7 +311,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -281,7 +353,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(tr(buffer, settings?.transliterate));
+      printer.println(
+        tr(uppercase ? buffer.toUpperCase() : buffer, settings?.transliterate)
+      );
       buffer = '';
       index++;
       continue;
@@ -313,27 +387,13 @@ export const formatToGreek = (date: Date | string): string => {
   });
 };
 
-// Module-level paper width — set at the start of each print job via setActivePaperWidth().
-// NOTE: This is shared mutable state. Safe because print jobs are processed sequentially
-// per printer, but if concurrency changes, this should be replaced with per-call threading.
-let activePaperWidth: '80' | '58' = '80';
-
-export const setActivePaperWidth = (pw?: string) => {
-  activePaperWidth = pw === '58' ? '58' : '80';
-};
-
-export const getLineWidth = (): number =>
-  activePaperWidth === '58' ? 32 : 42;
-
 export const formatLine = (left, right) => {
-  const width = getLineWidth();
-  const space = width - left.length - right.length;
+  const space = 40 - left.length - right.length;
   return left + ' '.repeat(space > 0 ? space : 1) + right;
 };
 
 export const drawLine2 = (printer: ThermalPrinter) => {
-  const width = getLineWidth();
-  printer.println('-'.repeat(width));
+  printer.println('------------------------------------------');
 };
 
 export type ServiceType = {
@@ -492,7 +552,8 @@ export const printPayments = (
   printer,
   aadeInvoice,
   lang,
-  transliterate: boolean = false
+  transliterate: boolean = false,
+  tip: number = 0
 ) => {
   printer.bold(false);
   printer.alignCenter();
@@ -500,14 +561,29 @@ export const printPayments = (
   printer.println(
     tr(`${translations.printOrder.payments[lang]}:`, transliterate)
   );
-  aadeInvoice?.payment_methods.forEach((detail: any) => {
-    if (detail.amount > 0) {
+  const methods = aadeInvoice?.payment_methods ?? [];
+  // The tip is collected on top of the fiscal amount, so it isn't part of any
+  // payment_method amount. Fold it into the primary (largest) payment so the
+  // printed payments reflect the money actually collected. `tip` is in cents.
+  let tipIdx = -1;
+  if (tip > 0) {
+    let max = 0;
+    methods.forEach((m: any, i: number) => {
+      if (m.amount > max) {
+        max = m.amount;
+        tipIdx = i;
+      }
+    });
+  }
+  methods.forEach((detail: any, i: number) => {
+    const amount = detail.amount + (i === tipIdx ? tip / 100 : 0);
+    if (amount > 0) {
       const method = PaymentMethod[detail.code];
       const methodDescription =
         method?.description || translations.printOrder.unknown[lang];
       console.log('Printing payment method:', methodDescription, method);
       printer.println(
-        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${detail.amount.toFixed(2)}€`
+        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${amount.toFixed(2)}€`
       );
     }
     drawLine2(printer);
@@ -523,14 +599,14 @@ export const getTitle = (content: any[], lang: string): string => {
 };
 
 interface OptionChoice {
-  content: { language: string; title: string; description?: string }[];
+  content: { language: string; title?: string | null; description?: string }[];
   amountLevel?: string | null;
   quantity?: number;
   price?: number;
 }
 
 interface ProductOption {
-  content: { language: string; title: string; description?: string }[];
+  content: { language: string; title?: string | null; description?: string }[];
   choices?: OptionChoice[];
 }
 
@@ -574,9 +650,92 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}`;
-    printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
+    const lineWidth = settings?.textOptions?.includes('BOLD_PRODUCTS')
+      ? 21
+      : 42;
+    const continuationIndent = `${indent}  `;
+    const firstPrefix = `${indent}- ${optionLabel}`;
+    const lines = wrapChoicesByCommas(
+      choiceValues,
+      lineWidth,
+      firstPrefix,
+      continuationIndent,
+      priceStr.length
+    );
+    lines.forEach((wrapped, idx) => {
+      const isLast = idx === lines.length - 1;
+      let out = wrapped;
+      if (isLast && priceStr.length > 0) {
+        const padded =
+          out.length + priceStr.length <= lineWidth
+            ? out.padEnd(lineWidth - priceStr.length)
+            : out;
+        out = padded + priceStr;
+      }
+      printer.println(tr(out, settings.transliterate));
+    });
   });
+};
+
+const wrapChoicesByCommas = (
+  choices: string[],
+  width: number,
+  firstPrefix: string,
+  continuationIndent: string,
+  lastLineReserved: number
+): string[] => {
+  if (choices.length === 0) return [firstPrefix];
+
+  const lines: string[] = [];
+  let current = firstPrefix;
+
+  const pushCurrent = () => {
+    lines.push(current);
+    current = continuationIndent;
+  };
+
+  const hardChunkInto = (segment: string) => {
+    let rem = segment;
+    while (rem.length > 0) {
+      const avail = width - current.length;
+      if (avail <= 0) {
+        pushCurrent();
+        continue;
+      }
+      current += rem.slice(0, avail);
+      rem = rem.slice(avail);
+      if (rem.length > 0) pushCurrent();
+    }
+  };
+
+  choices.forEach((choice, i) => {
+    const sep = i === 0 ? '' : ', ';
+    if (current.length + sep.length + choice.length <= width) {
+      current += sep + choice;
+      return;
+    }
+    if (i > 0) {
+      if (current.length + 1 <= width) current += ',';
+      pushCurrent();
+    }
+    if (current.length + choice.length <= width) {
+      current += choice;
+    } else {
+      hardChunkInto(choice);
+    }
+  });
+
+  if (current.length > 0) lines.push(current);
+
+  if (
+    lastLineReserved > 0 &&
+    lines.length > 0 &&
+    lines[lines.length - 1]!.length + lastLineReserved > width
+  ) {
+    lines.push(continuationIndent);
+  }
+
+  return lines;
 };
 
 export const printProductDiscount = (
@@ -607,7 +766,8 @@ export const printProducts = (
   order: any = {},
   settings,
   lang,
-  discounts: any[] = []
+  discounts: any[] = [],
+  showOptions: boolean = true
 ): [number, number, any[]] => {
   let sumAmount = 0;
   let sumQuantity = 0;
@@ -631,41 +791,67 @@ export const printProducts = (
   );
   drawLine2(printer);
   const vatBreakdown = new Map();
-  aadeInvoice?.details.forEach((detail: any) => {
-    sumQuantity += detail.quantity;
+  const detailsArr = aadeInvoice?.details ?? [];
+  detailsArr.forEach((detail: any, idx: number) => {
+    const isCredit = detail.rec_type === 7;
+    const sign = isCredit ? -1 : 1;
+
+    const rawNet = detail.net_value || 0;
+    const rawTax = detail?.tax?.value || 0;
+    const rawTotal = rawNet + rawTax;
+    const signedQuantity = sign * detail.quantity;
+    const signedNet = sign * rawNet;
+    const signedTotal = sign * rawTotal;
+
+    sumQuantity += signedQuantity;
+    sumAmount += signedTotal;
+
+    const matchedProduct = order?.products?.find((p: any) =>
+      p.content?.some(
+        (c: any) =>
+          typeof c?.title === 'string' &&
+          c.title.trim().toLowerCase() ===
+            String(detail.name).trim().toLowerCase()
+      )
+    );
+    const localizedTitle =
+      (matchedProduct && getTitle(matchedProduct.content, lang)) || detail.name;
 
     const name = tr(
-      normalizeGreek(detail.name.toUpperCase()),
+      normalizeGreek(String(localizedTitle).toUpperCase()),
       settings.transliterate
     );
-    console.log('Product:', detail.name, lang);
-    // First, find the product that contains the matchedContent
 
-    const quantity = detail.quantity.toFixed(0); // "1,000"
-    const value = (
-      (detail.net_value || 0) + (detail?.tax?.value || 0)
-    )?.toFixed(2);
-    const vat = `${detail.tax.rate}%`; // "24%"
-    sumAmount += parseFloat(value);
+    const quantity = signedQuantity.toFixed(0); // "-1" for credits
+    const value = rawTotal.toFixed(2);
+    const vat = `${detail.tax.rate}%`;
     const maxNameLength = 17;
-    const vatRate = Number(detail.tax.rate); // ensure number
-
-    const netValue = detail.net_value;
-    const total = parseFloat(value);
+    const vatRate = Number(detail.tax.rate);
 
     if (vatBreakdown.has(vatRate)) {
       const entry = vatBreakdown.get(vatRate);
-      entry.total += total;
-      entry.netValue += netValue;
-      entry.vatAmount = entry.total - entry.netValue; // update VAT
+      entry.total += signedTotal;
+      entry.netValue += signedNet;
+      entry.vatAmount = entry.total - entry.netValue;
     } else {
       vatBreakdown.set(vatRate, {
         vat: vatRate,
-        total,
-        netValue,
-        vatAmount: total - netValue,
+        total: signedTotal,
+        netValue: signedNet,
+        vatAmount: signedTotal - signedNet,
       });
     }
+
+    if (isCredit) {
+      if (idx > 0) drawLine2(printer);
+      printer.println(
+        tr(
+          `${translations.printOrder.quantityReduced[lang]}`,
+          settings.transliterate
+        )
+      );
+    }
+
     if (name.length > maxNameLength) {
       // Print wrapped product name in chunks
       for (let i = 0; i < name.length; i += maxNameLength) {
@@ -695,12 +881,8 @@ export const printProducts = (
           vat.padStart(10)
       );
     }
-    const matchedProduct = order?.products?.find((p: any) =>
-      p.content?.some(
-        (c: any) => c.language === lang && c.title === detail.name
-      )
-    );
     if (
+      showOptions &&
       settings.documentsToPrint?.includes('OPTION-DETAILS') &&
       matchedProduct?.options
     ) {
@@ -728,6 +910,14 @@ export const printProducts = (
       console.log('Found productDiscount:', productDiscount);
 
       printProductDiscount(printer, productDiscount, lang);
+    }
+
+    if (
+      isCredit &&
+      idx < detailsArr.length - 1 &&
+      detailsArr[idx + 1]?.rec_type !== 7
+    ) {
+      drawLine2(printer);
     }
   });
 
@@ -757,7 +947,7 @@ export const printDiscountAndTip = (
     if (discount.amount && discount.type) {
       let discountAmount = '';
       if (discount.type === 'FIXED') {
-        discountAmount = (discount.amount / 100).toString() + '€';
+        discountAmount = (discount.amount / 100).toFixed(2) + '€';
       } else if (
         discount.type === 'PERCENTAGE' ||
         discount.type === 'PERCENT'
@@ -806,6 +996,34 @@ export const printVatBreakdown = (
 
   drawLine2(printer);
 };
+/**
+ * Resolves the document title for an AADE invoice. Mirrors the FE rule
+ * (InvoiceTemplate.tsx): code 1.1/9.3 + move_purpose means the document also
+ * acts as a delivery note, so the title changes accordingly.
+ *
+ * TODO: the real source of truth should be an `isDeliveryNote` flag on the
+ * invoice header, but it is not being stored correctly yet, so for now we
+ * infer it from header.code + move_purpose like the FE does.
+ */
+export const getInvoiceTypeLabel = (
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages
+): string => {
+  const code = aadeInvoice?.header?.code;
+  const hasMovePurpose = !!aadeInvoice?.move_purpose?.code;
+
+  if (code === '5.1') {
+    return translations.printOrder.invoiceCreditNote[lang];
+  }
+  if (code === '9.3' && hasMovePurpose) {
+    return translations.printOrder.deliveryNoteTitle[lang];
+  }
+  if (code === '1.1' && hasMovePurpose) {
+    return translations.printOrder.invoiceDeliveryNote[lang];
+  }
+  return translations.printOrder.invoice[lang];
+};
+
 export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
@@ -815,7 +1033,7 @@ export const venueData = async (
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    await readMarkdown(issuerText.toUpperCase(), printer, 'center', settings);
+    await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
     printer.println(aadeInvoice?.issuer.name);
     printer.println(aadeInvoice?.issuer.activity);
@@ -876,6 +1094,17 @@ export const receiptData = (
     )
   );
 
+  // For invoice-delivery-notes (1.1/9.3 + move_purpose) also show the
+  // dispatch purpose code, e.g. "ΣΚ. ΔΙΑΚ/ΣΗΣ: 1"
+  if (aadeInvoice?.move_purpose?.code) {
+    printer.println(
+      tr(
+        `${translations.printOrder.movePurposeAbbr[lang]}: ${aadeInvoice.move_purpose.code}`,
+        settings.transliterate
+      )
+    );
+  }
+
   printer.alignLeft();
   if (orderType !== 'MYPELATES') {
     if (lang === 'el') {
@@ -886,11 +1115,15 @@ export const receiptData = (
           .map((key) => order?.[key])
           .find(Boolean);
 
+        const tableNumbersStr =
+          orderType === 'DINE_IN' &&
+          Array.isArray(order?.tableNumbers) &&
+          order.tableNumbers.length > 0
+            ? `, ${order.tableNumbers.join(', ')}`
+            : '';
         printer.println(
           tr(
-            `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${
-              externalOrderId ? `: #${externalOrderId}` : ''
-            }`,
+            `${project.toUpperCase()}: #${orderNumber}, ${serviceLabel}${tableNumbersStr}${externalOrderId ? `: #${externalOrderId}` : ''}`,
             settings.transliterate
           )
         );
@@ -899,8 +1132,14 @@ export const receiptData = (
       }
     } else {
       if (orderType.toLowerCase() !== 'generic') {
+        const tableNumbersStr =
+          orderType === 'DINE_IN' &&
+          Array.isArray(order?.tableNumbers) &&
+          order.tableNumbers.length > 0
+            ? `, ${order.tableNumbers.join(', ')}`
+            : '';
         printer.println(
-          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}`
+          `#${orderNumber}, ${SERVICES[orderType.toLowerCase()]?.label_en}${tableNumbersStr}`
         );
       } else {
         printer.println(`#${orderNumber}`);
@@ -1136,7 +1375,7 @@ export const printDeliveryNoteVatBreakdown = (
 
   // Summary section
   printer.newLine();
-  const lineWidth = getLineWidth();
+  const lineWidth = 42;
 
   const summaryLines = [
     { label: 'ΑΡΧ. ΑΞΙΑ', value: totalOriginalValue.toFixed(2) + '€' },

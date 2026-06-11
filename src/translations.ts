@@ -10,10 +10,12 @@ export default {
       en: {
         MUCH: 'much',
         LITTLE: 'little',
+        WITHOUT: 'without',
       },
       el: {
         MUCH: 'πολύ',
         LITTLE: 'λίγο',
+        WITHOUT: 'χωρίς',
       },
     },
     customerEmail: {
@@ -79,6 +81,14 @@ export default {
     orderFormOrder: {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
+    },
+    fullOrderTitle: {
+      el: 'ΣΥΝΟΛΙΚΗ ΠΑΡΑΓΓΕΛΙΑ',
+      en: 'FULL ORDER',
+    },
+    orderCommentsTitle: {
+      el: 'ΣΧΟΛΙΑ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER COMMENTS',
     },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
@@ -355,7 +365,7 @@ export default {
       en: 'PRICE',
     },
     reciept: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ',
       en: 'RECEIPT',
     },
     invoice: {
@@ -375,12 +385,32 @@ export default {
       en: 'PAYMENT SLIP',
     },
     recieptEnd: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF RECEIPT',
     },
     invoiceEnd: {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF INVOICE',
+    },
+    invoiceDeliveryNote: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'INVOICE - DELIVERY NOTE',
+    },
+    deliveryNoteTitle: {
+      el: 'ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'DELIVERY NOTE',
+    },
+    movePurposeAbbr: {
+      el: 'ΣΚ. ΔΙΑΚ/ΣΗΣ',
+      en: 'DISP. PURP.',
+    },
+    issuedFromHeadquarters: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΕΔΡΑ',
+      en: 'ISSUED FROM HEADQUARTERS',
+    },
+    issuedFromBranch: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΥΠΟΚΑΤΑΣΤΗΜΑ',
+      en: 'ISSUED FROM BRANCH',
     },
     paymentSlipEnd: {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
@@ -397,6 +427,14 @@ export default {
     quantityReduced: {
       el: 'ΑΚΥΡΩΣΗ ΠΡΟΪΟΝΤΟΣ',
       en: 'CANCELLED PRODUCTS',
+    },
+    productChanged: {
+      el: 'ΑΛΛΑΓΗ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT CHANGED',
+    },
+    productMoved: {
+      el: 'ΜΕΤΑΦΟΡΑ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT MOVED',
     },
     new: {
       el: 'ΝΕΟ',

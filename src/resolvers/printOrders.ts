@@ -5,12 +5,20 @@ import logger from '../modules/logger';
 import {
   printOrders as printerPrintOrders,
   determinePrintStatus,
+  buildPrintResponse,
 } from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',
   'NEW',
   'UNCHANGED',
   'UPDATED',
+] as const;
+const lastEditStatusEnumValues = [
+  'INITIAL',
+  'NEW',
+  'UNCHANGED',
+  'UPDATED',
+  'TRANSFERRED',
 ] as const;
 export const Product = z.object({
   _id: z.string({
@@ -48,21 +56,22 @@ export const Product = z.object({
     invalid_type_error: 'Invalid update status.',
     required_error: 'Update status is required.',
   }),
+  lastEditStatus: z.enum(lastEditStatusEnumValues).optional(),
   options: z
     .array(
       z.object({
         content: z.array(
           z.object({
             language: z.string(),
-            title: z.string(),
+            title: z.string().nullable().optional(),
           })
         ),
         choices: z.array(
           z.object({
             amountLevel: z
-              .enum(['MUCH', 'LITTLE'], {
+              .enum(['MUCH', 'LITTLE', 'WITHOUT'], {
                 invalid_type_error:
-                  'choice amountLevel must be MUCH or LITTLE.',
+                  'choice amountLevel must be MUCH, LITTLE or WITHOUT.',
               })
               .optional()
               .nullable(),
@@ -79,7 +88,7 @@ export const Product = z.object({
             content: z.array(
               z.object({
                 language: z.string(),
-                title: z.string(),
+                title: z.string().nullable().optional(),
               })
             ),
           })
@@ -239,6 +248,7 @@ export const Order = z.object({
     invalid_type_error: 'tableNumber must be a string.',
     required_error: 'tableNumber is required.',
   }),
+  tableNumbers: z.array(z.any()).optional(),
   tip: z
     .number({
       invalid_type_error: 'tip must be a number.',
@@ -259,6 +269,11 @@ export const Order = z.object({
       invalid_type_error: 'title must be a string.',
       required_error: 'title is required.',
     }),
+    hasAADE: z
+      .boolean({
+        invalid_type_error: 'hasAADE must be a boolean.',
+      })
+      .optional(),
   }),
   waiterComment: z
     .string({
@@ -315,30 +330,48 @@ const printOrders = async (
 
     const result = await printerPrintOrders(orders, project);
 
-    // Determine the appropriate status and HTTP code
-    const { status, httpCode } = determinePrintStatus(
+    const { httpCode } = determinePrintStatus(
       result.successes,
       result.errors,
       result.skipped
     );
 
-    // Format the response with detailed printer status
-    const response: any = {
-      status,
-      successfulPrinters: result.successes,
-      failedPrinters: result.errors.map((e) => ({
-        printer: e.printerIdentifier,
-        error: e.error instanceof Error ? e.error.message : String(e.error),
-      })),
-      skippedPrinters: result.skipped.map((s) => ({
-        printer: s.printerIdentifier,
-        reason: s.reason,
-      })),
-    };
-
-    res.status(httpCode).send(response);
+    res.status(httpCode).send(buildPrintResponse(result));
   } catch (error) {
     logger.error('Error printing orders:', error);
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
+    res.status(500).send({ error: errorMessage });
+  }
+};
+
+// FULL-ORDER print: same validation/flow as printOrders but prints the whole
+// order (bypassing category/order-method filters, no VAT analysis).
+export const printFullOrders = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
+  try {
+    const orders = Orders.parse(req.body);
+
+    logger.info('full orders to print:', orders);
+
+    const project =
+      (Array.isArray(req.headers.project)
+        ? req.headers.project[0]
+        : req.headers.project) || 'centrix';
+
+    const result = await printerPrintOrders(orders, project, 'FULL-ORDER');
+
+    const { httpCode } = determinePrintStatus(
+      result.successes,
+      result.errors,
+      result.skipped
+    );
+
+    res.status(httpCode).send(buildPrintResponse(result));
+  } catch (error) {
+    logger.error('Error printing full orders:', error);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error occurred';
     res.status(500).send({ error: errorMessage });

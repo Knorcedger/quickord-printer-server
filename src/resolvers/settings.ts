@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import signale from 'signale';
 
+import { registerPrinterServerIp } from '../modules/api';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
-import nconf from 'nconf';
 import {
   getSettings,
   IPrinterSettings,
@@ -22,6 +22,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     // Venue guard: reject settings sync from a different venue
     const ownVenueId = oldSettings.venueId || oldSettings.modem?.venueId;
     const incomingVenueId = req.body.venueId;
+    const isFirstClaim = !ownVenueId && !!incomingVenueId;
 
     if (ownVenueId && incomingVenueId && incomingVenueId !== ownVenueId) {
       logger.warn(
@@ -63,16 +64,6 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       wsSecret: req.body.wsSecret || oldSettings.wsSecret,
     });
 
-    // Force 58mm paper width for specific venues (configured in config.json)
-    const VENUES_58MM: string[] = nconf.get('VENUES_58MM') || [];
-    const effectiveVenueId = newSettings.venueId || newSettings.modem?.venueId;
-    if (effectiveVenueId && VENUES_58MM.includes(effectiveVenueId)) {
-      newSettings.printers = newSettings.printers.map((p) => ({
-        ...p,
-        paperWidth: '58' as const,
-      }));
-    }
-
     updateSettings(newSettings);
 
     saveSettings();
@@ -99,6 +90,10 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     logger.info('Settings updated:', newSettings);
 
     res.status(200).send({ newSettings, status: 'updated' });
+
+    if (isFirstClaim && newSettings.venueId) {
+      await registerPrinterServerIp(newSettings.venueId);
+    }
   } catch (error) {
     logger.error('Error updating settings:', error);
     res.status(400).send({ error: error.message });

@@ -31,7 +31,9 @@ const testPrint = async (req: Request<{}, any, any>, res: Response<{}, any>) => 
     res.status(200).send({ status: 'done' });
   } catch (error) {
     logger.error('Error printing test page:', error);
-    res.status(400).send(error.message);
+    res.status(400).send({
+      error: error instanceof Error ? error.message : 'Print failed',
+    });
   }
 };
 

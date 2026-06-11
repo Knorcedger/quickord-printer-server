@@ -24,7 +24,8 @@ import {
   PrinterTextSize,
 } from './modules/settings';
 import { dedup } from './modules/dedup';
-import printOrders from './resolvers/printOrders';
+import printOrderComments from './resolvers/printOrderComments';
+import printOrders, { printFullOrders } from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
 import { parkingTicket } from './modules/printer';
@@ -34,9 +35,13 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
-import { apiCall, getLocalIP } from './modules/api';
+import { getLocalIP, registerPrinterServerIp } from './modules/api';
+import {
+  curlExecJson,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { execSync } from 'child_process';
 import { initWebSocketClient } from './modules/wsClient';
 
 const main = async () => {
@@ -44,9 +49,25 @@ const main = async () => {
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
-  const args = process.argv.slice(2);
+  const args = process.argv.slice(2); // Get arguments after the script name
   if (args[0] !== '--noupdate') {
-    await autoUpdate();
+    console.log('Arguments:', args);
+    let updatePath: string | null = null;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--update' && i + 1 < args.length) {
+        updatePath = args[i + 1] ?? null; // Get the next argument as the update path
+      }
+    }
+
+    console.log('Update path:', process.argv);
+    try {
+      await autoUpdate(args); // Ensure updatePath is a string
+    } catch (err) {
+      logger.error(
+        'Auto-update failed (network not ready?), continuing startup:',
+        err
+      );
+    }
   }
 
   await loadSettings();
@@ -104,13 +125,30 @@ const main = async () => {
   // Simple HTTPS request (works inside exe)
 
   async function fetchLatestVersion() {
+    const url =
+      'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
     try {
-      const cmd = `curl -s -L https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest`;
-      const output = execSync(cmd, { encoding: 'utf-8' });
-      const json = JSON.parse(output);
-      return json.name || json.tag_name || 'unknown';
+      const result = await tryFetchWithFallback<{
+        name?: string;
+        tag_name?: string;
+      }>({
+        url,
+        method: 'GET',
+        fetchFn: async () => {
+          const response = await fetch(url);
+          if (!response.ok) throw httpStatusError(response);
+          return {
+            data: (await response.json()) as {
+              name?: string;
+              tag_name?: string;
+            },
+          };
+        },
+        curlFn: () => curlExecJson(`curl -s -L "${url}"`),
+      });
+      return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
-      console.error('curl failed:', err);
+      console.error('fetch failed:', err);
       return 'unknown';
     }
   }
@@ -197,6 +235,8 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
+  app.route('/print-full-order').post(dedup, printFullOrders);
+  app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(dedup, paymentReceipt);
@@ -233,6 +273,23 @@ const main = async () => {
       });
     });
 
+  // 404 catch-all — must come AFTER all route handlers but BEFORE the error
+  // handler. Without this, Express's default 404 returns an HTML page
+  // ("Cannot POST /xxx") which breaks JSON-expecting clients (FE does
+  // response.json() → "Unexpected token '<'"). Returning JSON keeps client
+  // error reporting clean and signals "endpoint not present in this PS
+  // version" unambiguously.
+  app.use((req: Request<{}, any, any>, res: Response<{}, any>) => {
+    res.status(404).json({
+      errors: [
+        {
+          code: 'ROUTE_NOT_FOUND',
+          message: `Route ${req.method} ${req.url} not found on this printer-server version`,
+        },
+      ],
+    });
+  });
+
   // eslint-disable-next-line no-unused-vars
   app.use(
     (
@@ -252,7 +309,7 @@ const main = async () => {
         status = 400;
       }
 
-      res.status(status).send(`{"errors":[{"message":"${err.message}"}]}`);
+      res.status(status).json({ errors: [{ message: err.message }] });
     }
   );
 
@@ -267,26 +324,7 @@ const main = async () => {
     const venueId = getSettings().venueId || getSettings().modem?.venueId;
 
     if (venueId) {
-      const localIp = getLocalIP();
-      logger.info(
-        `Registering printer server IP: ${localIp} for venue: ${venueId}`
-      );
-      apiCall(
-        `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
-      )
-        .then((res) => {
-          if (res?.errors) {
-            logger.error(
-              'Failed to register printer server IP:',
-              JSON.stringify(res.errors)
-            );
-          } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
-            logger.info('Printer server IP registered successfully');
-          }
-        })
-        .catch((err) => {
-          logger.error('Failed to register printer server IP:', err);
-        });
+      registerPrinterServerIp(venueId);
     } else {
       logger.info(
         'No venueId configured, skipping printer server IP registration'

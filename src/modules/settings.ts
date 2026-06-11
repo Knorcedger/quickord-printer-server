@@ -17,7 +17,7 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 });
 
 export const PrinterTextOptions = z.enum(
-  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
+  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE', 'BOLD_COMMENTS'],
   {
     description: 'The text options to use for the printer.',
     invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
@@ -79,7 +79,7 @@ export const PrinterSettings = z.object({
       required_error: 'documentsToPrint is required.',
     })
     .optional()
-    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'RATEUS', 'TEXT']),
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'TEXT']),
   printerType: z
     .enum(['KIOSK', 'DESKTOP'], {
       description: 'The type of the printer.',
@@ -165,14 +165,6 @@ export const PrinterSettings = z.object({
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
   transliterate: z.boolean().default(false),
-  paperWidth: z
-    .enum(['80', '58'], {
-      description:
-        'The paper width of the printer in mm. 58mm printers use a smaller font to fit content.',
-      invalid_type_error: 'paperWidth must be "80" or "58".',
-    })
-    .optional()
-    .default('80'),
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
