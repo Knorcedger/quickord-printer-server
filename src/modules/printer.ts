@@ -3541,7 +3541,19 @@ export const printOrder = async (
 
         if (groupByCategory && order.categoriesOrder) {
           const renderedIds = new Set<string>();
+          // Only group under categories this printer is configured to print.
+          // Without this, a multi-category product (e.g. [DRINKS, PROMO]) could
+          // print under a header this station isn't set up for when that header
+          // appears first in categoriesOrder. printAll (platform/full orders)
+          // and an unset categoriesToPrint impose no restriction.
+          const isCategoryAllowed = (categoryId: string) =>
+            printAll ||
+            settings.categoriesToPrint === undefined ||
+            settings.categoriesToPrint.includes(categoryId);
           order.categoriesOrder.forEach((category) => {
+            if (!isCategoryAllowed(category._id)) {
+              return;
+            }
             const inCategory = productsToPrint.filter(
               (product) =>
                 !renderedIds.has(product._id) &&
