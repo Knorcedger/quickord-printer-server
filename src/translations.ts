@@ -82,6 +82,10 @@ export default {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
     },
+    otherCategory: {
+      el: 'ΛΟΙΠΑ',
+      en: 'OTHER',
+    },
     fullOrderTitle: {
       el: 'ΣΥΝΟΛΙΚΗ ΠΑΡΑΓΓΕΛΙΑ',
       en: 'FULL ORDER',
