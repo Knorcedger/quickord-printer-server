@@ -3312,7 +3312,28 @@ export const printOrder = async (
         }
         printer.alignLeft();
 
-        productsToPrint.forEach((product) => {
+        // Prints a category header line for grouped kitchen receipts. Always bold;
+        // additionally enlarged (double height) when BOLD_CATEGORIES is enabled,
+        // matching the other bold text options.
+        const printCategoryHeader = (title: string) => {
+          printer.alignLeft();
+          const boldCategories =
+            settings.textOptions.includes('BOLD_CATEGORIES');
+          printer.bold(true);
+          if (boldCategories) {
+            printer.setTextSize(1, 0);
+          }
+          printer.println(
+            tr(normalizeGreek(title.toUpperCase()), settings.transliterate)
+          );
+          printer.bold(false);
+          if (boldCategories) {
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+        };
+
+        const renderProduct = (product: (typeof productsToPrint)[number]) => {
           let total = product.total || 0;
           let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
@@ -3507,7 +3528,57 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        });
+        };
+
+        // Group products under category headers when enabled. Skipped for platform
+        // orders (no menu categories) and when nothing maps to a category, so those
+        // print as the original flat list.
+        const groupByCategory =
+          settings.groupByCategory === true &&
+          !isOrderFromPlatform &&
+          !!order.categoriesOrder?.length &&
+          productsToPrint.some((product) => product.categories?.length);
+
+        if (groupByCategory && order.categoriesOrder) {
+          const renderedIds = new Set<string>();
+          // Only group under categories this printer is configured to print.
+          // Without this, a multi-category product (e.g. [DRINKS, PROMO]) could
+          // print under a header this station isn't set up for when that header
+          // appears first in categoriesOrder. printAll (platform/full orders)
+          // and an unset categoriesToPrint impose no restriction.
+          const isCategoryAllowed = (categoryId: string) =>
+            printAll ||
+            settings.categoriesToPrint === undefined ||
+            settings.categoriesToPrint.includes(categoryId);
+          order.categoriesOrder.forEach((category) => {
+            if (!isCategoryAllowed(category._id)) {
+              return;
+            }
+            const inCategory = productsToPrint.filter(
+              (product) =>
+                !renderedIds.has(product._id) &&
+                product.categories.includes(category._id)
+            );
+            if (!inCategory.length) {
+              return;
+            }
+            inCategory.forEach((product) => renderedIds.add(product._id));
+            printCategoryHeader(category.title);
+            inCategory.forEach(renderProduct);
+          });
+
+          // Trailing group for products whose category isn't in the menu order
+          // (e.g. removed from the menu) or that have no category at all.
+          const rest = productsToPrint.filter(
+            (product) => !renderedIds.has(product._id)
+          );
+          if (rest.length) {
+            printCategoryHeader(translations.printOrder.otherCategory[lang]);
+            rest.forEach(renderProduct);
+          }
+        } else {
+          productsToPrint.forEach(renderProduct);
+        }
         if (
           vatBreakdown.length > 0 &&
           (settings.vatAnalysis === true || settings.vatAnalysis === undefined)
