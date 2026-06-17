@@ -17,7 +17,13 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 });
 
 export const PrinterTextOptions = z.enum(
-  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE', 'BOLD_COMMENTS'],
+  [
+    'BOLD_PRODUCTS',
+    'BOLD_ORDER_NUMBER',
+    'BOLD_ORDER_TYPE',
+    'BOLD_COMMENTS',
+    'BOLD_CATEGORIES',
+  ],
   {
     description: 'The text options to use for the printer.',
     invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
@@ -57,6 +63,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(true),
+  groupByCategory: z
+    .boolean({
+      description:
+        'Whether to group products by their menu category on kitchen receipts.',
+      invalid_type_error: 'groupByCategory must be a boolean.',
+    })
+    .optional()
+    .default(false),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',

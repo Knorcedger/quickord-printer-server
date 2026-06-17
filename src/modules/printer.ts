@@ -2919,6 +2919,20 @@ const printDeliveryNote = async (
   return { successes, errors };
 };
 
+// Effective edit status of a product. Prefer `lastEditStatus` and fall back to
+// `updateStatus` for orders predating the field — mirrors the FE pill logic.
+// `updateStatus` alone is unreliable: issuing an order slip (ΔΠ, AADE 8.6)
+// resets it to 'unchanged' to keep the next slip's delta correct, while
+// `lastEditStatus` survives until the next edit. Gating edit prints on
+// `updateStatus` therefore drops genuinely NEW/UPDATED products on AADE venues.
+const getEditStatus = (
+  product: z.infer<typeof Order>['products'][number]
+): string | undefined =>
+  [product.lastEditStatus, product.updateStatus].find(
+    (status) =>
+      status === 'NEW' || status === 'UPDATED' || status === 'TRANSFERRED'
+  );
+
 export const printOrder = async (
   order: z.infer<typeof Order>,
   appId: string = 'desktop',
@@ -3048,11 +3062,10 @@ export const printOrder = async (
       }
       const isEdit = order?.isEdit || false;
       if (!isFull && isEdit === true) {
-        productsToPrint = productsToPrint.filter(
-          (product) =>
-            product?.updateStatus?.includes('NEW') ||
-            product?.updateStatus?.includes('UPDATED')
-        );
+        productsToPrint = productsToPrint.filter((product) => {
+          const editStatus = getEditStatus(product);
+          return editStatus === 'NEW' || editStatus === 'UPDATED';
+        });
         if (!productsToPrint?.length) {
           printer?.clear();
           skipped.push({
@@ -3299,7 +3312,28 @@ export const printOrder = async (
         }
         printer.alignLeft();
 
-        productsToPrint.forEach((product) => {
+        // Prints a category header line for grouped kitchen receipts. Always bold;
+        // additionally enlarged (double height) when BOLD_CATEGORIES is enabled,
+        // matching the other bold text options.
+        const printCategoryHeader = (title: string) => {
+          printer.alignLeft();
+          const boldCategories =
+            settings.textOptions.includes('BOLD_CATEGORIES');
+          printer.bold(true);
+          if (boldCategories) {
+            printer.setTextSize(1, 0);
+          }
+          printer.println(
+            tr(normalizeGreek(title.toUpperCase()), settings.transliterate)
+          );
+          printer.bold(false);
+          if (boldCategories) {
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+        };
+
+        const renderProduct = (product: (typeof productsToPrint)[number]) => {
           let total = product.total || 0;
           let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
@@ -3313,21 +3347,22 @@ export const printOrder = async (
             return;
           }
           if (isEdit) {
-            if (product.lastEditStatus?.includes('TRANSFERRED')) {
+            const editStatus = getEditStatus(product);
+            if (editStatus === 'TRANSFERRED') {
               printer.println(
                 tr(
                   `${translations.printOrder.productMoved[lang]}`,
                   settings.transliterate
                 )
               );
-            } else if (product.updateStatus?.includes('NEW')) {
+            } else if (editStatus === 'NEW') {
               printer.println(
                 tr(
                   `${translations.printOrder.new[lang]}`,
                   settings.transliterate
                 )
               );
-            } else if (product.updateStatus?.includes('UPDATED')) {
+            } else if (editStatus === 'UPDATED') {
               const qc = product.quantityChanged;
               const qcIs = Number(qc?.is ?? 0);
               const qcWas = Number(qc?.was ?? 0);
@@ -3363,7 +3398,7 @@ export const printOrder = async (
             product.quantityChanged &&
             Number(product.quantityChanged.is) !==
               Number(product.quantityChanged.was) &&
-            !product.updateStatus?.includes('NEW')
+            getEditStatus(product) !== 'NEW'
           ) {
             const diff =
               product.quantityChanged.is - product.quantityChanged.was;
@@ -3493,7 +3528,57 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        });
+        };
+
+        // Group products under category headers when enabled. Skipped for platform
+        // orders (no menu categories) and when nothing maps to a category, so those
+        // print as the original flat list.
+        const groupByCategory =
+          settings.groupByCategory === true &&
+          !isOrderFromPlatform &&
+          !!order.categoriesOrder?.length &&
+          productsToPrint.some((product) => product.categories?.length);
+
+        if (groupByCategory && order.categoriesOrder) {
+          const renderedIds = new Set<string>();
+          // Only group under categories this printer is configured to print.
+          // Without this, a multi-category product (e.g. [DRINKS, PROMO]) could
+          // print under a header this station isn't set up for when that header
+          // appears first in categoriesOrder. printAll (platform/full orders)
+          // and an unset categoriesToPrint impose no restriction.
+          const isCategoryAllowed = (categoryId: string) =>
+            printAll ||
+            settings.categoriesToPrint === undefined ||
+            settings.categoriesToPrint.includes(categoryId);
+          order.categoriesOrder.forEach((category) => {
+            if (!isCategoryAllowed(category._id)) {
+              return;
+            }
+            const inCategory = productsToPrint.filter(
+              (product) =>
+                !renderedIds.has(product._id) &&
+                product.categories.includes(category._id)
+            );
+            if (!inCategory.length) {
+              return;
+            }
+            inCategory.forEach((product) => renderedIds.add(product._id));
+            printCategoryHeader(category.title);
+            inCategory.forEach(renderProduct);
+          });
+
+          // Trailing group for products whose category isn't in the menu order
+          // (e.g. removed from the menu) or that have no category at all.
+          const rest = productsToPrint.filter(
+            (product) => !renderedIds.has(product._id)
+          );
+          if (rest.length) {
+            printCategoryHeader(translations.printOrder.otherCategory[lang]);
+            rest.forEach(renderProduct);
+          }
+        } else {
+          productsToPrint.forEach(renderProduct);
+        }
         if (
           vatBreakdown.length > 0 &&
           (settings.vatAnalysis === true || settings.vatAnalysis === undefined)

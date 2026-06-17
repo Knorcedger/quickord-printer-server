@@ -310,6 +310,16 @@ export const Order = z.object({
       })
     )
     .optional(),
+  // Menu categories in menu order, used to group products under category headers
+  // on kitchen receipts. Sent only when grouping is relevant (non-platform orders).
+  categoriesOrder: z
+    .array(
+      z.object({
+        _id: z.string(),
+        title: z.string(),
+      })
+    )
+    .optional(),
 });
 
 const Orders = z.array(Order);
