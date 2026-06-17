@@ -25,10 +25,14 @@ const MAX_RECONNECT_DELAY = 60000;
 const SOCKET_TIMEOUT = 5000;
 
 function getBackendWsUrl(): string {
-  const apiUrl = nconf.get('QUICKORD_API_URL') || 'https://api.quickord.com/graphql';
+  const apiUrl =
+    nconf.get('QUICKORD_API_URL') || 'https://api.quickord.com/graphql';
   const wsUrl = nconf.get('BACKEND_WS_URL');
   if (wsUrl) return wsUrl;
-  return apiUrl.replace('/graphql', '').replace('https://', 'wss://').replace('http://', 'ws://');
+  return apiUrl
+    .replace('/graphql', '')
+    .replace('https://', 'wss://')
+    .replace('http://', 'ws://');
 }
 
 // Cache venueId to avoid re-reading settings.json on every call
@@ -40,8 +44,14 @@ function getVenueId(): string {
     // Try existing settings module first
     const { getSettings } = require('./settings');
     const settings = getSettings();
-    if (settings?.venueId) { cachedVenueId = settings.venueId; return cachedVenueId!; }
-    if (settings?.modem?.venueId) { cachedVenueId = settings.modem.venueId; return cachedVenueId!; }
+    if (settings?.venueId) {
+      cachedVenueId = settings.venueId;
+      return cachedVenueId!;
+    }
+    if (settings?.modem?.venueId) {
+      cachedVenueId = settings.modem.venueId;
+      return cachedVenueId!;
+    }
   } catch {}
   cachedVenueId = nconf.get('VENUE_ID') || '';
   return cachedVenueId!;
@@ -68,7 +78,10 @@ async function sendToPrinter(
   return new Promise((resolve, reject) => {
     let settled = false;
     const settle = (fn: () => void) => {
-      if (!settled) { settled = true; fn(); }
+      if (!settled) {
+        settled = true;
+        fn();
+      }
     };
 
     const socket = net.connect({ host: ip, port: port || 9100 }, () => {
@@ -78,8 +91,18 @@ async function sendToPrinter(
     });
     socket.setTimeout(SOCKET_TIMEOUT);
     socket.on('close', () => settle(() => resolve()));
-    socket.on('error', (err) => settle(() => { socket.destroy(); reject(err); }));
-    socket.on('timeout', () => settle(() => { socket.destroy(); reject(new Error('Connection timeout')); }));
+    socket.on('error', (err) =>
+      settle(() => {
+        socket.destroy();
+        reject(err);
+      })
+    );
+    socket.on('timeout', () =>
+      settle(() => {
+        socket.destroy();
+        reject(new Error('Connection timeout'));
+      })
+    );
   });
 }
 
@@ -136,8 +159,14 @@ function checkPrinterConnectivity(ip: string, port: number): Promise<boolean> {
       resolve(true);
     });
     socket.setTimeout(2000);
-    socket.on('error', () => { socket.destroy(); resolve(false); });
-    socket.on('timeout', () => { socket.destroy(); resolve(false); });
+    socket.on('error', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
   });
 }
 
@@ -167,11 +196,15 @@ async function handleMessage(raw: string): Promise<void> {
           const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
           const port = Number.isFinite(parsed) ? parsed : 9100;
           target = `${printerIp}:${port}`;
-          logger.info(`Received print job ${jobId} for ${target} (${buffer.length} bytes)`);
+          logger.info(
+            `Received print job ${jobId} for ${target} (${buffer.length} bytes)`
+          );
           dispatch = sendToPrinter(printerIp, port, buffer);
         } else {
           target = printerPort;
-          logger.info(`Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`);
+          logger.info(
+            `Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`
+          );
           dispatch = sendToLocalPrinter(printerPort, buffer);
         }
 
@@ -189,20 +222,31 @@ async function handleMessage(raw: string): Promise<void> {
 
       case 'checkPrintersRequest': {
         logger.info('Received printer check request');
-        const printersToCheck: { id: string; ip: string; port?: string }[] = msg.data?.printers || msg.printers || [];
+        const printersToCheck: { id: string; ip: string; port?: string }[] =
+          msg.data?.printers || msg.printers || [];
         const results = await Promise.all(
           printersToCheck.map(async (p) => {
             const port = p.port ? parseInt(p.port, 10) : 9100;
-            const connected = await checkPrinterConnectivity(p.ip, Number.isFinite(port) ? port : 9100);
+            const connected = await checkPrinterConnectivity(
+              p.ip,
+              Number.isFinite(port) ? port : 9100
+            );
             return { id: p.id, connected };
           })
         );
         if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'checkPrintersResponse',
-            data: { printers: results, venueId: getVenueId() },
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'checkPrintersResponse',
+              data: { printers: results, venueId: getVenueId() },
+            })
+          );
         }
+        break;
+      }
+
+      case 'registered': {
+        logger.info(`Registered with backend for venue ${msg.venueId}`);
         break;
       }
 
@@ -223,7 +267,9 @@ function sendResult(jobId: string, status: string, error?: string): void {
       })
     );
   } else {
-    logger.error(`Cannot send print result for job ${jobId} — WebSocket not open (status: ${status})`);
+    logger.error(
+      `Cannot send print result for job ${jobId} — WebSocket not open (status: ${status})`
+    );
   }
 }
 

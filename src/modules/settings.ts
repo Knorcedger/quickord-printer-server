@@ -216,7 +216,8 @@ export const loadSettings = async () => {
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
 
-    logger.info('Settings loaded:', settings);
+    const { wsSecret: _wsSecret, ...loggableSettings } = settings;
+    logger.info('Settings loaded:', loggableSettings);
 
     settings.printers = settings.printers?.map((printer) => {
       return {
@@ -240,6 +241,14 @@ export const saveSettings = async () => {
 
 export const getSettings = () => {
   return { ...settings };
+};
+
+// Settings for the unauthenticated HTTP GET /settings response. Strips
+// wsSecret: the FE only ever pushes it (via POST), never reads it back, and
+// the credential must not be exposed to anything that can reach port 7810.
+export const getPublicSettings = () => {
+  const { wsSecret: _wsSecret, ...rest } = settings;
+  return rest;
 };
 
 export const updateSettings = (newSettings: ISettings) => {

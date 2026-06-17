@@ -15,7 +15,8 @@ import {
 
 const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    logger.info('Updating settings:', req.body);
+    const { wsSecret: _incomingSecret, ...loggableBody } = req.body;
+    logger.info('Updating settings:', loggableBody);
 
     const oldSettings = getSettings();
 
@@ -87,9 +88,13 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       }
     }
 
-    logger.info('Settings updated:', newSettings);
+    // Never echo or log wsSecret: the FE already holds the value it pushed,
+    // and the response/logs must not expose the credential.
+    const { wsSecret: _wsSecret, ...safeSettings } = newSettings;
 
-    res.status(200).send({ newSettings, status: 'updated' });
+    logger.info('Settings updated:', safeSettings);
+
+    res.status(200).send({ newSettings: safeSettings, status: 'updated' });
 
     if (isFirstClaim && newSettings.venueId) {
       await registerPrinterServerIp(newSettings.venueId);

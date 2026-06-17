@@ -18,6 +18,7 @@ import {
 } from './modules/printer';
 import { printText } from './modules/printer';
 import {
+  getPublicSettings,
   getSettings,
   loadSettings,
   PrinterTextOptions,
@@ -108,7 +109,7 @@ const main = async () => {
     .route('/settings')
     .post(settings)
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      res.status(200).send(getSettings());
+      res.status(200).send(getPublicSettings());
     });
 
   function getPrinterVersion(): string {
