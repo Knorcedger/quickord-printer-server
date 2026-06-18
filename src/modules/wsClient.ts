@@ -21,6 +21,10 @@ nconf.argv().env().file({ file: './config.json' });
 
 let ws: WebSocket | null = null;
 let reconnectAttempts = 0;
+// Creds we last sent a printerServerRegister with, so reconnectWebSocketClient()
+// can skip churning a healthy socket when settings sync with unchanged creds.
+let registeredVenueId = '';
+let registeredSecret = '';
 const MAX_RECONNECT_DELAY = 60000;
 const SOCKET_TIMEOUT = 5000;
 
@@ -35,26 +39,15 @@ function getBackendWsUrl(): string {
     .replace('http://', 'ws://');
 }
 
-// Cache venueId to avoid re-reading settings.json on every call
-let cachedVenueId: string | null = null;
-
+// Get registered venueId from in-memory settings object.
 function getVenueId(): string {
-  if (cachedVenueId !== null) return cachedVenueId;
   try {
-    // Try existing settings module first
     const { getSettings } = require('./settings');
     const settings = getSettings();
-    if (settings?.venueId) {
-      cachedVenueId = settings.venueId;
-      return cachedVenueId!;
-    }
-    if (settings?.modem?.venueId) {
-      cachedVenueId = settings.modem.venueId;
-      return cachedVenueId!;
-    }
+    if (settings?.venueId) return settings.venueId;
+    if (settings?.modem?.venueId) return settings.modem.venueId;
   } catch {}
-  cachedVenueId = nconf.get('VENUE_ID') || '';
-  return cachedVenueId!;
+  return nconf.get('VENUE_ID') || '';
 }
 
 // Per-venue WS registration secret. Stored in settings.json (synced DB ->
@@ -304,6 +297,8 @@ function connect(): void {
         data: { secret, venueId },
       })
     );
+    registeredVenueId = venueId;
+    registeredSecret = secret;
   });
 
   ws.on('message', (data: WebSocket.Data) => {
@@ -341,5 +336,52 @@ function scheduleReconnect(): void {
 }
 
 export function initWebSocketClient(): void {
+  connect();
+}
+
+// Called after a /settings sync delivers venueId + wsSecret. Connects when we
+// aren't already, or reconnects when the creds changed (e.g. secret rotation),
+// so the printer-server registers without waiting for a process restart. No-ops
+// on the frequent same-creds syncs so a healthy socket isn't churned.
+export function reconnectWebSocketClient(): void {
+  const venueId = getVenueId();
+  const secret = getWsSecret();
+  if (!venueId || !secret) {
+    logger.info(
+      `reconnectWebSocketClient: creds not ready (venueId: ${!!venueId}, wsSecret: ${!!secret}), skipping`
+    );
+    return;
+  }
+
+  const live =
+    !!ws &&
+    (ws.readyState === WebSocket.OPEN ||
+      ws.readyState === WebSocket.CONNECTING);
+  const credsChanged =
+    venueId !== registeredVenueId || secret !== registeredSecret;
+  if (live && !credsChanged) {
+    logger.info(
+      'reconnectWebSocketClient: already connected with current creds, no-op'
+    );
+    return;
+  }
+
+  if (ws) {
+    logger.info(
+      credsChanged
+        ? 'reconnectWebSocketClient: creds changed, reconnecting'
+        : 'reconnectWebSocketClient: socket not live, reconnecting'
+    );
+    try {
+      ws.removeAllListeners();
+      ws.close();
+    } catch (err) {
+      logger.error('reconnectWebSocketClient: error closing old socket:', err);
+    }
+    ws = null;
+  } else {
+    logger.info('reconnectWebSocketClient: creds now available, connecting');
+  }
+  reconnectAttempts = 0;
   connect();
 }
