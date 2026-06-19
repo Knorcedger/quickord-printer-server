@@ -1,3 +1,5 @@
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
 import { PrinterTextSize } from './settings';
@@ -8,12 +10,30 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import {
-  curlExecBuffer,
-  httpStatusError,
-  tryFetchWithFallback,
-} from './http';
+import { curlExecBuffer, httpStatusError, tryFetchWithFallback } from './http';
 import { reportFetchFailure } from './api';
+
+const execAsync = promisify(exec);
+
+// Canonical Windows shared-printer online check, shared by the legacy
+// /available status path (printer.ts) and the WS print path (wsClient.ts) so the
+// WMI query and its quoting live in one place and the two can't diverge.
+// Escapes single quotes (the WQL/PowerShell escape is doubling).
+// Verified on a venue Windows machine: WorkOffline flips False->True within
+// ~10s of powering a shared USB printer off, so it tracks real connectivity.
+export const isUSBPrinterOnline = async (
+  shareName: string
+): Promise<boolean> => {
+  const safeShareName = shareName.replace(/'/g, "''");
+  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${safeShareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
+  try {
+    const { stdout } = await execAsync(command);
+    return stdout.trim().toLowerCase() === 'false';
+  } catch {
+    return false;
+  }
+};
+
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };

@@ -45,6 +45,17 @@ export const getLocalIP = (): string => {
 const escapeGraphqlString = (s: string): string =>
   s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
+// Builds the `addError` mutation shared by every failure reporter. The BE logs
+// each addError with a "Problem:" prefix, surfacing it as a Slack incident.
+// Centralized so the fetch-failure and websocket-failure reporters can't drift
+// in escaping or envelope shape.
+const buildAddErrorMutation = (
+  message: string,
+  url: string,
+  details: Record<string, unknown>
+): string =>
+  `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(url)}", query: "${escapeGraphqlString(JSON.stringify(details))}") { _id } }`;
+
 // Reports a printer-server fetch failure to the BE by calling the existing
 // `addError` GraphQL mutation. Uses curl directly to avoid recursion through
 // the fetch path that just failed. Skipped when the network is fully down.
@@ -57,14 +68,12 @@ const reportFetchFailure = async (
   if (!apiUrl) return;
 
   const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
-  const detailsJson = JSON.stringify({
+  const mutation = buildAddErrorMutation(message, failure.url, {
     fetchErrorCode: failure.fetchErrorCode,
     fetchErrorCause: failure.fetchErrorCause,
     responseStatus: failure.responseStatus,
     curlOk: failure.curlOk,
   });
-
-  const mutation = `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(failure.url)}", query: "${escapeGraphqlString(detailsJson)}") { _id } }`;
 
   try {
     await withTempJsonPayload({ query: mutation }, (tempFilePath) =>
@@ -131,14 +140,12 @@ const reportWebSocketFailure = async (details: {
   venueId: string;
 }): Promise<void> => {
   const message = `Problem: printer-server cannot open its WebSocket to ${details.url} for venue ${details.venueId} after ${details.attempts} attempts — ${details.category} (${details.code}): ${details.message}. Backend->printer dispatch is down for this venue.`;
-  const detailsJson = JSON.stringify({
+  const mutation = buildAddErrorMutation(message, details.url, {
     attempts: details.attempts,
     category: details.category,
     code: details.code,
     venueId: details.venueId,
   });
-
-  const mutation = `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(details.url)}", query: "${escapeGraphqlString(detailsJson)}") { _id } }`;
 
   try {
     await apiCall(mutation);

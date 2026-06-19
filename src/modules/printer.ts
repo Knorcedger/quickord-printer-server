@@ -33,11 +33,11 @@ import {
   printOptionDetails,
   printProductDiscount,
   getInvoiceTypeLabel,
+  isUSBPrinterOnline,
 } from './common';
 import logger from './logger';
 import { IPrinterSettings, ISettings } from './settings';
 import { SupportedLanguages, translations } from './translations';
-import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
 
 // Custom error classes for better error handling
@@ -430,22 +430,6 @@ export const setupPrinter = (settings: IPrinterSettings) => {
   return new ThermalPrinter(config);
 };
 
-const isUsbPrinterOnline = (shareName: string): Promise<boolean> => {
-  return new Promise((resolve, reject) => {
-    const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
-
-    exec(command, (error, stdout, stderr) => {
-      if (error || stderr) {
-        return reject(error || stderr);
-      }
-
-      const output = stdout.trim().toLowerCase();
-      const isOffline = output === 'true';
-      resolve(!isOffline); // true if online
-    });
-  });
-};
-
 export const checkPrinters = async () => {
   const connectedPrinterIds: { id: string; connected: boolean }[] = [];
 
@@ -480,7 +464,7 @@ export const checkPrinters = async () => {
       } else {
         try {
           const shareName = settings.port.split('\\').pop() || '';
-          connected = await isUsbPrinterOnline(shareName);
+          connected = await isUSBPrinterOnline(shareName);
           logger.info(
             `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
           );
@@ -562,7 +546,7 @@ export const printTestPage = async (
   } else {
     try {
       const shareName = interfaceString.split('\\').pop() || '';
-      connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+      connected = await isUSBPrinterOnline(shareName);
     } catch (error) {
       console.error('Error checking printer connection:', error);
       connected = false;
@@ -2817,7 +2801,9 @@ const printDeliveryNote = async (
       await venueData(printer, aadeInvoice, issuerText, settings, lang);
       printer.newLine();
       printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
-      printer.println(tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate));
+      printer.println(
+        tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate)
+      );
       printer.println(
         tr(`${aadeInvoice?.counterpart.activity}`, settings.transliterate)
       );

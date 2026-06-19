@@ -216,8 +216,7 @@ export const loadSettings = async () => {
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
 
-    const { wsSecret: _wsSecret, ...loggableSettings } = settings;
-    logger.info('Settings loaded:', loggableSettings);
+    logger.info('Settings loaded:', stripSecrets(settings));
 
     settings.printers = settings.printers?.map((printer) => {
       return {
@@ -243,13 +242,21 @@ export const getSettings = () => {
   return { ...settings };
 };
 
+// Single source of truth for which fields are credentials that must never be
+// logged or returned over HTTP. Route every log line / HTTP response that may
+// carry settings through this, so adding a second secret (or renaming wsSecret)
+// is a one-line change that can't be missed at one site and re-leak the value.
+export const stripSecrets = <T extends { wsSecret?: string }>(
+  obj: T
+): Omit<T, 'wsSecret'> => {
+  const { wsSecret: _wsSecret, ...rest } = obj;
+  return rest;
+};
+
 // Settings for the unauthenticated HTTP GET /settings response. Strips
 // wsSecret: the FE only ever pushes it (via POST), never reads it back, and
 // the credential must not be exposed to anything that can reach port 7810.
-export const getPublicSettings = () => {
-  const { wsSecret: _wsSecret, ...rest } = settings;
-  return rest;
-};
+export const getPublicSettings = () => stripSecrets(settings);
 
 export const updateSettings = (newSettings: ISettings) => {
   settings = { ...newSettings };

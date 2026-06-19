@@ -6,17 +6,15 @@
  */
 import WebSocket from 'ws';
 import * as net from 'node:net';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import {
   printer as ThermalPrinter,
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import nconf from 'nconf';
 import { reportWebSocketFailure } from './api';
+import { isUSBPrinterOnline } from './common';
 import logger from './logger';
-
-const execAsync = promisify(exec);
+import { checkPrinters } from './printer';
 
 nconf.argv().env().file({ file: './config.json' });
 
@@ -178,29 +176,6 @@ async function sendToPrinter(
   });
 }
 
-// A Windows shared-printer write is fire-and-forget at the spooler:
-// fs.writeFile to \\host\share reports success even when the physical
-// printer is offline or the share does not exist. Gate on the printer's
-// WMI WorkOffline state first (mirrors the legacy print path) so an
-// offline printer fails loudly instead of returning a false success.
-// Stricter than legacy: only an explicit `false` (share found AND not
-// offline) counts as online — empty output means "share not found".
-async function isWindowsSharedPrinterOnline(
-  shareName: string
-): Promise<boolean> {
-  // Escape single quotes (WQL/PowerShell escape is doubling) so a crafted
-  // share name can't break out of the quoted ShareName literal and inject
-  // commands, even though the only writer is the authenticated backend.
-  const safeShareName = shareName.replace(/'/g, "''");
-  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${safeShareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
-  try {
-    const { stdout } = await execAsync(command);
-    return stdout.trim().toLowerCase() === 'false';
-  } catch {
-    return false;
-  }
-}
-
 // Local (non-TCP) printers: shared / USB / serial devices addressed by a
 // device path in `printerPort` (e.g. \\localhost\POS-80 on Windows, or a
 // serial device). The backend already produced the full ESC/POS buffer,
@@ -215,7 +190,7 @@ async function sendToLocalPrinter(
   // before claiming success.
   if (deviceInterface.startsWith('\\\\')) {
     const shareName = deviceInterface.split('\\').pop() || '';
-    const online = await isWindowsSharedPrinterOnline(shareName);
+    const online = await isUSBPrinterOnline(shareName);
     if (!online) {
       throw new Error(`Printer offline or not found: ${deviceInterface}`);
     }
@@ -305,18 +280,28 @@ async function handleMessage(raw: string): Promise<void> {
 
       case 'checkPrintersRequest': {
         logger.info('Received printer check request');
-        const printersToCheck: { id: string; ip: string; port?: string }[] =
+        const requestedPrinters: { id: string; ip: string; port?: string }[] =
           msg.data?.printers || msg.printers || [];
-        const results = await Promise.all(
-          printersToCheck.map(async (p) => {
-            const port = p.port ? parseInt(p.port, 10) : 9100;
-            const connected = await checkPrinterConnectivity(
-              p.ip,
-              Number.isFinite(port) ? port : 9100
-            );
-            return { id: p.id, connected };
-          })
-        );
+
+        // The backend's typed checkPrintersRequest carries only { venueId } and
+        // no printers list, because the printer-server already knows its own
+        // printers. With no explicit list, check every locally-configured
+        // printer via the same path as the /available HTTP endpoint — it handles
+        // shared/USB printers (ip === '') that a bare TCP probe can't. An
+        // explicit list is still honoured if the BE ever starts sending one.
+        const results =
+          requestedPrinters.length > 0
+            ? await Promise.all(
+                requestedPrinters.map(async (p) => {
+                  const port = p.port ? parseInt(p.port, 10) : 9100;
+                  const connected = await checkPrinterConnectivity(
+                    p.ip,
+                    Number.isFinite(port) ? port : 9100
+                  );
+                  return { id: p.id, connected };
+                })
+              )
+            : await checkPrinters();
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(
             JSON.stringify({

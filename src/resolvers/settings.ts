@@ -11,13 +11,13 @@ import {
   IPrinterSettings,
   saveSettings,
   Settings,
+  stripSecrets,
   updateSettings,
 } from '../modules/settings';
 
 const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    const { wsSecret: _incomingSecret, ...loggableBody } = req.body;
-    logger.info('Updating settings:', loggableBody);
+    logger.info('Updating settings:', stripSecrets(req.body));
 
     const oldSettings = getSettings();
 
@@ -91,7 +91,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
 
     // Never echo or log wsSecret: the FE already holds the value it pushed,
     // and the response/logs must not expose the credential.
-    const { wsSecret: _wsSecret, ...safeSettings } = newSettings;
+    const safeSettings = stripSecrets(newSettings);
 
     logger.info('Settings updated:', safeSettings);
 
