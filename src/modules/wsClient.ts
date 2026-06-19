@@ -188,7 +188,11 @@ async function sendToPrinter(
 async function isWindowsSharedPrinterOnline(
   shareName: string
 ): Promise<boolean> {
-  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
+  // Escape single quotes (WQL/PowerShell escape is doubling) so a crafted
+  // share name can't break out of the quoted ShareName literal and inject
+  // commands, even though the only writer is the authenticated backend.
+  const safeShareName = shareName.replace(/'/g, "''");
+  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${safeShareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
   try {
     const { stdout } = await execAsync(command);
     return stdout.trim().toLowerCase() === 'false';
@@ -250,10 +254,17 @@ async function handleMessage(raw: string): Promise<void> {
       case 'printRaw': {
         const { jobId, printerIp, printerPort, data } = msg;
 
-        // A job needs an id, a payload, and at least one transport target:
-        // an IP for TCP printers, or a device path in printerPort for
-        // local shared/USB/serial printers.
-        if (!jobId || !data || (!printerIp && !printerPort)) {
+        // A job needs an id, a base64 string payload, and at least one
+        // transport target: an IP for TCP printers, or a device path in
+        // printerPort for local shared/USB/serial printers. `data` must be a
+        // string — a non-string would throw in Buffer.from below and leave the
+        // job unacknowledged, so reject it here with a terminal result instead.
+        if (
+          !jobId ||
+          typeof data !== 'string' ||
+          !data ||
+          (!printerIp && !printerPort)
+        ) {
           logger.error('Invalid printRaw message: missing required fields');
           if (jobId) sendResult(jobId, 'failed', 'Missing required fields');
           return;
@@ -537,6 +548,13 @@ export function reconnectWebSocketClient(): void {
         : 'reconnectWebSocketClient: socket not live, reconnecting'
     );
     try {
+      // removeAllListeners() drops the old socket's 'close' handler, so its
+      // pending stable-timer would never be cleared and could later fire and
+      // stomp the new socket's back-off state. Clear it here explicitly.
+      if (stableTimer) {
+        clearTimeout(stableTimer);
+        stableTimer = null;
+      }
       ws.removeAllListeners();
       ws.close();
     } catch (err) {
@@ -546,7 +564,13 @@ export function reconnectWebSocketClient(): void {
   } else {
     logger.info('reconnectWebSocketClient: creds now available, connecting');
   }
+  // A deliberate reconnect (new creds / recovered settings) starts a fresh
+  // failure episode, so reset the full incident state — not just the back-off —
+  // otherwise a previously-reported venue could never raise a second incident.
   reconnectAttempts = 0;
   authFailureLogged = false;
+  consecutiveConnectFailures = 0;
+  connectionReportSent = false;
+  lastWsError = null;
   connect();
 }

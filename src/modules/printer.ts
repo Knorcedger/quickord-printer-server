@@ -2808,20 +2808,33 @@ const printDeliveryNote = async (
         });
         continue;
       }
+      // Reset buffer state and select the configured code page, exactly like
+      // every other print route. Without this the printer stays on whatever
+      // page it was left on and prints Greek as gibberish.
+      printer.clear();
+      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.alignCenter();
       await venueData(printer, aadeInvoice, issuerText, settings, lang);
       printer.newLine();
-      printer.println('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ');
-      printer.println(`${aadeInvoice?.counterpart.name}`);
-      printer.println(`${aadeInvoice?.counterpart.activity}`);
+      printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
+      printer.println(tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate));
       printer.println(
-        `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`
+        tr(`${aadeInvoice?.counterpart.activity}`, settings.transliterate)
       );
       printer.println(
-        `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`
+        tr(
+          `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`,
+          settings.transliterate
+        )
+      );
+      printer.println(
+        tr(
+          `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`,
+          settings.transliterate
+        )
       );
       printer.newLine();
-      printer.println('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ');
+      printer.println(tr('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
       const movePurposeCode = aadeInvoice.move_purpose?.code;
       const movePurposeKey = movePurposeCode
         ? PayvoMovePurposeMapping[movePurposeCode]
@@ -2829,12 +2842,20 @@ const printDeliveryNote = async (
       const movePurposeLabel = movePurposeKey
         ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] || 'N/A'
         : 'N/A';
-      printer.println(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`);
       printer.println(
-        `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`
+        tr(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`, settings.transliterate)
       );
       printer.println(
-        `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`
+        tr(
+          `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`,
+          settings.transliterate
+        )
+      );
+      printer.println(
+        tr(
+          `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`,
+          settings.transliterate
+        )
       );
       const shippingMethodCode = aadeInvoice.shipping_method;
 
@@ -2843,8 +2864,12 @@ const printDeliveryNote = async (
             shippingMethodCode
           ]?.[lang] || 'N/A'
         : 'N/A';
-      printer.println(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`);
-      printer.println(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`);
+      printer.println(
+        tr(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`, settings.transliterate)
+      );
+      printer.println(
+        tr(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`, settings.transliterate)
+      );
 
       // Use delivery note specific products and VAT breakdown functions
       const [

@@ -1035,8 +1035,8 @@ export const venueData = async (
   if (issuerText) {
     await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
-    printer.println(aadeInvoice?.issuer.name);
-    printer.println(aadeInvoice?.issuer.activity);
+    printer.println(tr(aadeInvoice?.issuer.name, settings.transliterate));
+    printer.println(tr(aadeInvoice?.issuer.activity, settings.transliterate));
     printer.println(
       tr(
         `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`,
