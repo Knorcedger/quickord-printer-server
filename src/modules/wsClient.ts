@@ -13,6 +13,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import nconf from 'nconf';
+import { reportWebSocketFailure } from './api';
 import logger from './logger';
 
 const execAsync = promisify(exec);
@@ -45,6 +46,59 @@ const CONNECTION_STABLE_MS = 5000;
 // hammering. Kept in sync with handlePrinterServerRegister in quickord-be.
 const AUTH_FAILURE_CODES = new Set([4001, 4401]);
 const SOCKET_TIMEOUT = 5000;
+// Consecutive failures to ever OPEN the socket (firewall/proxy/TLS interception
+// on the venue's machine rejecting the connection). Reset once a socket sticks.
+let consecutiveConnectFailures = 0;
+// Report the connection rejection to the BE once per failure episode so a
+// permanently-blocked venue raises one Slack incident, not one every retry.
+let connectionReportSent = false;
+// Last classified 'error' so the 'close' handler can attribute the failure.
+let lastWsError: { category: string; code: string; message: string } | null =
+  null;
+// Only alert after a few failures so a transient blip (router reboot, brief
+// outage) self-heals quietly; a real block keeps failing past this.
+const REPORT_AFTER_FAILURES = 3;
+
+// Map a ws 'error' into a coarse category so the Slack incident and local log
+// say *why* the connection was rejected (firewall vs proxy vs TLS interception
+// vs DNS), which is what determines who fixes it on the venue's side.
+function classifyWsError(err: any): {
+  category: string;
+  code: string;
+  message: string;
+} {
+  const code: string = err?.code || err?.cause?.code || '';
+  const message: string = err?.message || String(err);
+
+  // An intercepting HTTP proxy that doesn't speak the WS upgrade replies with a
+  // non-101 status; the ws library throws "Unexpected server response: <code>".
+  if (/unexpected server response/i.test(message)) {
+    return { category: 'PROXY_OR_UNEXPECTED_RESPONSE', code: code || message, message };
+  }
+  // Corporate MITM proxy / antivirus TLS interception.
+  if (
+    /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|ALTNAME|SSL|TLS/i.test(code) ||
+    /certificate|self.signed/i.test(message)
+  ) {
+    return { category: 'TLS_INTERCEPTION', code: code || 'TLS', message };
+  }
+  switch (code) {
+    case 'EAI_AGAIN':
+    case 'ENOTFOUND':
+      return { category: 'DNS', code, message };
+    case 'ECONNREFUSED':
+      return { category: 'REFUSED', code, message };
+    case 'ECONNRESET':
+      return { category: 'RESET', code, message };
+    case 'EHOSTUNREACH':
+    case 'ENETUNREACH':
+      return { category: 'UNREACHABLE', code, message };
+    case 'ETIMEDOUT':
+      return { category: 'TIMEOUT', code, message };
+    default:
+      return { category: 'UNKNOWN', code: code || 'UNKNOWN', message };
+  }
+}
 
 function clearReconnectTimer(): void {
   if (reconnectTimer) {
@@ -327,8 +381,14 @@ function connect(): void {
   logger.info(`Connecting to backend WebSocket: ${url}`);
 
   ws = new WebSocket(url);
+  // Whether this socket ever reached 'open'. A close before open means the
+  // connection was rejected at the transport level (firewall/proxy/TLS) — the
+  // only failure mode worth a connection incident. Auth rejections and old-BE
+  // skew both open first, so they never trip the report.
+  let opened = false;
 
   ws.on('open', () => {
+    opened = true;
     logger.info('WebSocket connected to backend');
 
     // Reset the back-off only once the socket proves stable — `open` fires
@@ -337,6 +397,9 @@ function connect(): void {
     stableTimer = setTimeout(() => {
       reconnectAttempts = 0;
       authFailureLogged = false;
+      consecutiveConnectFailures = 0;
+      connectionReportSent = false;
+      lastWsError = null;
     }, CONNECTION_STABLE_MS);
 
     ws!.send(
@@ -369,11 +432,42 @@ function connect(): void {
       stableTimer = null;
     }
     logger.info(`WebSocket connection closed (code ${code})`);
+
+    // Closed before ever opening => the venue's network rejected the connection
+    // (firewall/proxy/TLS), not an auth or skew issue. After a few consecutive
+    // such failures, report it once per episode so a permanently-blocked venue
+    // raises a single Slack incident instead of one per retry.
+    if (!opened) {
+      consecutiveConnectFailures++;
+      if (
+        consecutiveConnectFailures >= REPORT_AFTER_FAILURES &&
+        !connectionReportSent
+      ) {
+        connectionReportSent = true;
+        const info = lastWsError ?? {
+          category: 'UNKNOWN',
+          code: `close_${code}`,
+          message: `closed before open (code ${code})`,
+        };
+        reportWebSocketFailure({
+          attempts: consecutiveConnectFailures,
+          category: info.category,
+          code: info.code,
+          message: info.message,
+          url: getBackendWsUrl(),
+          venueId: getVenueId(),
+        }).catch(() => {});
+      }
+    }
+
     scheduleReconnect(code);
   });
 
   ws.on('error', (err) => {
-    logger.error('WebSocket error:', err);
+    lastWsError = classifyWsError(err);
+    logger.error(
+      `WebSocket error [${lastWsError.category}] code=${lastWsError.code}: ${lastWsError.message}`
+    );
   });
 }
 

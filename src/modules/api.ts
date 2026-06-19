@@ -117,6 +117,37 @@ export const apiCall = async (query: string): Promise<any> => {
   return result.data;
 };
 
+// Reports a printer-server WebSocket connection failure to the BE via the same
+// `addError` mutation as fetch failures — the BE logs every addError with a
+// "Problem:" prefix, so it surfaces as a Slack incident. Goes through apiCall
+// (fetch-first, curl fallback): the WS upgrade was rejected, but plain HTTPS to
+// the GraphQL endpoint usually still works, and curl covers the proxy case.
+const reportWebSocketFailure = async (details: {
+  attempts: number;
+  category: string;
+  code: string;
+  message: string;
+  url: string;
+  venueId: string;
+}): Promise<void> => {
+  const message = `Problem: printer-server cannot open its WebSocket to ${details.url} for venue ${details.venueId} after ${details.attempts} attempts — ${details.category} (${details.code}): ${details.message}. Backend->printer dispatch is down for this venue.`;
+  const detailsJson = JSON.stringify({
+    attempts: details.attempts,
+    category: details.category,
+    code: details.code,
+    venueId: details.venueId,
+  });
+
+  const mutation = `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(details.url)}", query: "${escapeGraphqlString(detailsJson)}") { _id } }`;
+
+  try {
+    await apiCall(mutation);
+    logger.info('Reported WebSocket connection failure to BE');
+  } catch (err) {
+    logger.error('Failed to report WebSocket connection failure to BE:', err);
+  }
+};
+
 export const registerPrinterServerIp = async (
   venueId: string
 ): Promise<void> => {
@@ -143,4 +174,4 @@ export const registerPrinterServerIp = async (
   }
 };
 
-export { reportFetchFailure };
+export { reportFetchFailure, reportWebSocketFailure };
