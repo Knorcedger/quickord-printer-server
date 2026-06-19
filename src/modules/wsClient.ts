@@ -21,12 +21,37 @@ nconf.argv().env().file({ file: './config.json' });
 
 let ws: WebSocket | null = null;
 let reconnectAttempts = 0;
+// The single pending reconnect timer. Owned so any new connect attempt can
+// cancel it — otherwise an orphaned setTimeout(connect) from an earlier close
+// fires later and spawns a second socket. Two sockets for one venue make the
+// backend (which keeps one connection per venue) close-and-re-register them in
+// an infinite ping-pong.
+let reconnectTimer: NodeJS.Timeout | null = null;
+// Fires once a connection has stayed open long enough to count as genuine, at
+// which point we reset the back-off. A reject-close clears it first, so the
+// back-off only resets for sockets that actually stick.
+let stableTimer: NodeJS.Timeout | null = null;
+// Gate the fatal "registration rejected" error to once per failure episode so a
+// wrong secret doesn't spam the log every retry.
+let authFailureLogged = false;
 // Creds we last sent a printerServerRegister with, so reconnectWebSocketClient()
 // can skip churning a healthy socket when settings sync with unchanged creds.
 let registeredVenueId = '';
 let registeredSecret = '';
 const MAX_RECONNECT_DELAY = 60000;
+const CONNECTION_STABLE_MS = 5000;
+// Backend close codes that mean the creds are wrong (invalid venueId / invalid
+// secret). Retrying the same creds is futile, so we slow-retry instead of
+// hammering. Kept in sync with handlePrinterServerRegister in quickord-be.
+const AUTH_FAILURE_CODES = new Set([4001, 4401]);
 const SOCKET_TIMEOUT = 5000;
+
+function clearReconnectTimer(): void {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
 
 function getBackendWsUrl(): string {
   const apiUrl =
@@ -267,6 +292,22 @@ function sendResult(jobId: string, status: string, error?: string): void {
 }
 
 function connect(): void {
+  // Connecting now supersedes any scheduled reconnect — drop the pending timer
+  // so a stale slow-retry can't fire later and open a second, competing socket.
+  clearReconnectTimer();
+
+  // If a socket is already connecting/open, another lifecycle owns it. Creating
+  // another would register a duplicate connection for this venue, which the
+  // backend resolves by closing the older one — triggering an endless
+  // close/re-register ping-pong between the two sockets.
+  if (
+    ws &&
+    (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)
+  ) {
+    logger.info('connect: socket already live, skipping duplicate connection');
+    return;
+  }
+
   const url = getBackendWsUrl();
   const venueId = getVenueId();
   const secret = getWsSecret();
@@ -288,8 +329,15 @@ function connect(): void {
   ws = new WebSocket(url);
 
   ws.on('open', () => {
-    reconnectAttempts = 0;
     logger.info('WebSocket connected to backend');
+
+    // Reset the back-off only once the socket proves stable — `open` fires
+    // before registration, which the backend rejects (and closes) a moment
+    // later on a bad secret. A reject-close clears this timer before it runs.
+    stableTimer = setTimeout(() => {
+      reconnectAttempts = 0;
+      authFailureLogged = false;
+    }, CONNECTION_STABLE_MS);
 
     ws!.send(
       JSON.stringify({
@@ -315,9 +363,13 @@ function connect(): void {
     handleMessage(message);
   });
 
-  ws.on('close', () => {
-    logger.info('WebSocket connection closed');
-    scheduleReconnect();
+  ws.on('close', (code: number) => {
+    if (stableTimer) {
+      clearTimeout(stableTimer);
+      stableTimer = null;
+    }
+    logger.info(`WebSocket connection closed (code ${code})`);
+    scheduleReconnect(code);
   });
 
   ws.on('error', (err) => {
@@ -325,14 +377,32 @@ function connect(): void {
   });
 }
 
-function scheduleReconnect(): void {
+function scheduleReconnect(closeCode?: number): void {
+  // Only one reconnect may be pending at a time — drop any prior timer so
+  // overlapping closes can't stack into multiple concurrent connect() calls.
+  clearReconnectTimer();
+
+  // Wrong venueId/secret: retrying the same creds can't succeed, so slow-retry
+  // at the max delay (self-heals when creds are fixed) instead of hammering,
+  // and log the error only once per failure episode.
+  if (closeCode !== undefined && AUTH_FAILURE_CODES.has(closeCode)) {
+    if (!authFailureLogged) {
+      logger.error(
+        `Registration rejected (code ${closeCode}) — check venueId/wsSecret. Slow-retrying every ${MAX_RECONNECT_DELAY}ms`
+      );
+      authFailureLogged = true;
+    }
+    reconnectTimer = setTimeout(connect, MAX_RECONNECT_DELAY);
+    return;
+  }
+
   const delay = Math.min(
     1000 * Math.pow(2, reconnectAttempts),
     MAX_RECONNECT_DELAY
   );
   reconnectAttempts++;
   logger.info(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
-  setTimeout(connect, delay);
+  reconnectTimer = setTimeout(connect, delay);
 }
 
 export function initWebSocketClient(): void {
@@ -383,5 +453,6 @@ export function reconnectWebSocketClient(): void {
     logger.info('reconnectWebSocketClient: creds now available, connecting');
   }
   reconnectAttempts = 0;
+  authFailureLogged = false;
   connect();
 }
