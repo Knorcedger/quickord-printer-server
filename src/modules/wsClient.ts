@@ -140,6 +140,24 @@ function getWsSecret(): string {
   return nconf.get('VENUE_WS_SECRET') || '';
 }
 
+// Per-printer job queue. Thermal printers accept a single connection at a time,
+// so two overlapping jobs to one device (copies, or two independent print
+// requests at once) collide and only one ticket comes out. Chaining each job
+// onto the previous one for that printer serializes them; distinct printers
+// still print in parallel. The backend also serializes copies within a single
+// request — this is the authoritative guard regardless of how jobs arrive.
+const printerQueues = new Map<string, Promise<void>>();
+
+function enqueuePrinterJob(key: string, task: () => Promise<void>): void {
+  const prev = printerQueues.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(task);
+  printerQueues.set(key, next);
+  // Drop the entry once it settles, unless a newer job has already chained on.
+  void next.finally(() => {
+    if (printerQueues.get(key) === next) printerQueues.delete(key);
+  });
+}
+
 async function sendToPrinter(
   ip: string,
   port: number,
@@ -247,34 +265,39 @@ async function handleMessage(raw: string): Promise<void> {
 
         const buffer = Buffer.from(data, 'base64');
 
-        let dispatch: Promise<unknown>;
-        let target: string;
+        // Key the queue by the physical target (ip for TCP, device path for
+        // local) so jobs to the same printer serialize but different printers
+        // stay parallel.
+        const queueKey = printerIp || printerPort;
+        enqueuePrinterJob(queueKey, async () => {
+          let target: string;
+          let dispatch: Promise<unknown>;
 
-        if (printerIp) {
-          const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
-          const port = Number.isFinite(parsed) ? parsed : 9100;
-          target = `${printerIp}:${port}`;
-          logger.info(
-            `Received print job ${jobId} for ${target} (${buffer.length} bytes)`
-          );
-          dispatch = sendToPrinter(printerIp, port, buffer);
-        } else {
-          target = printerPort;
-          logger.info(
-            `Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`
-          );
-          dispatch = sendToLocalPrinter(printerPort, buffer);
-        }
+          if (printerIp) {
+            const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
+            const port = Number.isFinite(parsed) ? parsed : 9100;
+            target = `${printerIp}:${port}`;
+            logger.info(
+              `Received print job ${jobId} for ${target} (${buffer.length} bytes)`
+            );
+            dispatch = sendToPrinter(printerIp, port, buffer);
+          } else {
+            target = printerPort;
+            logger.info(
+              `Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`
+            );
+            dispatch = sendToLocalPrinter(printerPort, buffer);
+          }
 
-        dispatch
-          .then(() => {
+          try {
+            await dispatch;
             logger.info(`Print job ${jobId} sent successfully to ${target}`);
             sendResult(jobId, 'success');
-          })
-          .catch((err) => {
+          } catch (err: any) {
             logger.error(`Print job ${jobId} failed for ${target}:`, err);
             sendResult(jobId, 'failed', err?.message ?? String(err));
-          });
+          }
+        });
         break;
       }
 
