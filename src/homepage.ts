@@ -1,4 +1,4 @@
-import { getSettings } from './modules/settings';
+import { getPublicSettings } from './modules/settings';
 
 export const homepage = () => {
   return `<div style="padding: 12px;">
@@ -12,7 +12,7 @@ export const homepage = () => {
         <br />
         The current settings are:
         <div style="white-space: pre-wrap;">
-${JSON.stringify(getSettings(), null, 2)}
+${JSON.stringify(getPublicSettings(), null, 2)}
         </div>
       </div>
     </div>`;

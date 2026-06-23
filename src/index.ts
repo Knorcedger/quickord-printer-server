@@ -18,6 +18,7 @@ import {
 } from './modules/printer';
 import { printText } from './modules/printer';
 import {
+  getPublicSettings,
   getSettings,
   loadSettings,
   PrinterTextOptions,
@@ -42,6 +43,7 @@ import {
   tryFetchWithFallback,
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
+import { initWebSocketClient } from './modules/wsClient';
 
 const main = async () => {
   const SERVER_PORT =
@@ -107,7 +109,7 @@ const main = async () => {
     .route('/settings')
     .post(settings)
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      res.status(200).send(getSettings());
+      res.status(200).send(getPublicSettings());
     });
 
   function getPrinterVersion(): string {
@@ -329,6 +331,9 @@ const main = async () => {
         'No venueId configured, skipping printer server IP registration'
       );
     }
+
+    // Connect to backend via WebSocket for receiving print commands
+    initWebSocketClient();
   });
 };
 

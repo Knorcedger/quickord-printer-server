@@ -5,17 +5,19 @@ import { registerPrinterServerIp } from '../modules/api';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
+import { reconnectWebSocketClient } from '../modules/wsClient';
 import {
   getSettings,
   IPrinterSettings,
   saveSettings,
   Settings,
+  stripSecrets,
   updateSettings,
 } from '../modules/settings';
 
 const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    logger.info('Updating settings:', req.body);
+    logger.info('Updating settings:', stripSecrets(req.body));
 
     const oldSettings = getSettings();
 
@@ -54,11 +56,14 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       }
     );
 
-    // Force own venueId — accept first time, lock after
+    // Force own venueId — accept first time, lock after.
+    // Preserve an existing wsSecret if a sync omits it, so a stale FE push
+    // can't wipe the secret already on disk.
     const newSettings = Settings.parse({
       ...req.body,
       printers,
       venueId: ownVenueId || incomingVenueId,
+      wsSecret: req.body.wsSecret || oldSettings.wsSecret,
     });
 
     updateSettings(newSettings);
@@ -84,13 +89,22 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       }
     }
 
-    logger.info('Settings updated:', newSettings);
+    // Never echo or log wsSecret: the FE already holds the value it pushed,
+    // and the response/logs must not expose the credential.
+    const safeSettings = stripSecrets(newSettings);
 
-    res.status(200).send({ newSettings, status: 'updated' });
+    logger.info('Settings updated:', safeSettings);
+
+    res.status(200).send({ newSettings: safeSettings, status: 'updated' });
 
     if (isFirstClaim && newSettings.venueId) {
       await registerPrinterServerIp(newSettings.venueId);
     }
+
+    // Register over WS now that venueId + wsSecret are on disk, so the secret
+    // sync doesn't require a process restart to take effect. Self-guards, so a
+    // same-creds resync is a no-op.
+    reconnectWebSocketClient();
   } catch (error) {
     logger.error('Error updating settings:', error);
     res.status(400).send({ error: error.message });
