@@ -376,6 +376,22 @@ export default {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ',
       en: 'INVOICE',
     },
+    serviceReceipt: {
+      el: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ',
+      en: 'SERVICE RECEIPT',
+    },
+    serviceReceiptEnd: {
+      el: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ ΛΗΞΗ',
+      en: 'END OF SERVICE RECEIPT',
+    },
+    serviceInvoice: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ',
+      en: 'SERVICE INVOICE',
+    },
+    serviceInvoiceEnd: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ ΛΗΞΗ',
+      en: 'END OF SERVICE INVOICE',
+    },
     invoiceCreditNote: {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ / ΠΙΣΤΩΤΙΚΟ ΣΤΟΙΧΕΙΟ',
       en: 'INVOICE / CREDIT NOTE',

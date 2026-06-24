@@ -1041,6 +1041,9 @@ export const getInvoiceTypeLabel = (
   if (code === '1.1' && hasMovePurpose) {
     return translations.printOrder.invoiceDeliveryNote[lang];
   }
+  if (['2.1', '2.2', '2.3'].includes(code)) {
+    return translations.printOrder.serviceInvoice[lang];
+  }
   return translations.printOrder.invoice[lang];
 };
 
