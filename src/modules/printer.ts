@@ -647,7 +647,8 @@ const printTextFunc = async (
   text: string,
   alignment: 'left' | 'center' | 'right',
   copies: number = 1,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  requiredDocument: string = 'TEXT'
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -674,13 +675,13 @@ const printTextFunc = async (
       continue;
     }
 
-    if (!settings.documentsToPrint?.includes('TEXT')) {
+    if (!settings.documentsToPrint?.includes(requiredDocument)) {
       logger.warn(
-        `Skipping text print: TEXT not in documentsToPrint for ${printerIdentifier}`
+        `Skipping text print: ${requiredDocument} not in documentsToPrint for ${printerIdentifier}`
       );
       errors.push({
         printerIdentifier,
-        error: 'Printer not configured to print TEXT documents',
+        error: `Printer not configured to print ${requiredDocument} documents`,
       });
       continue;
     }
@@ -767,7 +768,8 @@ export const printText = async (
       req.body.text,
       req.body.alignment || 'left',
       req.body.copies || 1,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.documentType || 'TEXT'
     );
 
     // Format the response with detailed printer status
