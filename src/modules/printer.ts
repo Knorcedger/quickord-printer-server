@@ -2356,7 +2356,12 @@ const printMyPelatesReceipt = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
-          tr(`${translations.printOrder.reciept[lang]}`, settings.transliterate)
+          tr(
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceipt[lang]}`
+              : `${translations.printOrder.reciept[lang]}`,
+            settings.transliterate
+          )
         );
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
