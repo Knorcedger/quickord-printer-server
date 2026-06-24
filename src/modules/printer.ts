@@ -1941,6 +1941,9 @@ const printPaymentReceipt = async (
         // Determine invoice type label based on AADE code
         let invoiceTypeLabel: string;
         switch (aadeInvoice?.header?.code) {
+          case '11.2':
+            invoiceTypeLabel = translations.printOrder.serviceReceipt[lang];
+            break;
           case '11.4':
             invoiceTypeLabel = translations.printOrder.retailCreditNote[lang];
             break;
@@ -2019,7 +2022,9 @@ const printPaymentReceipt = async (
         printer.newLine();
         printer.println(
           tr(
-            `${translations.printOrder.recieptEnd[lang]}`,
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceiptEnd[lang]}`
+              : `${translations.printOrder.recieptEnd[lang]}`,
             settings.transliterate
           )
         );
@@ -2351,7 +2356,12 @@ const printMyPelatesReceipt = async (
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
-          tr(`${translations.printOrder.reciept[lang]}`, settings.transliterate)
+          tr(
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceipt[lang]}`
+              : `${translations.printOrder.reciept[lang]}`,
+            settings.transliterate
+          )
         );
         await venueData(printer, aadeInvoice, issuerText, settings, lang);
         receiptData(
@@ -2428,7 +2438,9 @@ const printMyPelatesReceipt = async (
         printer.newLine();
         printer.println(
           tr(
-            `${translations.printOrder.recieptEnd[lang]}`,
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceiptEnd[lang]}`
+              : `${translations.printOrder.recieptEnd[lang]}`,
             settings.transliterate
           )
         );
