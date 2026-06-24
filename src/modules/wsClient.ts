@@ -30,6 +30,12 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 // which point we reset the back-off. A reject-close clears it first, so the
 // back-off only resets for sockets that actually stick.
 let stableTimer: NodeJS.Timeout | null = null;
+// Client-side keepalive timer. A dyno restart or a laptop sleeping can drop the
+// TCP connection without a close frame ever reaching us, leaving readyState
+// OPEN (half-open). Without an outbound ping the socket looks alive forever and
+// reconnectWebSocketClient() keeps no-op'ing, so the printer-server silently
+// stops receiving jobs. We ping the backend and terminate if a pong is missed.
+let heartbeatTimer: NodeJS.Timeout | null = null;
 // Gate the fatal "registration rejected" error to once per failure episode so a
 // wrong secret doesn't spam the log every retry.
 let authFailureLogged = false;
@@ -39,6 +45,10 @@ let registeredVenueId = '';
 let registeredSecret = '';
 const MAX_RECONNECT_DELAY = 60000;
 const CONNECTION_STABLE_MS = 5000;
+// Ping cadence for the keepalive. A missed pong over one interval terminates the
+// socket, so half-open detection takes at most ~2x this. Kept below the backend's
+// own 25s heartbeat so either side notices a dead peer promptly.
+const HEARTBEAT_INTERVAL_MS = 20000;
 // Backend close codes that mean the creds are wrong (invalid venueId / invalid
 // secret). Retrying the same creds is futile, so we slow-retry instead of
 // hammering. Kept in sync with handlePrinterServerRegister in quickord-be.
@@ -429,6 +439,30 @@ function connect(): void {
     );
     registeredVenueId = venueId;
     registeredSecret = secret;
+
+    // Outbound keepalive: capture this socket so the timer can't ping a later
+    // reconnect's socket. If a ping cycle elapses with no pong the peer is gone
+    // (half-open) — terminate to fire 'close' and let the existing back-off
+    // reconnect. The 'close' handler and reconnectWebSocketClient() clear it.
+    const sock = ws!;
+    let alive = true;
+    sock.on('pong', () => {
+      alive = true;
+    });
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = setInterval(() => {
+      if (!alive) {
+        logger.error('WebSocket keepalive: no pong, terminating dead socket');
+        sock.terminate();
+        return;
+      }
+      alive = false;
+      try {
+        sock.ping();
+      } catch {
+        sock.terminate();
+      }
+    }, HEARTBEAT_INTERVAL_MS);
   });
 
   ws.on('message', (data: WebSocket.Data) => {
@@ -449,6 +483,10 @@ function connect(): void {
     if (stableTimer) {
       clearTimeout(stableTimer);
       stableTimer = null;
+    }
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
     }
     logger.info(`WebSocket connection closed (code ${code})`);
 
@@ -562,6 +600,13 @@ export function reconnectWebSocketClient(): void {
       if (stableTimer) {
         clearTimeout(stableTimer);
         stableTimer = null;
+      }
+      // removeAllListeners() drops the old socket's 'close' handler, so clear
+      // its keepalive here too — otherwise the interval would ping a socket
+      // we're discarding.
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
       }
       ws.removeAllListeners();
       ws.close();
