@@ -43,7 +43,7 @@ import {
   tryFetchWithFallback,
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { initWebSocketClient } from './modules/wsClient';
+import { initWebSocketClient, setRestartHandler } from './modules/wsClient';
 
 const main = async () => {
   const SERVER_PORT =
@@ -180,8 +180,10 @@ const main = async () => {
       res.status(200).send({ status: 'ok' });
     });
 
-  app.post('/restart', (req: Request, res: Response) => {
-    res.status(200).send({ status: 'restarting' });
+  // Restart this process. Triggered by the HTTP route (legacy/local) and by a
+  // backend restartRequest over the WebSocket (remote). A short delay lets the
+  // HTTP response flush before the process exits.
+  function restartServer(): void {
     setTimeout(() => {
       const isDev = process.argv[1]?.endsWith('.ts');
       if (isDev) {
@@ -205,6 +207,14 @@ const main = async () => {
         process.exit(0);
       });
     }, 500);
+  }
+
+  // Let a backend restartRequest trigger the same restart path as the HTTP route.
+  setRestartHandler(restartServer);
+
+  app.post('/restart', (req: Request, res: Response) => {
+    res.status(200).send({ status: 'restarting' });
+    restartServer();
   });
 
   app

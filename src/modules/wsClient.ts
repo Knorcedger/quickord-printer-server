@@ -5,7 +5,9 @@
  * printers, e.g. \\localhost\POS-80 on Windows).
  */
 import WebSocket from 'ws';
+import * as fs from 'node:fs';
 import * as net from 'node:net';
+import * as path from 'node:path';
 import {
   printer as ThermalPrinter,
   types as PrinterTypes,
@@ -14,6 +16,7 @@ import nconf from 'nconf';
 import { reportWebSocketFailure } from './api';
 import { isUSBPrinterOnline } from './common';
 import logger from './logger';
+import scanNetworkForConnections from './network';
 import { checkPrinters } from './printer';
 
 nconf.argv().env().file({ file: './config.json' });
@@ -126,6 +129,18 @@ function getBackendWsUrl(): string {
     .replace('http://', 'ws://');
 }
 
+// Current PS version from the `version` file at the app root. Reported in the
+// register payload so the backend can surface current-vs-latest version info.
+function getPrinterVersion(): string {
+  try {
+    return fs
+      .readFileSync(path.join(__dirname, '../../version'), 'utf-8')
+      .trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
 // Get registered venueId from in-memory settings object.
 function getVenueId(): string {
   try {
@@ -148,6 +163,15 @@ function getWsSecret(): string {
     if (secret) return secret;
   } catch {}
   return nconf.get('VENUE_WS_SECRET') || '';
+}
+
+// Restart trigger registered by index.ts, which owns the http server instance
+// and the spawn-new-process logic. Called when the backend sends a restartRequest
+// over the WS, so a restart can be triggered remotely (not only via HTTP).
+let restartHandler: (() => void) | null = null;
+
+export function setRestartHandler(fn: () => void): void {
+  restartHandler = fn;
 }
 
 // Per-printer job queue. Thermal printers accept a single connection at a time,
@@ -339,7 +363,33 @@ async function handleMessage(raw: string): Promise<void> {
           ws.send(
             JSON.stringify({
               type: 'checkPrintersResponse',
+              requestId: msg.requestId,
               data: { printers: results, venueId: getVenueId() },
+            })
+          );
+        }
+        break;
+      }
+
+      case 'restartRequest': {
+        logger.info('Received restart request from backend');
+        if (restartHandler) {
+          restartHandler();
+        } else {
+          logger.warn('No restart handler registered, ignoring restart request');
+        }
+        break;
+      }
+
+      case 'scanNetworkRequest': {
+        logger.info('Received network scan request');
+        const lanConnections = await scanNetworkForConnections();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'scanNetworkResponse',
+              requestId: msg.requestId,
+              data: { lanConnections, venueId: getVenueId() },
             })
           );
         }
@@ -434,7 +484,7 @@ function connect(): void {
     ws!.send(
       JSON.stringify({
         type: 'printerServerRegister',
-        data: { secret, venueId },
+        data: { secret, venueId, version: getPrinterVersion() },
       })
     );
     registeredVenueId = venueId;
