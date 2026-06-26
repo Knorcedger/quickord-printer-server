@@ -192,6 +192,32 @@ function enqueuePrinterJob(key: string, task: () => Promise<void>): void {
   });
 }
 
+// Collapse the various ways an unreachable printer fails into a single stable
+// code the frontend can translate. EHOSTDOWN/EHOSTUNREACH/ENETUNREACH (host or
+// network down), ECONNREFUSED/ECONNRESET (port closed / connection dropped),
+// ETIMEDOUT and our own 'Connection timeout' (no response) all mean the same
+// thing to the user: the printer can't be reached. Anything else is an
+// unexpected printing fault and gets a generic code.
+function classifyPrinterError(err: any): string {
+  const code: string = err?.code || err?.cause?.code || '';
+  const message: string = err?.message || String(err);
+  const offlineCodes = [
+    'EHOSTDOWN',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'ENETDOWN',
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'ECONNABORTED',
+    'ETIMEDOUT',
+    'EPIPE',
+  ];
+  if (offlineCodes.includes(code) || /timeout|offline|not found/i.test(message)) {
+    return 'PRINTER_OFFLINE';
+  }
+  return 'PRINTER_ERROR';
+}
+
 async function sendToPrinter(
   ip: string,
   port: number,
@@ -329,7 +355,13 @@ async function handleMessage(raw: string): Promise<void> {
             sendResult(jobId, 'success');
           } catch (err: any) {
             logger.error(`Print job ${jobId} failed for ${target}:`, err);
-            sendResult(jobId, 'failed', err?.message ?? String(err));
+            // Surface a STABLE code, never the raw socket message. A printer
+            // that's powered off / unplugged fails with different OS errors
+            // depending on ARP-cache timing (EHOSTDOWN on the first try, a
+            // socket timeout once the stale ARP entry is flushed), but to the
+            // user it's the same condition: the printer is unreachable. The
+            // frontend maps PRINTER_OFFLINE to one translated toast.
+            sendResult(jobId, 'failed', classifyPrinterError(err));
           }
         });
         break;
