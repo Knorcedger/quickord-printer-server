@@ -3730,30 +3730,6 @@ export const printOrder = async (
           );
         }
 
-        printer.newLine();
-        if (settings.poweredByQuickord) {
-          printer.println(
-            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
-          );
-        }
-        printer.newLine();
-        printer.newLine();
-        if (order.venue.hasAADE !== false) {
-          printer.alignCenter();
-          printer.println(
-            tr(
-              `${translations.printOrder.notReceiptNotice[lang]}`,
-              settings.transliterate
-            )
-          );
-          printer.println(
-            tr(
-              `${translations.printOrder.notReceiptNoticeContinue[lang]}`,
-              settings.transliterate
-            )
-          );
-        }
-
         // Delivery-assignment QR: a delivery person scans it to open the order
         // and claim it. Present only for delivery orders when the venue setting
         // is on (gated by the frontend before the order reaches here).
@@ -3782,6 +3758,31 @@ export const printOrder = async (
             );
           }
           printer.alignLeft();
+        }
+
+        printer.newLine();
+        if (settings.poweredByQuickord) {
+          printer.alignCenter();
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
+        printer.newLine();
+        if (order.venue.hasAADE !== false) {
+          printer.alignCenter();
+          printer.println(
+            tr(
+              `${translations.printOrder.notReceiptNotice[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.println(
+            tr(
+              `${translations.printOrder.notReceiptNoticeContinue[lang]}`,
+              settings.transliterate
+            )
+          );
         }
 
         printer.cut();
