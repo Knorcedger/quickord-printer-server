@@ -209,6 +209,10 @@ export const TakeAwayInfo = z.object({
 
 export const Order = z.object({
   TakeAwayInfo: TakeAwayInfo.optional(),
+  // Delivery-assignment QR deep link. Only sent for delivery orders when the
+  // venue setting is on (gated by the frontend, which is the authoritative gate
+  // for the direct HTTP print path).
+  assignmentQrUrl: z.string().optional(),
   _id: z.string({
     invalid_type_error: '_id must be a string.',
     required_error: '_id is required.',
