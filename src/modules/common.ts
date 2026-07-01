@@ -1060,9 +1060,20 @@ export const venueData = async (
   } else {
     printer.println(tr(aadeInvoice?.issuer.name, settings.transliterate));
     printer.println(tr(aadeInvoice?.issuer.activity, settings.transliterate));
+    const issuerAddress = aadeInvoice?.issuer.address;
+    const issuerStreetAddress = [issuerAddress?.street, issuerAddress?.number]
+      .filter(Boolean)
+      .join(' ');
+    const issuerCityPostalCode = [
+      issuerAddress?.city,
+      issuerAddress?.postal_code ? `ΤΚ:${issuerAddress.postal_code}` : '',
+    ]
+      .filter(Boolean)
+      .join(', ');
+
     printer.println(
       tr(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`,
+        [issuerStreetAddress, issuerCityPostalCode].filter(Boolean).join(' '),
         settings.transliterate
       )
     );

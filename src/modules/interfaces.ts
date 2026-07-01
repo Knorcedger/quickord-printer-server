@@ -67,6 +67,7 @@ export interface AadeInvoice {
     activity: string;
     address: {
       street: string;
+      number?: string;
       city: string;
       postal_code: string;
     };
