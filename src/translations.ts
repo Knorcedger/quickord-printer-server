@@ -86,6 +86,10 @@ export default {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
     },
+    reprintTitle: {
+      el: 'ΕΠΑΝΕΚΤΥΠΩΣΗ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER REPRINT',
+    },
     otherCategory: {
       el: 'ΛΟΙΠΑ',
       en: 'OTHER',
