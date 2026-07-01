@@ -298,6 +298,12 @@ export const Order = z.object({
       required_error: 'isEdit is required.',
     })
     .optional(),
+  isReprint: z
+    .boolean({
+      invalid_type_error: 'isReprint must be a boolean.',
+      required_error: 'isReprint is required.',
+    })
+    .optional(),
   waiterName: z
     .string({
       invalid_type_error: 'waiterName must be a string.',

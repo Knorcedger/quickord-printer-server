@@ -3086,6 +3086,7 @@ export const printOrder = async (
         }
       }
       const isEdit = order?.isEdit || false;
+      const isReprint = order?.isReprint || false;
       if (!isFull && isEdit === true) {
         productsToPrint = productsToPrint.filter((product) => {
           const editStatus = getEditStatus(product);
@@ -3127,7 +3128,9 @@ export const printOrder = async (
             `${
               isFull
                 ? translations.printOrder.fullOrderTitle[lang]
-                : translations.printOrder.orderFormOrder[lang]
+                : isReprint
+                  ? translations.printOrder.reprintTitle[lang]
+                  : translations.printOrder.orderFormOrder[lang]
             }`,
             settings.transliterate
           )
