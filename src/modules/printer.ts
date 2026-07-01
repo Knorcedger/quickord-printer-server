@@ -3730,8 +3730,39 @@ export const printOrder = async (
           );
         }
 
+        // Delivery-assignment QR: a delivery person scans it to open the order
+        // and claim it. Present only for delivery orders when the venue setting
+        // is on (gated by the frontend before the order reaches here).
+        if (order.assignmentQrUrl) {
+          printer.newLine();
+          printer.alignCenter();
+          printer.println(
+            tr(
+              translations.printOrder.assignQrNotice[lang],
+              settings.transliterate
+            )
+          );
+          try {
+            printer.printQR(order.assignmentQrUrl, {
+              cellSize: 4,
+              correction: 'Q',
+              model: 4,
+            });
+          } catch (qrError) {
+            logger.error(
+              `Failed to print order-assignment QR for ${order.assignmentQrUrl}:`,
+              {
+                error:
+                  qrError instanceof Error ? qrError.message : String(qrError),
+              }
+            );
+          }
+          printer.alignLeft();
+        }
+
         printer.newLine();
         if (settings.poweredByQuickord) {
+          printer.alignCenter();
           printer.println(
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
@@ -3753,6 +3784,7 @@ export const printOrder = async (
             )
           );
         }
+
         printer.cut();
 
         if (!dontPrint) {

@@ -34,6 +34,10 @@ export default {
       el: 'ΑΝΑΛΥΣΗ ΦΠΑ ΚΑΤΑ ΣΥΝΤΕΛΕΣΤΗ',
       en: 'ANALYSIS VAT BY RATE',
     },
+    assignQrNotice: {
+      el: 'ΣΚΑΝΑΡΕΤΕ ΓΙΑ ΑΝΑΛΗΨΗ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'SCAN TO CLAIM THIS ORDER',
+    },
     percentage: {
       el: 'ΠΟΣΟΣΤΟ',
       en: 'PERCENTAGE',
