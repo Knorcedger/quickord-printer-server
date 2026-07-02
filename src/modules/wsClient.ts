@@ -132,12 +132,21 @@ function getBackendWsUrl(): string {
 // Current PS version from the `version` file at the app root. Reported in the
 // register payload so the backend can surface current-vs-latest version info.
 function getPrinterVersion(): string {
+  // Read cwd-relative first, exactly like autoupdate.ts: the packaged nexe exe's
+  // __dirname points into the virtual snapshot FS and misses the real `version`
+  // file sitting next to the exe, so the __dirname path throws in the Windows
+  // service and we'd report 'unknown'. Fall back to __dirname for a plain
+  // node-from-dist dev run, then to 'unknown' only if both fail.
   try {
-    return fs
-      .readFileSync(path.join(__dirname, '../../version'), 'utf-8')
-      .trim();
+    return fs.readFileSync('version', 'utf-8').trim();
   } catch {
-    return 'unknown';
+    try {
+      return fs
+        .readFileSync(path.join(__dirname, '../../version'), 'utf-8')
+        .trim();
+    } catch {
+      return 'unknown';
+    }
   }
 }
 
