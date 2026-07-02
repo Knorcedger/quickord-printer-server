@@ -513,6 +513,11 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'ON THE GO',
     label_el: 'ΣΤΟ ΧΕΡΙ',
   },
+  self_service_dine_in: {
+    value: 'self_service_dine_in',
+    label_en: 'SELF SERVICE',
+    label_el: 'ΑΥΤΟΕΞΥΠΗΡΕΤΗΣΗ',
+  },
 };
 
 export const DISCOUNTTYPES: Record<string, ServiceType> = {
