@@ -179,6 +179,10 @@ export default {
         el: 'ΣΤΟ ΧΕΡΙ',
         en: 'ON THE GO',
       },
+      SELF_SERVICE_DINE_IN: {
+        el: 'ΑΥΤΟΕΞΥΠΗΡΕΤΗΣΗ',
+        en: 'SELF SERVICE',
+      },
     },
     orderWaiter: {
       el: 'ΣΕΡΒΙΤ',

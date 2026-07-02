@@ -121,6 +121,7 @@ export const PrinterSettings = z.object({
       'WOLT',
       'FAGI',
       'BOX',
+      'SELF_SERVICE_DINE_IN',
     ]),
   categoriesToNotPrint: z
     .array(z.string(), {

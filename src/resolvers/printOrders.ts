@@ -126,6 +126,7 @@ export const OrderType = z.enum([
   'BOX',
   'GENERIC',
   'ON_THE_GO',
+  'SELF_SERVICE_DINE_IN',
 ]);
 export const PaymentType = z.enum([
   'DELIVERY_CARD',
