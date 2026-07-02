@@ -431,86 +431,97 @@ export const setupPrinter = (settings: IPrinterSettings) => {
 };
 
 export const checkPrinters = async () => {
-  const connectedPrinterIds: { id: string; connected: boolean }[] = [];
+  // Probe every printer in parallel. Each offline network printer costs up to
+  // PRINTER_CHECK_RETRIES × PRINTER_CONNECT_TIMEOUT_MS (~19s); probing them
+  // sequentially made a multi-printer venue blow past the backend's round-trip
+  // budget (and Heroku's 30s router cap), so checkPrintersStatus timed out and
+  // reported every printer offline. Distinct printers use distinct sockets, so
+  // parallel probing is safe and caps total time at a single printer's worst
+  // case. Matches the explicit-list branch in wsClient, which already fans out.
+  const results = await Promise.all(
+    printers.map(async (entry, i) => {
+      const settings = entry?.[1];
+      const printer = entry?.[0];
 
-  for (let i = 0; i < printers.length; i += 1) {
-    const settings = printers[i]?.[1];
-    const printer = printers[i]?.[0];
-
-    if (!settings || !printer) {
-      logger.warn(
-        'Skipping printer check: missing settings or printer instance',
-        { index: i }
-      );
-      continue;
-    }
-
-    const printerIdentifier =
-      settings.name || settings.id || settings.ip || settings.port;
-    logger.info(`Checking printer connection: ${printerIdentifier}`);
-
-    // Hold off keep-alive while this status check probes the same socket.
-    markPrinterBusy(printer);
-    try {
-      let connected = false;
-      if (settings.ip !== '') {
-        connected = await isNetworkPrinterConnectedWithRetry(
-          printer,
-          printerIdentifier
+      if (!settings || !printer) {
+        logger.warn(
+          'Skipping printer check: missing settings or printer instance',
+          { index: i }
         );
-        logger.info(
-          `Network printer ${printerIdentifier} connection status: ${connected}`
-        );
-      } else {
-        try {
-          const shareName = settings.port.split('\\').pop() || '';
-          connected = await isUSBPrinterOnline(shareName);
-          logger.info(
-            `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
-          );
-        } catch (error) {
-          logger.error(
-            `Error checking USB printer ${printerIdentifier} connection:`,
-            {
-              error: error instanceof Error ? error.message : String(error),
-              shareName: settings.port,
-            }
-          );
-          connected = false;
-        }
+        return null;
       }
+
+      const printerIdentifier =
+        settings.name || settings.id || settings.ip || settings.port;
+      logger.info(`Checking printer connection: ${printerIdentifier}`);
 
       const printerId = settings?.id || '';
 
-      if (connected) {
-        lastConnectedState.set(printerId, true);
-        connectedPrinterIds.push({ id: printerId, connected: true });
-        logger.info(`Printer ${printerIdentifier} is online`);
-      } else if (lastConnectedState.get(printerId) === true) {
-        // Debounce: it was online last check, so give it one grace cycle
-        // before flipping the UI to offline. Store false so the next failed
-        // check is reported as offline.
+      // Hold off keep-alive while this status check probes the same socket.
+      markPrinterBusy(printer);
+      try {
+        let connected = false;
+        if (settings.ip !== '') {
+          connected = await isNetworkPrinterConnectedWithRetry(
+            printer,
+            printerIdentifier
+          );
+          logger.info(
+            `Network printer ${printerIdentifier} connection status: ${connected}`
+          );
+        } else {
+          try {
+            const shareName = settings.port.split('\\').pop() || '';
+            connected = await isUSBPrinterOnline(shareName);
+            logger.info(
+              `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
+            );
+          } catch (error) {
+            logger.error(
+              `Error checking USB printer ${printerIdentifier} connection:`,
+              {
+                error: error instanceof Error ? error.message : String(error),
+                shareName: settings.port,
+              }
+            );
+            connected = false;
+          }
+        }
+
+        if (connected) {
+          lastConnectedState.set(printerId, true);
+          logger.info(`Printer ${printerIdentifier} is online`);
+          return { id: printerId, connected: true };
+        }
+        if (lastConnectedState.get(printerId) === true) {
+          // Debounce: it was online last check, so give it one grace cycle
+          // before flipping the UI to offline. Store false so the next failed
+          // check is reported as offline.
+          lastConnectedState.set(printerId, false);
+          logger.warn(
+            `Printer ${printerIdentifier} failed probe but was online last check, reporting online for one grace cycle`
+          );
+          return { id: printerId, connected: true };
+        }
         lastConnectedState.set(printerId, false);
-        connectedPrinterIds.push({ id: printerId, connected: true });
-        logger.warn(
-          `Printer ${printerIdentifier} failed probe but was online last check, reporting online for one grace cycle`
-        );
-      } else {
-        lastConnectedState.set(printerId, false);
-        connectedPrinterIds.push({ id: printerId, connected: false });
         printer?.clear();
         logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
+        return { id: printerId, connected: false };
+      } catch (error) {
+        logger.error(`Error checking printer ${printerIdentifier} connection:`, {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        });
+        return { id: printerId, connected: false };
+      } finally {
+        markPrinterIdle(printer);
       }
-    } catch (error) {
-      logger.error(`Error checking printer ${printerIdentifier} connection:`, {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      connectedPrinterIds.push({ id: settings?.id || '', connected: false });
-    } finally {
-      markPrinterIdle(printer);
-    }
-  }
+    })
+  );
+
+  const connectedPrinterIds = results.filter(
+    (r): r is { id: string; connected: boolean } => r !== null
+  );
 
   logger.info('Printer connection check complete', {
     connectedPrinters: connectedPrinterIds,

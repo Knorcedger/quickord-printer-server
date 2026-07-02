@@ -1,6 +1,5 @@
 import * as net from 'net';
 import * as os from 'os';
-import * as ping from 'ping';
 
 function getSubnetFromGateway(): string | null {
   const interfaces = os.networkInterfaces();
@@ -17,31 +16,63 @@ function getSubnetFromGateway(): string | null {
 
 const ports = [9100, 515, 631];
 
+// Direct TCP connect timeout per candidate port. A reachable printer answers in
+// a few ms; an unused IP either refuses instantly or never answers, so keep this
+// short — dead hosts dominate a /24 and each one costs a full timeout.
+const SCAN_PORT_TIMEOUT_MS = 1000;
+
+// Open at most this many sockets at once. The whole scan (254 IPs × 3 ports =
+// 762 connects) must finish well under the backend's round-trip budget — and
+// under Heroku's 30s router cap that fronts the GraphQL request. At 128-wide
+// with a 1s timeout the worst case is ~6 waves ≈ 6s.
+const SCAN_CONCURRENCY = 128;
+
 async function checkPort(
   ip: string,
   port: number
 ): Promise<{ ip: string; port: number; open: boolean }> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
-    socket.setTimeout(2000);
-
-    socket.connect(port, ip, () => {
+    let settled = false;
+    const done = (open: boolean) => {
+      if (settled) return;
+      settled = true;
       socket.destroy();
-      resolve({ ip, port, open: true });
-    });
+      resolve({ ip, port, open });
+    };
 
-    socket.on('error', () => {
-      socket.destroy();
-      resolve({ ip, port, open: false });
-    });
-
-    socket.on('timeout', () => {
-      socket.destroy();
-      resolve({ ip, port, open: false });
-    });
+    socket.setTimeout(SCAN_PORT_TIMEOUT_MS);
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+    socket.once('timeout', () => done(false));
+    socket.connect(port, ip);
   });
 }
 
+// Runs `worker` over `items` with a fixed concurrency cap, preserving order.
+async function runPool<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const runner = async () => {
+    for (let i = next++; i < items.length; i = next++) {
+      results[i] = await worker(items[i] as T);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, runner)
+  );
+  return results;
+}
+
+// Scans the local /24 for open printer ports via direct TCP connects. We skip
+// ICMP ping on purpose: probing each host with the `ping` package spawns a
+// ping.exe subprocess per IP on Windows (254 at once), which is slow enough to
+// exceed the router timeout — and many printers ignore ICMP anyway, so a TCP
+// connect to the actual port is both faster and a truer "is it a printer" signal.
 export default async function scanNetworkForConnections(): Promise<
   { ip: string; port: number }[]
 > {
@@ -55,38 +86,21 @@ export default async function scanNetworkForConnections(): Promise<
 
   console.log(`🔍 Scanning ${subnet}.0/24 for devices...`);
 
-  const printers: { id: string; ip: string; port: number }[] = [];
-  const pingPromises: Promise<any>[] = [];
-
-  // Step 1: Ping all IPs in the subnet
+  const targets: { ip: string; port: number }[] = [];
   for (let i = 1; i < 255; i++) {
-    let ip = `${subnet}.${i}`;
-    pingPromises.push(ping.promise.probe(ip, { timeout: 1 }));
-  }
-
-  const pingResults = await Promise.all(pingPromises);
-  const aliveHosts = pingResults
-    .filter((res) => res.alive)
-    .map((res) => res.host);
-
-  // Step 2: Check ports on alive hosts
-  const portCheckPromises: Promise<{
-    ip: string;
-    port: number;
-    open: boolean;
-  }>[] = [];
-  for (const ip of aliveHosts) {
     for (const port of ports) {
-      portCheckPromises.push(checkPort(ip, port));
+      targets.push({ ip: `${subnet}.${i}`, port });
     }
   }
 
-  const portResults = await Promise.all(portCheckPromises);
+  const portResults = await runPool(targets, SCAN_CONCURRENCY, ({ ip, port }) =>
+    checkPort(ip, port)
+  );
 
-  // Step 3: Filter and collect open ports
+  const printers: { ip: string; port: number }[] = [];
   for (const result of portResults) {
     if (result.open) {
-      printers.push({ id: result.ip, ip: result.ip, port: result.port });
+      printers.push({ ip: result.ip, port: result.port });
       console.log(
         `🖨️ Printer (or device) found at ${result.ip}:${result.port}`
       );
