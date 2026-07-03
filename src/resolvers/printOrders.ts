@@ -316,7 +316,7 @@ export const Order = z.object({
       z.object({
         amount: z.number(),
         type: z.enum(['FIXED', 'PERCENTAGE', 'PERCENT']),
-        productId: z.string().optional(),
+        productId: z.string().optional().nullable(),
         voucherId: z.string().optional().nullable(),
       })
     )
