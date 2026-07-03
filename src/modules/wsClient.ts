@@ -57,6 +57,27 @@ const HEARTBEAT_INTERVAL_MS = 20000;
 // hammering. Kept in sync with handlePrinterServerRegister in quickord-be.
 const AUTH_FAILURE_CODES = new Set([4001, 4401]);
 const SOCKET_TIMEOUT = 5000;
+// Abort a connection attempt whose opening handshake (TCP + TLS + WS upgrade)
+// doesn't finish in time. Without it, a firewall/proxy that accepts the TCP SYN
+// but black-holes the upgrade leaves the socket in CONNECTING forever: no
+// 'open'/'close'/'error' ever fires, so no reconnect is scheduled and the
+// duplicate-connection guard no-ops every future connect(). The timeout makes
+// ws emit 'error'+'close', handing recovery to the normal back-off.
+const HANDSHAKE_TIMEOUT_MS = 15000;
+// Belt-and-suspenders sweep: catches cases the event-driven path missed — a
+// socket stuck in CONNECTING (should be prevented by handshakeTimeout, but this
+// backstops it independently), or dead with no reconnect pending (a 'close' that
+// never fired, a lost timer). Reconnect stays event-driven; this only steps in
+// when that path failed.
+const WATCHDOG_INTERVAL_MS = 30000;
+// How long a socket may sit in CONNECTING before the watchdog force-terminates
+// it. Must clear HANDSHAKE_TIMEOUT_MS with margin so a legitimate in-progress
+// handshake (or the handshakeTimeout itself firing) is never cut short.
+const STUCK_CONNECTING_MS = 30000;
+let watchdogTimer: NodeJS.Timeout | null = null;
+// Wall-clock ms when the current connect() created its socket. Lets the watchdog
+// tell a fresh, still-legitimate handshake from one wedged in CONNECTING.
+let connectStartedAt = 0;
 // Consecutive failures to ever OPEN the socket (firewall/proxy/TLS interception
 // on the venue's machine rejecting the connection). Reset once a socket sticks.
 let consecutiveConnectFailures = 0;
@@ -500,7 +521,8 @@ function connect(): void {
 
   logger.info(`Connecting to backend WebSocket: ${url}`);
 
-  ws = new WebSocket(url);
+  connectStartedAt = Date.now();
+  ws = new WebSocket(url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS });
   // Whether this socket ever reached 'open'. A close before open means the
   // connection was rejected at the transport level (firewall/proxy/TLS) — the
   // only failure mode worth a connection incident. Auth rejections and old-BE
@@ -647,7 +669,42 @@ function scheduleReconnect(closeCode?: number): void {
   reconnectTimer = setTimeout(connect, delay);
 }
 
+// Periodic liveness sweep, a backstop for the event-driven reconnect. Three
+// cases it handles, in order:
+//  - OPEN, or a reconnect already scheduled -> the normal path owns it, no-op.
+//  - CONNECTING past STUCK_CONNECTING_MS -> the handshake wedged (SYN accepted,
+//    upgrade black-holed) and even handshakeTimeout didn't fire; terminate it so
+//    'close' fires and the back-off takes over. A fresh handshake is left alone.
+//  - otherwise dead (null / CLOSING / CLOSED) with nothing pending -> connect().
+// Skips when creds aren't provisioned yet (a /settings sync will connect), so an
+// un-provisioned PS doesn't churn every tick.
+function startWatchdog(): void {
+  if (watchdogTimer) return;
+  watchdogTimer = setInterval(() => {
+    if (reconnectTimer) return;
+    if (!getVenueId() || !getWsSecret()) return;
+
+    const state = ws?.readyState;
+    if (state === WebSocket.OPEN) return;
+
+    if (state === WebSocket.CONNECTING) {
+      if (Date.now() - connectStartedAt <= STUCK_CONNECTING_MS) return;
+      logger.error(
+        'WebSocket watchdog: handshake stuck in CONNECTING, terminating'
+      );
+      ws?.terminate();
+      return;
+    }
+
+    logger.error(
+      'WebSocket watchdog: socket not live and no reconnect pending, forcing reconnect'
+    );
+    connect();
+  }, WATCHDOG_INTERVAL_MS);
+}
+
 export function initWebSocketClient(): void {
+  startWatchdog();
   connect();
 }
 
