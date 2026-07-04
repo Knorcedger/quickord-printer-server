@@ -3459,9 +3459,11 @@ export const printOrder = async (
             ' '
           );
 
+          if (priceStr) printer.bold(true);
           printer.println(
             `${tr(paddedLine, settings.transliterate)}${priceStr}`
           );
+          if (priceStr) printer.bold(false);
 
           // Handle product option details
           if (
@@ -3556,9 +3558,11 @@ export const printOrder = async (
             settings.priceOnOrder === true
           ) {
             printer.alignRight();
+            printer.bold(true);
             printer.println(
               `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
             );
+            printer.bold(false);
           }
           printer.alignLeft();
 
@@ -3680,9 +3684,11 @@ export const printOrder = async (
 
         if (order.tip && settings.priceOnOrder) {
           printer.newLine();
+          printer.bold(true);
           printer.println(
             `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(order.tip).toFixed(2)} €`
           );
+          printer.bold(false);
         }
 
         // Overall discounts (not per-product)
@@ -3700,9 +3706,11 @@ export const printOrder = async (
             settings.priceOnOrder === true)
         ) {
           printer.newLine();
+          printer.bold(true);
           printer.println(
             `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
           );
+          printer.bold(false);
         }
         printer.alignRight();
         // Calculate total without VAT (net values)
@@ -3716,9 +3724,11 @@ export const printOrder = async (
           settings.vatAnalysis === undefined
         ) {
           // Print total without VAT
+          printer.bold(true);
           printer.println(
             `${tr(`${translations.printOrder.netWithoutVat[lang]}`, settings.transliterate)}:${totalNetValue.toFixed(2)} €`
           );
+          printer.bold(false);
         }
         // Calculate total discount amount for overall discounts
         let totalDiscountAmount = 0;
@@ -3739,9 +3749,11 @@ export const printOrder = async (
           settings.priceOnOrder === true
         ) {
           const totalAfterDiscounts = order.total - totalDiscountAmount;
+          printer.bold(true);
           printer.println(
             `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
           );
+          printer.bold(false);
         }
 
         // Delivery-assignment QR: a delivery person scans it to open the order

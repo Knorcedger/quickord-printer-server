@@ -689,15 +689,18 @@ export const printOptionDetails = (
     );
     lines.forEach((wrapped, idx) => {
       const isLast = idx === lines.length - 1;
+      const hasPrice = isLast && priceStr.length > 0;
       let out = wrapped;
-      if (isLast && priceStr.length > 0) {
+      if (hasPrice) {
         const padded =
           out.length + priceStr.length <= lineWidth
             ? out.padEnd(lineWidth - priceStr.length)
             : out;
         out = padded + priceStr;
       }
+      if (hasPrice) printer.bold(true);
       printer.println(tr(out, settings.transliterate));
+      if (hasPrice) printer.bold(false);
     });
   });
 };
@@ -778,9 +781,11 @@ export const printProductDiscount = (
       discountText = `${discount.amount}%`;
     }
     if (discountText) {
+      printer.bold(true);
       printer.println(
         `${indent}${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: -${discountText}`
       );
+      printer.bold(false);
     }
   }
 };
@@ -884,6 +889,7 @@ export const printProducts = (
 
         if (i === 0) {
           // First line → quantity first
+          printer.bold(true);
           printer.println(
             quantity.padEnd(7) +
               chunk.padEnd(maxNameLength) +
@@ -891,6 +897,7 @@ export const printProducts = (
               value.padStart(7) +
               vat.padStart(10)
           );
+          printer.bold(false);
         } else {
           // Subsequent lines → only print name aligned after quantity
           printer.println(' '.repeat(7) + chunk);
@@ -898,6 +905,7 @@ export const printProducts = (
       }
     } else {
       // Short name → print in one line with quantity first
+      printer.bold(true);
       printer.println(
         quantity.padEnd(7) +
           name.padEnd(maxNameLength) +
@@ -905,6 +913,7 @@ export const printProducts = (
           value.padStart(7) +
           vat.padStart(10)
       );
+      printer.bold(false);
     }
     if (
       showOptions &&
@@ -980,17 +989,21 @@ export const printDiscountAndTip = (
         discountAmount = discount.amount.toString() + '%';
       }
       if (discountAmount !== '') {
+        printer.bold(true);
         printer.println(
           `${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', transliterate)}`
         );
+        printer.bold(false);
       }
     }
   });
 
   if (tip > 0) {
+    printer.bold(true);
     printer.println(
       `${tr(`${translations.printOrder.tip[lang]}`, transliterate)}: ${(tip / 100).toFixed(2)}€`
     );
+    printer.bold(false);
   }
 };
 
@@ -1014,9 +1027,11 @@ export const printVatBreakdown = (
   );
 
   vatBreakdown.forEach((entry) => {
+    printer.bold(true);
     printer.println(
       `${String(entry.vat).padEnd(10)}${String(entry.netValue.toFixed(2)).padEnd(12)}${String(entry.vatAmount.toFixed(2)).padEnd(10)}${String(entry.total.toFixed(2)).padStart(10)}`
     );
+    printer.bold(false);
   });
 
   drawLine2(printer);
