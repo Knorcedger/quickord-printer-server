@@ -43,6 +43,7 @@ import {
   tryFetchWithFallback,
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
+import { initPullClient } from './modules/pullClient';
 import { initWebSocketClient, setRestartHandler } from './modules/wsClient';
 
 const main = async () => {
@@ -342,8 +343,11 @@ const main = async () => {
       );
     }
 
-    // Connect to backend via WebSocket for receiving print commands
+    // Connect to backend via WebSocket for liveness/control and test-page pushes
     initWebSocketClient();
+
+    // Primary print-job channel: long-poll the backend and pull jobs to print
+    initPullClient();
   });
 };
 

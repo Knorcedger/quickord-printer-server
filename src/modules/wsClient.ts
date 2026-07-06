@@ -14,12 +14,11 @@ import {
 } from 'node-thermal-printer';
 import nconf from 'nconf';
 import { reportWebSocketFailure } from './api';
+import { getBackendWsUrl } from './backendUrl';
 import { isUSBPrinterOnline } from './common';
 import logger from './logger';
 import scanNetworkForConnections from './network';
 import { checkPrinters } from './printer';
-
-nconf.argv().env().file({ file: './config.json' });
 
 let ws: WebSocket | null = null;
 let reconnectAttempts = 0;
@@ -139,17 +138,6 @@ function clearReconnectTimer(): void {
   }
 }
 
-function getBackendWsUrl(): string {
-  const apiUrl =
-    nconf.get('QUICKORD_API_URL') || 'https://api.quickord.com/graphql';
-  const wsUrl = nconf.get('BACKEND_WS_URL');
-  if (wsUrl) return wsUrl;
-  return apiUrl
-    .replace('/graphql', '')
-    .replace('https://', 'wss://')
-    .replace('http://', 'ws://');
-}
-
 // Current PS version from the `version` file at the app root. Reported in the
 // register payload so the backend can surface current-vs-latest version info.
 function getPrinterVersion(): string {
@@ -172,7 +160,7 @@ function getPrinterVersion(): string {
 }
 
 // Get registered venueId from in-memory settings object.
-function getVenueId(): string {
+export function getVenueId(): string {
   try {
     const { getSettings } = require('./settings');
     const settings = getSettings();
@@ -186,7 +174,7 @@ function getVenueId(): string {
 // local by the frontend, same path as venueId), with an env fallback for
 // manual provisioning. Fail-closed: no hardcoded fallback, so a leaked
 // shared key can no longer impersonate other venues.
-function getWsSecret(): string {
+export function getWsSecret(): string {
   try {
     const { getSettings } = require('./settings');
     const secret = getSettings()?.wsSecret;
@@ -212,9 +200,20 @@ export function setRestartHandler(fn: () => void): void {
 // request — this is the authoritative guard regardless of how jobs arrive.
 const printerQueues = new Map<string, Promise<void>>();
 
+// Pause between chained jobs to the same printer, giving it time to finish
+// cutting/feeding before the next connection opens — sendToPrinter resolves on
+// socket close, not print completion, so back-to-back connects would hit some
+// printer models mid-cut. Parity with the backend push path's
+// INTER_COPY_DELAY_MS, which paced copies before they moved to the pull channel.
+const INTER_JOB_DELAY_MS = 500;
+
 function enqueuePrinterJob(key: string, task: () => Promise<void>): void {
   const prev = printerQueues.get(key) ?? Promise.resolve();
-  const next = prev.catch(() => {}).then(task);
+  const next = prev
+    .catch(() => {})
+    .then(task)
+    .catch(() => {})
+    .then(() => new Promise<void>((r) => setTimeout(r, INTER_JOB_DELAY_MS)));
   printerQueues.set(key, next);
   // Drop the entry once it settles, unless a newer job has already chained on.
   void next.finally(() => {
@@ -329,71 +328,94 @@ function checkPrinterConnectivity(ip: string, port: number): Promise<boolean> {
   });
 }
 
+// Execute a single raw print job and report its outcome via `reportResult`.
+// Shared by the WebSocket push path (test pages, result reported over the WS)
+// and the long-poll pull path (regular jobs, result reported over HTTP), so the
+// serialization, transport selection, and error classification stay identical
+// regardless of how the job arrived. Fire-and-forget: it enqueues onto the
+// per-printer chain and returns; the result flows back through the callback.
+export function executePrintJob(
+  job: {
+    data?: unknown;
+    jobId?: string;
+    printerIp?: string;
+    printerPort?: string;
+  },
+  reportResult: (
+    jobId: string,
+    status: 'failed' | 'success',
+    error?: string
+  ) => void
+): void {
+  const { data, jobId, printerIp, printerPort } = job;
+
+  // A job needs an id, a base64 string payload, and at least one transport
+  // target: an IP for TCP printers, or a device path in printerPort for local
+  // shared/USB/serial printers. `data` must be a string — a non-string would
+  // throw in Buffer.from below and leave the job unacknowledged, so reject it
+  // here with a terminal result instead.
+  if (
+    !jobId ||
+    typeof data !== 'string' ||
+    !data ||
+    (!printerIp && !printerPort)
+  ) {
+    logger.error('Invalid print job: missing required fields');
+    if (jobId) reportResult(jobId, 'failed', 'Missing required fields');
+    return;
+  }
+
+  const buffer = Buffer.from(data, 'base64');
+
+  // Key the queue by the physical target (ip for TCP, device path for local) so
+  // jobs to the same printer serialize but different printers stay parallel.
+  const queueKey = printerIp || printerPort!;
+  enqueuePrinterJob(queueKey, async () => {
+    let target: string;
+    let dispatch: Promise<unknown>;
+
+    if (printerIp) {
+      const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
+      const port = Number.isFinite(parsed) ? parsed : 9100;
+      target = `${printerIp}:${port}`;
+      logger.info(
+        `Received print job ${jobId} for ${target} (${buffer.length} bytes)`
+      );
+      dispatch = sendToPrinter(printerIp, port, buffer);
+    } else {
+      target = printerPort!;
+      logger.info(
+        `Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`
+      );
+      dispatch = sendToLocalPrinter(printerPort!, buffer);
+    }
+
+    try {
+      await dispatch;
+      logger.info(`Print job ${jobId} sent successfully to ${target}`);
+      reportResult(jobId, 'success');
+    } catch (err: any) {
+      logger.error(`Print job ${jobId} failed for ${target}:`, err);
+      // Surface a STABLE code, never the raw socket message. A printer that's
+      // powered off / unplugged fails with different OS errors depending on
+      // ARP-cache timing (EHOSTDOWN on the first try, a socket timeout once the
+      // stale ARP entry is flushed), but to the user it's the same condition:
+      // the printer is unreachable. The frontend maps PRINTER_OFFLINE to one
+      // translated toast.
+      reportResult(jobId, 'failed', classifyPrinterError(err));
+    }
+  });
+}
+
 async function handleMessage(raw: string): Promise<void> {
   try {
     const msg = JSON.parse(raw);
 
     switch (msg.type) {
       case 'printRaw': {
-        const { jobId, printerIp, printerPort, data } = msg;
-
-        // A job needs an id, a base64 string payload, and at least one
-        // transport target: an IP for TCP printers, or a device path in
-        // printerPort for local shared/USB/serial printers. `data` must be a
-        // string — a non-string would throw in Buffer.from below and leave the
-        // job unacknowledged, so reject it here with a terminal result instead.
-        if (
-          !jobId ||
-          typeof data !== 'string' ||
-          !data ||
-          (!printerIp && !printerPort)
-        ) {
-          logger.error('Invalid printRaw message: missing required fields');
-          if (jobId) sendResult(jobId, 'failed', 'Missing required fields');
-          return;
-        }
-
-        const buffer = Buffer.from(data, 'base64');
-
-        // Key the queue by the physical target (ip for TCP, device path for
-        // local) so jobs to the same printer serialize but different printers
-        // stay parallel.
-        const queueKey = printerIp || printerPort;
-        enqueuePrinterJob(queueKey, async () => {
-          let target: string;
-          let dispatch: Promise<unknown>;
-
-          if (printerIp) {
-            const parsed = printerPort ? parseInt(printerPort, 10) : NaN;
-            const port = Number.isFinite(parsed) ? parsed : 9100;
-            target = `${printerIp}:${port}`;
-            logger.info(
-              `Received print job ${jobId} for ${target} (${buffer.length} bytes)`
-            );
-            dispatch = sendToPrinter(printerIp, port, buffer);
-          } else {
-            target = printerPort;
-            logger.info(
-              `Received print job ${jobId} for local printer ${target} (${buffer.length} bytes)`
-            );
-            dispatch = sendToLocalPrinter(printerPort, buffer);
-          }
-
-          try {
-            await dispatch;
-            logger.info(`Print job ${jobId} sent successfully to ${target}`);
-            sendResult(jobId, 'success');
-          } catch (err: any) {
-            logger.error(`Print job ${jobId} failed for ${target}:`, err);
-            // Surface a STABLE code, never the raw socket message. A printer
-            // that's powered off / unplugged fails with different OS errors
-            // depending on ARP-cache timing (EHOSTDOWN on the first try, a
-            // socket timeout once the stale ARP entry is flushed), but to the
-            // user it's the same condition: the printer is unreachable. The
-            // frontend maps PRINTER_OFFLINE to one translated toast.
-            sendResult(jobId, 'failed', classifyPrinterError(err));
-          }
-        });
+        // Push path: the backend still pushes test pages over the WS and awaits
+        // the result frame. Regular jobs now arrive via the long-poll pull loop.
+        executePrintJob(msg, sendResult);
         break;
       }
 
@@ -547,7 +569,14 @@ function connect(): void {
     ws!.send(
       JSON.stringify({
         type: 'printerServerRegister',
-        data: { secret, venueId, version: getPrinterVersion() },
+        // supportsPull tells the backend this build runs the long-poll loop, so
+        // it queues print jobs for us to pull instead of pushing them over the WS.
+        data: {
+          secret,
+          supportsPull: true,
+          venueId,
+          version: getPrinterVersion(),
+        },
       })
     );
     registeredVenueId = venueId;
