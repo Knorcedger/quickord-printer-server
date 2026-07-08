@@ -174,8 +174,9 @@ async function pollOnce(): Promise<void> {
     POLL_TIMEOUT_MS
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
-  // body with this code instead of throwing.
-  if (data?.code === 'AUTH_REJECTED') {
+  // body with this code instead of throwing. Value mirrors the backend's
+  // ERRORS.PRINT_JOBS.AUTH_REJECTED — keep the two in sync.
+  if (data?.code === 'printJobs.authRejected') {
     throw new PollRejectedError(
       typeof data?.error === 'string' ? data.error : 'invalid venue credentials'
     );
