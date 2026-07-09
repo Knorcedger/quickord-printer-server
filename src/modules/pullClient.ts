@@ -21,7 +21,15 @@ import {
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
-import { executePrintJob, getVenueId, getWsSecret } from './wsClient';
+import scanNetworkForConnections from './network';
+import { checkPrinters } from './printer';
+import {
+  executePrintJob,
+  getPrinterVersion,
+  getVenueId,
+  getWsSecret,
+  triggerRestart,
+} from './wsClient';
 import logger from './logger';
 
 // Poll timeout must clear the backend's 25s hold with margin, so a healthy idle
@@ -135,14 +143,22 @@ async function postJson(
 function reportResult(
   jobId: string,
   status: 'failed' | 'success',
-  error?: string
+  error?: string,
+  result?: unknown
 ): void {
   void (async () => {
     for (let attempt = 0; ; attempt++) {
       try {
         const data = await postJson(
           '/print-jobs/result',
-          { error, jobId, secret: getWsSecret(), status, venueId: getVenueId() },
+          {
+            error,
+            jobId,
+            result,
+            secret: getWsSecret(),
+            status,
+            venueId: getVenueId(),
+          },
           RESULT_TIMEOUT_MS
         );
         // The curl fallback surfaces HTTP errors as parsed bodies, so a 4xx
@@ -170,7 +186,13 @@ function reportResult(
 async function pollOnce(): Promise<void> {
   const data = await postJson(
     '/print-jobs/poll',
-    { secret: getWsSecret(), venueId: getVenueId() },
+    // Piggyback the version so the backend can surface it without depending on
+    // the WS register — the pull channel is the primary transport.
+    {
+      secret: getWsSecret(),
+      venueId: getVenueId(),
+      version: getPrinterVersion(),
+    },
     POLL_TIMEOUT_MS
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
@@ -184,17 +206,78 @@ async function pollOnce(): Promise<void> {
   const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
-    // Only printRaw exists today; NACK anything else instead of base64-decoding
-    // a future job kind and blasting it to a thermal printer as ESC/POS.
-    if (job.type && job.type !== 'printRaw') {
+    dispatchJob(job);
+  }
+}
+
+/**
+ * Route one claimed job by its type. Prints (printRaw/testPrint) go through the
+ * shared executePrintJob (per-printer serialization). Control commands run
+ * immediately and in parallel — they must NOT queue behind print bytes, or a
+ * user checking printer status during a print rush would wait for the queue to
+ * drain. Each command is fire-and-forget: it reports its own result over HTTP,
+ * so a slow probe never stalls the poll loop that dispatches the rest.
+ */
+function dispatchJob(job: {
+  data?: unknown;
+  jobId: string;
+  printerIp?: string;
+  printerPort?: string;
+  type?: string;
+}): void {
+  switch (job.type) {
+    // Undefined type is a legacy/print row; treat it as a raw print.
+    case undefined:
+    case 'printRaw':
+    case 'testPrint':
+      executePrintJob(job, reportResult);
+      return;
+    case 'checkPrinters':
+      runCommand(job.jobId, async () =>
+        reportResult(job.jobId, 'success', undefined, await checkPrinters())
+      );
+      return;
+    case 'scanNetwork':
+      runCommand(job.jobId, async () =>
+        reportResult(
+          job.jobId,
+          'success',
+          undefined,
+          await scanNetworkForConnections()
+        )
+      );
+      return;
+    case 'restart':
+      // Ack before exiting so the backend row settles; the process may die
+      // before the report lands, which is harmless (the backend doesn't await
+      // a restart result). Then trigger the actual restart.
+      reportResult(job.jobId, 'success');
+      triggerRestart();
+      return;
+    default:
+      // A genuinely unknown kind: don't base64-decode it to a printer. NACK so
+      // the backend's awaiting resolver gets a definite answer, not a timeout.
       logger.error(
-        `Skipping print job ${job.jobId} with unsupported type ${job.type}`
+        `Skipping job ${job.jobId} with unsupported type ${job.type}`
       );
       reportResult(job.jobId, 'failed', 'UNSUPPORTED_TYPE');
-      continue;
-    }
-    executePrintJob(job, reportResult);
   }
+}
+
+/**
+ * Run a control command's async body detached from the poll loop, reporting a
+ * failed result if it throws. Keeps the loop dispatching subsequent jobs while
+ * a slow probe (offline-printer retries, LAN scan) runs.
+ */
+function runCommand(jobId: string, body: () => Promise<void>): void {
+  void body().catch((err) => {
+    logger.error(`Command job ${jobId} failed:`, err);
+    reportResult(
+      jobId,
+      'failed',
+      err instanceof Error ? err.message : String(err)
+    );
+  });
 }
 
 async function loop(): Promise<void> {

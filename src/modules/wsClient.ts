@@ -104,7 +104,11 @@ function classifyWsError(err: any): {
   // An intercepting HTTP proxy that doesn't speak the WS upgrade replies with a
   // non-101 status; the ws library throws "Unexpected server response: <code>".
   if (/unexpected server response/i.test(message)) {
-    return { category: 'PROXY_OR_UNEXPECTED_RESPONSE', code: code || message, message };
+    return {
+      category: 'PROXY_OR_UNEXPECTED_RESPONSE',
+      code: code || message,
+      message,
+    };
   }
   // Corporate MITM proxy / antivirus TLS interception.
   if (
@@ -140,7 +144,7 @@ function clearReconnectTimer(): void {
 
 // Current PS version from the `version` file at the app root. Reported in the
 // register payload so the backend can surface current-vs-latest version info.
-function getPrinterVersion(): string {
+export function getPrinterVersion(): string {
   // Read cwd-relative first, exactly like autoupdate.ts: the packaged nexe exe's
   // __dirname points into the virtual snapshot FS and misses the real `version`
   // file sitting next to the exe, so the __dirname path throws in the Windows
@@ -192,6 +196,17 @@ export function setRestartHandler(fn: () => void): void {
   restartHandler = fn;
 }
 
+// Invoke the registered restart trigger. Shared by the WS restartRequest
+// handler and the long-poll pull client's restart command, so a remote restart
+// works over either channel. No-ops (with a warning) if index.ts never wired one.
+export function triggerRestart(): void {
+  if (restartHandler) {
+    restartHandler();
+  } else {
+    logger.warn('No restart handler registered, ignoring restart request');
+  }
+}
+
 // Per-printer job queue. Thermal printers accept a single connection at a time,
 // so two overlapping jobs to one device (copies, or two independent print
 // requests at once) collide and only one ticket comes out. Chaining each job
@@ -241,7 +256,10 @@ function classifyPrinterError(err: any): string {
     'ETIMEDOUT',
     'EPIPE',
   ];
-  if (offlineCodes.includes(code) || /timeout|offline|not found/i.test(message)) {
+  if (
+    offlineCodes.includes(code) ||
+    /timeout|offline|not found/i.test(message)
+  ) {
     return 'PRINTER_OFFLINE';
   }
   return 'PRINTER_ERROR';
@@ -457,11 +475,7 @@ async function handleMessage(raw: string): Promise<void> {
 
       case 'restartRequest': {
         logger.info('Received restart request from backend');
-        if (restartHandler) {
-          restartHandler();
-        } else {
-          logger.warn('No restart handler registered, ignoring restart request');
-        }
+        triggerRestart();
         break;
       }
 
