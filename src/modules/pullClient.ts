@@ -52,9 +52,14 @@ const AUTH_RETRY_MS = 60_000;
 // sync will fill them in), so an un-provisioned PS doesn't hammer the backend.
 const NO_CREDS_RETRY_MS = 5_000;
 
-// The backend flattens into a body code because our curl fallback flattens
-// HTTP status codes into parsed JSON — without this marker a 401 would look
-// like a successful empty poll and the loop would spin with no backoff at all.
+// Raised when the backend rejects the pull channel's credentials. Two triggers:
+// (1) the HTTP status is 401 — the authoritative signal, works even against a
+// backend that predates the poll endpoint (it 401s without the body code); or
+// (2) an upgraded backend flattens the rejection into a body code because our
+// curl fallback flattens HTTP status into parsed JSON. Without either, a 401
+// would look like a successful empty poll and the loop would spin with no
+// backoff at all — which is exactly what happens when the PS ships before the
+// BE+FE poll changes are deployed.
 class PollRejectedError extends Error {}
 // One auth incident log per episode; reset on the first successful poll.
 let authFailureLogged = false;
@@ -125,6 +130,18 @@ async function postJson(
   });
 
   if (result.viaFallback && result.fetchFailure) {
+    // A 401 is an auth rejection, not the transient fetch/proxy failure the
+    // curl fallback exists to paper over — curl just re-fetches the same 401,
+    // and on a backend that predates the poll endpoint the 401 body carries no
+    // authRejected code, so result.data would parse as a successful empty poll
+    // and spin the loop. Surface it as a rejection regardless of body shape so
+    // callers slow-retry. Scoped to the pull path (this postJson serves only
+    // poll + result report); other PS→BE calls are untouched. Non-401 statuses
+    // fall through to the fetch-failure report + normal error backoff below, so
+    // we're not swallowing other errors — only the pull channel's own 401.
+    if (result.fetchFailure.responseStatus === 401) {
+      throw new PollRejectedError('backend rejected credentials (HTTP 401)');
+    }
     const now = Date.now();
     if (now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS) {
       lastFetchFailureReportAt = now;
@@ -281,8 +298,15 @@ function runCommand(jobId: string, body: () => Promise<void>): void {
 }
 
 async function loop(): Promise<void> {
+  let firstLoop = true;
   while (running) {
     if (!getVenueId() || !getWsSecret()) {
+      if (firstLoop) {
+        logger.warn(
+          `Print-job poll deferred — missing venueId or secret. Retry every ${NO_CREDS_RETRY_MS}.`
+        );
+        firstLoop = false;
+      }
       await sleep(NO_CREDS_RETRY_MS);
       continue;
     }
