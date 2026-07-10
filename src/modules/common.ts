@@ -185,11 +185,28 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
       [63, 31, 55, 23, 61, 29, 53, 21],
     ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
 
-    const { data, info } = await sharp(result.data)
+    // Only trim away transparent padding (e.g. a logo centred in a square
+    // canvas). Logos with an opaque background are left untouched, so their
+    // intended framing and edge glyphs are never clipped.
+    const cornerAlpha = (
+      await sharp(result.data)
+        .ensureAlpha()
+        .extract({ height: 1, left: 0, top: 0, width: 1 })
+        .raw()
+        .toBuffer()
+    )[3]!;
+
+    let pipeline = sharp(result.data)
       .resize(300)
       .ensureAlpha()
-      .flatten({ background: '#ffffff' }) // transparent → white
+      .flatten({ background: '#ffffff' }); // transparent → white
+    if (cornerAlpha < 10) {
+      pipeline = pipeline.trim({ threshold: 10 });
+    }
+
+    const { data, info } = await pipeline
       .grayscale()
+      .normalise()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
