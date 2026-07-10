@@ -227,7 +227,13 @@ function enqueuePrinterJob(key: string, task: () => Promise<void>): void {
   const next = prev
     .catch(() => {})
     .then(task)
-    .catch(() => {})
+    .catch((err) => {
+      // executePrintJob has its own try/catch and reports failures via its
+      // callback, so a rejection surfacing here is an unexpected fault (e.g. a
+      // bug before that try/catch). Log it once and keep the per-printer chain
+      // alive for the jobs queued behind it.
+      logger.error(`Unexpected error in printer queue for ${key}:`, err);
+    })
     .then(() => new Promise<void>((r) => setTimeout(r, INTER_JOB_DELAY_MS)));
   printerQueues.set(key, next);
   // Drop the entry once it settles, unless a newer job has already chained on.

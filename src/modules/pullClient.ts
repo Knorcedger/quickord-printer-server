@@ -220,7 +220,16 @@ async function pollOnce(): Promise<void> {
       typeof data?.error === 'string' ? data.error : 'invalid venue credentials'
     );
   }
-  const jobs = Array.isArray(data?.jobs) ? data.jobs : [];
+  // A successful poll always carries a jobs array (empty on an idle hold). A
+  // body without one is an error the curl fallback didn't reject (a 5xx JSON
+  // body: curl doesn't fail on HTTP status by default) — throw so the loop
+  // hits its backoff instead of tight-looping with no pause.
+  if (!Array.isArray(data?.jobs)) {
+    throw new Error(
+      `Unexpected poll response without a jobs array: ${JSON.stringify(data)?.slice(0, 200)}`
+    );
+  }
+  const jobs = data.jobs;
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
     dispatchJob(job);
