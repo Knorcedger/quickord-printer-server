@@ -143,9 +143,14 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
   }
 };
 
-const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
-  // Check cache first
-  const cachedImage = getCachedImage(url);
+const downloadAndProcessImage = async (
+  url: string,
+  trimTransparent = false
+): Promise<Buffer> => {
+  // Cache key includes the trim flag: the same URL processed both ways yields
+  // different rasters, so they must not share an entry.
+  const cacheKey = trimTransparent ? `${url}#trim` : url;
+  const cachedImage = getCachedImage(cacheKey);
   if (cachedImage) {
     return cachedImage;
   }
@@ -191,22 +196,28 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
       [63, 31, 55, 23, 61, 29, 53, 21],
     ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
 
-    // Only trim away transparent padding (e.g. a logo centred in a square
-    // canvas). Logos with an opaque background are left untouched, so their
-    // intended framing and edge glyphs are never clipped.
-    const cornerAlpha = (
-      await sharp(result.data)
-        .ensureAlpha()
-        .extract({ height: 1, left: 0, top: 0, width: 1 })
-        .raw()
-        .toBuffer()
-    )[3]!;
+    // Trim only for logos, and only when the canvas is actually transparent
+    // padding. Never for generic markdown images: a QR/barcode with a
+    // transparent quiet zone would lose the margin it needs to stay scannable.
+    // Sharp runs trim before resize, so the logo is cropped at full resolution
+    // and then scaled up to the target width.
+    let shouldTrim = false;
+    if (trimTransparent) {
+      const cornerAlpha = (
+        await sharp(result.data)
+          .ensureAlpha()
+          .extract({ height: 1, left: 0, top: 0, width: 1 })
+          .raw()
+          .toBuffer()
+      )[3]!;
+      shouldTrim = cornerAlpha < 10;
+    }
 
     let pipeline = sharp(result.data)
       .resize(300)
       .ensureAlpha()
       .flatten({ background: '#ffffff' }); // transparent → white
-    if (cornerAlpha < 10) {
+    if (shouldTrim) {
       pipeline = pipeline.trim({ threshold: 10 });
     }
 
@@ -233,7 +244,7 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
       .toBuffer();
 
     // Save to cache
-    saveCachedImage(url, processedImage);
+    saveCachedImage(cacheKey, processedImage);
 
     return processedImage;
   } catch (err: any) {
@@ -1085,7 +1096,7 @@ export const getInvoiceTypeLabel = (
 export const printLogo = async (printer, logoUrl: string) => {
   if (!logoUrl) return;
   try {
-    const imageBuffer = await downloadAndProcessImage(logoUrl);
+    const imageBuffer = await downloadAndProcessImage(logoUrl, true);
     printer.newLine();
     // printImageBuffer is async — without the await the raster bytes race the
     // rest of the receipt and can be dropped from the buffer entirely.
