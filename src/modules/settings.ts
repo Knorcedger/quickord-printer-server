@@ -63,6 +63,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(true),
+  printVenueLogo: z
+    .boolean({
+      description:
+        'Whether to print the venue logo above the issuer details. Ignored when issuerText is set, since that replaces the whole header.',
+      invalid_type_error: 'printVenueLogo must be a boolean.',
+    })
+    .optional()
+    .default(false),
   groupByCategory: z
     .boolean({
       description:

@@ -110,13 +110,15 @@ const getCachedImage = (url: string): Buffer | null => {
         (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
 
       if (ageInDays < CACHE_EXPIRY_DAYS) {
-        console.log(`Using cached image for: ${url}`);
-        return fs.readFileSync(cachePath);
-      } else {
-        // Cache expired, delete it
-        console.log(`Cache expired for: ${url}`);
-        fs.unlinkSync(cachePath);
+        const cached = fs.readFileSync(cachePath);
+        // A truncated entry (process died mid-write) would throw deep inside the
+        // PNG decoder and silently drop the image for the whole TTL — drop it here.
+        if (cached.length) {
+          console.log(`Using cached image for: ${url}`);
+          return cached;
+        }
       }
+      fs.unlinkSync(cachePath);
     }
   } catch (err) {
     console.error('Error reading cache:', err);
@@ -130,7 +132,11 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
     ensureCacheDir();
     const cacheKey = getCacheKey(url);
     const cachePath = path.join(CACHE_DIR, `${cacheKey}.png`);
-    fs.writeFileSync(cachePath, buffer);
+    // Write to a temp file and rename so a crash mid-write can never leave a
+    // partial entry behind (which would poison the cache for its whole TTL).
+    const tmpPath = `${cachePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, cachePath);
     console.log(`Cached image for: ${url}`);
   } catch (err) {
     console.error('Error saving cache:', err);
@@ -295,7 +301,9 @@ export const readMarkdown = async (
         try {
           console.log(`Downloading and processing image from: ${imageUrl}`);
           const processedImageBuffer = await downloadAndProcessImage(imageUrl);
-          printer.printImageBuffer(processedImageBuffer);
+          // printImageBuffer is async — without the await the raster bytes race
+          // the rest of the receipt and can be dropped from the buffer.
+          await printer.printImageBuffer(processedImageBuffer);
         } catch (error) {
           console.error(
             `Failed to download/process image from ${imageUrl}:`,
@@ -1069,17 +1077,45 @@ export const getInvoiceTypeLabel = (
   return translations.printOrder.invoice[lang];
 };
 
+/**
+ * Print the venue logo (dithered raster) centred.
+ * Best-effort: a failed download must never block the receipt, so errors are
+ * logged and swallowed.
+ */
+export const printLogo = async (printer, logoUrl: string) => {
+  if (!logoUrl) return;
+  try {
+    const imageBuffer = await downloadAndProcessImage(logoUrl);
+    printer.newLine();
+    // printImageBuffer is async — without the await the raster bytes race the
+    // rest of the receipt and can be dropped from the buffer entirely.
+    await printer.printImageBuffer(imageBuffer);
+    printer.alignCenter(); // raster print resets justification to left
+    printer.newLine();
+  } catch (error) {
+    console.error(`Failed to print venue logo from ${logoUrl}:`, error);
+  }
+};
+
 export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
   issuerText: string,
   settings,
-  lang: SupportedLanguages
+  lang: SupportedLanguages,
+  venueLogoUrl = ''
 ) => {
   printer.alignCenter();
   if (issuerText) {
     await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
+    // The logo sits between the document title and the issuer details. It is
+    // deliberately skipped when issuerText is set: that markdown replaces the
+    // whole header and may already carry its own <img>, so printing both would
+    // duplicate the logo.
+    if (settings?.printVenueLogo) {
+      await printLogo(printer, venueLogoUrl);
+    }
     printer.println(tr(aadeInvoice?.issuer.name, settings.transliterate));
     printer.println(tr(aadeInvoice?.issuer.activity, settings.transliterate));
     const issuerAddress = aadeInvoice?.issuer.address;
