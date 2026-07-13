@@ -25,6 +25,7 @@ import {
   printProducts,
   printPayments,
   printDiscountAndTip,
+  printLogo,
   printVatBreakdown,
   venueData,
   receiptData,
@@ -837,7 +838,8 @@ export const parkingTicket = async (
       req.body.entryTime,
       req.body.issuerText || '',
       //  req.body.operatingHours,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -875,7 +877,8 @@ const printParkingTicket = async (
   entryTime: string,
   issuerText: string = '',
   // operatingHours: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -916,9 +919,14 @@ const printParkingTicket = async (
         printer.println('PARKING TICKET');
         drawLine2(printer);
         printer.bold(false);
+        // A configured issuerText replaces the whole venue header — and with it
+        // the logo, which that markdown may already carry itself.
         if (issuerText) {
           await readMarkdown(issuerText, printer, 'center', settings, true);
         } else {
+          if (settings?.printVenueLogo) {
+            await printLogo(printer, venueLogoUrl);
+          }
           printer.bold(true);
           printer.println(venueName);
           printer.bold(false);
@@ -1167,7 +1175,8 @@ export const paymentSlip = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       req.body.lang || 'el',
-      req.body.tip || 0
+      req.body.tip || 0,
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -1235,7 +1244,8 @@ export const paymentReceipt = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1311,7 +1321,8 @@ export const invoice = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1363,7 +1374,8 @@ export const invoiceMyPelates = async (
     const result = await printMyPelatesInvoice(
       req.body.aadeInvoice,
       req.body.issuerText || '',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1415,7 +1427,8 @@ export const paymentMyPelatesReceipt = async (
     const result = await printMyPelatesReceipt(
       req.body.aadeInvoice,
       req.body.issuerText || '',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1476,7 +1489,8 @@ export const orderForm = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       req.body.order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -1513,7 +1527,8 @@ const printOrderForm = async (
   issuerText: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1554,7 +1569,14 @@ const printOrderForm = async (
       printer.println(
         tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
       );
-      await venueData(printer, aadeInvoice, issuerText, settings, lang);
+      await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
       receiptData(
         printer,
         aadeInvoice,
@@ -1664,7 +1686,8 @@ const printPaymentSlip = async (
   discounts: any[] = [],
   project: string = 'centrix',
   lang: SupportedLanguages = 'el',
-  tip: number = 0
+  tip: number = 0,
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1709,7 +1732,14 @@ const printPaymentSlip = async (
         )
       );
       // issuerText (when present) replaces the issuer details, like the ALP.
-      await venueData(printer, aadeInvoice, issuerText, settings, lang);
+      await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
       printer.newLine();
       printer.alignLeft();
       const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
@@ -1899,7 +1929,8 @@ const printPaymentReceipt = async (
   appId: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1965,7 +1996,14 @@ const printPaymentReceipt = async (
             break;
         }
         printer.println(tr(invoiceTypeLabel, settings.transliterate));
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
         receiptData(
           printer,
           aadeInvoice,
@@ -2120,7 +2158,8 @@ const printInvoice = async (
   appId: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2172,7 +2211,14 @@ const printInvoice = async (
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
         printer.newLine();
         printer.println(
           tr(
@@ -2326,7 +2372,8 @@ const printInvoice = async (
 const printMyPelatesReceipt = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2376,7 +2423,14 @@ const printMyPelatesReceipt = async (
             settings.transliterate
           )
         );
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
         receiptData(
           printer,
           aadeInvoice,
@@ -2527,7 +2581,8 @@ const printMyPelatesReceipt = async (
 const printMyPelatesInvoice = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2569,7 +2624,14 @@ const printMyPelatesInvoice = async (
       try {
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
         printer.newLine();
         printer.println(
           tr(
@@ -2727,7 +2789,8 @@ export const deliveryNote = async (
       req.body.lang || 'el',
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
-        : req.headers.project) || 'centrix'
+        : req.headers.project) || 'centrix',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -2793,7 +2856,8 @@ const printDeliveryNote = async (
   aadeInvoice: any,
   issuerText: string,
   lang: SupportedLanguages = 'el',
-  project: string = 'centrix'
+  project: string = 'centrix',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2823,7 +2887,14 @@ const printDeliveryNote = async (
       printer.clear();
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
       printer.alignCenter();
-      await venueData(printer, aadeInvoice, issuerText, settings, lang);
+      await venueData(
+        printer,
+        aadeInvoice,
+        issuerText,
+        settings,
+        lang,
+        venueLogoUrl
+      );
       printer.newLine();
       printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
       printer.println(

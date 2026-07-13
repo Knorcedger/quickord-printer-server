@@ -110,13 +110,15 @@ const getCachedImage = (url: string): Buffer | null => {
         (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
 
       if (ageInDays < CACHE_EXPIRY_DAYS) {
-        console.log(`Using cached image for: ${url}`);
-        return fs.readFileSync(cachePath);
-      } else {
-        // Cache expired, delete it
-        console.log(`Cache expired for: ${url}`);
-        fs.unlinkSync(cachePath);
+        const cached = fs.readFileSync(cachePath);
+        // A truncated entry (process died mid-write) would throw deep inside the
+        // PNG decoder and silently drop the image for the whole TTL — drop it here.
+        if (cached.length) {
+          console.log(`Using cached image for: ${url}`);
+          return cached;
+        }
       }
+      fs.unlinkSync(cachePath);
     }
   } catch (err) {
     console.error('Error reading cache:', err);
@@ -130,16 +132,25 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
     ensureCacheDir();
     const cacheKey = getCacheKey(url);
     const cachePath = path.join(CACHE_DIR, `${cacheKey}.png`);
-    fs.writeFileSync(cachePath, buffer);
+    // Write to a temp file and rename so a crash mid-write can never leave a
+    // partial entry behind (which would poison the cache for its whole TTL).
+    const tmpPath = `${cachePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, cachePath);
     console.log(`Cached image for: ${url}`);
   } catch (err) {
     console.error('Error saving cache:', err);
   }
 };
 
-const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
-  // Check cache first
-  const cachedImage = getCachedImage(url);
+const downloadAndProcessImage = async (
+  url: string,
+  trimTransparent = false
+): Promise<Buffer> => {
+  // Cache key includes the trim flag: the same URL processed both ways yields
+  // different rasters, so they must not share an entry.
+  const cacheKey = trimTransparent ? `${url}#trim` : url;
+  const cachedImage = getCachedImage(cacheKey);
   if (cachedImage) {
     return cachedImage;
   }
@@ -185,11 +196,34 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
       [63, 31, 55, 23, 61, 29, 53, 21],
     ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
 
-    const { data, info } = await sharp(result.data)
+    // Trim only for logos, and only when the canvas is actually transparent
+    // padding. Never for generic markdown images: a QR/barcode with a
+    // transparent quiet zone would lose the margin it needs to stay scannable.
+    // Sharp runs trim before resize, so the logo is cropped at full resolution
+    // and then scaled up to the target width.
+    let shouldTrim = false;
+    if (trimTransparent) {
+      const cornerAlpha = (
+        await sharp(result.data)
+          .ensureAlpha()
+          .extract({ height: 1, left: 0, top: 0, width: 1 })
+          .raw()
+          .toBuffer()
+      )[3]!;
+      shouldTrim = cornerAlpha < 10;
+    }
+
+    let pipeline = sharp(result.data)
       .resize(300)
       .ensureAlpha()
-      .flatten({ background: '#ffffff' }) // transparent → white
+      .flatten({ background: '#ffffff' }); // transparent → white
+    if (shouldTrim) {
+      pipeline = pipeline.trim({ threshold: 10 });
+    }
+
+    const { data, info } = await pipeline
       .grayscale()
+      .normalise()
       .raw()
       .toBuffer({ resolveWithObject: true });
 
@@ -210,7 +244,7 @@ const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
       .toBuffer();
 
     // Save to cache
-    saveCachedImage(url, processedImage);
+    saveCachedImage(cacheKey, processedImage);
 
     return processedImage;
   } catch (err: any) {
@@ -278,7 +312,9 @@ export const readMarkdown = async (
         try {
           console.log(`Downloading and processing image from: ${imageUrl}`);
           const processedImageBuffer = await downloadAndProcessImage(imageUrl);
-          printer.printImageBuffer(processedImageBuffer);
+          // printImageBuffer is async — without the await the raster bytes race
+          // the rest of the receipt and can be dropped from the buffer.
+          await printer.printImageBuffer(processedImageBuffer);
         } catch (error) {
           console.error(
             `Failed to download/process image from ${imageUrl}:`,
@@ -1052,17 +1088,45 @@ export const getInvoiceTypeLabel = (
   return translations.printOrder.invoice[lang];
 };
 
+/**
+ * Print the venue logo (dithered raster) centred.
+ * Best-effort: a failed download must never block the receipt, so errors are
+ * logged and swallowed.
+ */
+export const printLogo = async (printer, logoUrl: string) => {
+  if (!logoUrl) return;
+  try {
+    const imageBuffer = await downloadAndProcessImage(logoUrl, true);
+    printer.newLine();
+    // printImageBuffer is async — without the await the raster bytes race the
+    // rest of the receipt and can be dropped from the buffer entirely.
+    await printer.printImageBuffer(imageBuffer);
+    printer.alignCenter(); // raster print resets justification to left
+    printer.newLine();
+  } catch (error) {
+    console.error(`Failed to print venue logo from ${logoUrl}:`, error);
+  }
+};
+
 export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
   issuerText: string,
   settings,
-  lang: SupportedLanguages
+  lang: SupportedLanguages,
+  venueLogoUrl = ''
 ) => {
   printer.alignCenter();
   if (issuerText) {
     await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
+    // The logo sits between the document title and the issuer details. It is
+    // deliberately skipped when issuerText is set: that markdown replaces the
+    // whole header and may already carry its own <img>, so printing both would
+    // duplicate the logo.
+    if (settings?.printVenueLogo) {
+      await printLogo(printer, venueLogoUrl);
+    }
     printer.println(tr(aadeInvoice?.issuer.name, settings.transliterate));
     printer.println(tr(aadeInvoice?.issuer.activity, settings.transliterate));
     const issuerAddress = aadeInvoice?.issuer.address;
