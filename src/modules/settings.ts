@@ -23,6 +23,7 @@ export const PrinterTextOptions = z.enum(
     'BOLD_ORDER_TYPE',
     'BOLD_COMMENTS',
     'BOLD_CATEGORIES',
+    'BOLD_PRICES',
   ],
   {
     description: 'The text options to use for the printer.',

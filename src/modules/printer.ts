@@ -3241,6 +3241,24 @@ export const printOrder = async (
         ]);
 
         const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
+        const boldPrices = settings.textOptions?.includes('BOLD_PRICES');
+
+        // Enlarges a money line when BOLD_PRICES is on, then restores the
+        // configured text size. Skipped while BOLD_PRODUCTS is active, since
+        // that already prints the whole product block enlarged.
+        const printBoldPrice = (print: () => void, alreadyEnlarged = false) => {
+          const enlarge = boldPrices && !alreadyEnlarged;
+          if (enlarge) {
+            printer.bold(true);
+            printer.setTextSize(1, 0);
+          }
+          print();
+          if (enlarge) {
+            printer.bold(false);
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+        };
 
         if (order?.orderType === 'DINE_IN') {
           const tablesLabel =
@@ -3524,15 +3542,30 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
+          // An enlarged price takes two cells per character, so reserve twice
+          // the room for it when padding the title.
+          const enlargePrice = boldPrices && !boldProducts && !!priceStr;
           const lineWidth = boldProducts ? 21 : 42;
+          const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
           const paddedLine = productLine.padEnd(
-            lineWidth - priceStr.length,
+            Math.max(0, lineWidth - priceCells),
             ' '
           );
 
-          printer.println(
-            `${tr(paddedLine, settings.transliterate)}${priceStr}`
-          );
+          if (enlargePrice) {
+            printer.print(tr(paddedLine, settings.transliterate));
+            printer.bold(true);
+            printer.setTextSize(1, 0);
+            printer.print(priceStr);
+            printer.bold(false);
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.newLine();
+          } else {
+            printer.println(
+              `${tr(paddedLine, settings.transliterate)}${priceStr}`
+            );
+          }
 
           // Handle product option details
           if (
@@ -3562,11 +3595,15 @@ export const printOrder = async (
               (d) => d.productId === product._id
             );
             if (productDiscount) {
-              printProductDiscount(
-                printer,
-                productDiscount,
-                lang,
-                settings.transliterate
+              printBoldPrice(
+                () =>
+                  printProductDiscount(
+                    printer,
+                    productDiscount,
+                    lang,
+                    settings.transliterate
+                  ),
+                boldProducts
               );
             }
           }
@@ -3627,8 +3664,12 @@ export const printOrder = async (
             settings.priceOnOrder === true
           ) {
             printer.alignRight();
-            printer.println(
-              `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
+            printBoldPrice(
+              () =>
+                printer.println(
+                  `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
+                ),
+              boldProducts
             );
           }
           printer.alignLeft();
@@ -3750,9 +3791,12 @@ export const printOrder = async (
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         if (order.tip && settings.priceOnOrder) {
+          const tip = order.tip;
           printer.newLine();
-          printer.println(
-            `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(order.tip).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(tip).toFixed(2)} €`
+            )
           );
         }
 
@@ -3762,7 +3806,9 @@ export const printOrder = async (
           (settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true)
         ) {
-          printDiscountAndTip(printer, order.discounts, 0, lang);
+          printBoldPrice(() =>
+            printDiscountAndTip(printer, order.discounts, 0, lang)
+          );
         }
 
         if (
@@ -3770,9 +3816,12 @@ export const printOrder = async (
           (settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true)
         ) {
+          const deliveryFee = order.deliveryInfo.deliveryFee;
           printer.newLine();
-          printer.println(
-            `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(deliveryFee).toFixed(2)} €`
+            )
           );
         }
         printer.alignRight();
@@ -3810,8 +3859,10 @@ export const printOrder = async (
           settings.priceOnOrder === true
         ) {
           const totalAfterDiscounts = order.total - totalDiscountAmount;
-          printer.println(
-            `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
+            )
           );
         }
 
