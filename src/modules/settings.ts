@@ -153,6 +153,20 @@ export const PrinterSettings = z.object({
       message: 'copies must be an integer.',
     })
     .default(1),
+  documentCopies: z
+    .array(
+      z.object({
+        copies: z.number().int().min(1).max(10).default(1),
+        document: z.string(),
+      }),
+      {
+        description:
+          'Number of copies to print per document type. A missing entry means 1.',
+        invalid_type_error: 'documentCopies must be an array.',
+      }
+    )
+    .optional()
+    .default([]),
   ip: z
     .string({
       description: 'The IP address of the printer.',
