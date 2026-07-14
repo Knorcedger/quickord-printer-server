@@ -3249,12 +3249,10 @@ export const printOrder = async (
         const printBoldPrice = (print: () => void, alreadyEnlarged = false) => {
           const enlarge = boldPrices && !alreadyEnlarged;
           if (enlarge) {
-            printer.bold(true);
             printer.setTextSize(1, 0);
           }
           print();
           if (enlarge) {
-            printer.bold(false);
             printer.setTextSize(0, 0);
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
@@ -3554,10 +3552,8 @@ export const printOrder = async (
 
           if (enlargePrice) {
             printer.print(tr(paddedLine, settings.transliterate));
-            printer.bold(true);
             printer.setTextSize(1, 0);
             printer.print(priceStr);
-            printer.bold(false);
             printer.setTextSize(0, 0);
             changeTextSize(printer, settings?.textSize || 'NORMAL');
             printer.newLine();
