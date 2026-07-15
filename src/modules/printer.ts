@@ -37,6 +37,7 @@ import {
   isUSBPrinterOnline,
 } from './common';
 import logger from './logger';
+import { resolveCopies } from './copies';
 import { IPrinterSettings, ISettings } from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
@@ -509,10 +510,13 @@ export const checkPrinters = async () => {
         logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
         return { id: printerId, connected: false };
       } catch (error) {
-        logger.error(`Error checking printer ${printerIdentifier} connection:`, {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
+        logger.error(
+          `Error checking printer ${printerIdentifier} connection:`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          }
+        );
         return { id: printerId, connected: false };
       } finally {
         markPrinterIdle(printer);
@@ -912,7 +916,8 @@ const printParkingTicket = async (
       });
 
       printer.clear();
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      const copyCount = resolveCopies(settings, 'PARKING-TICKET');
+      for (let copies = 0; copies < copyCount; copies += 1) {
         printer.alignCenter();
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.bold(true);
@@ -1563,93 +1568,109 @@ const printOrderForm = async (
           continue;
         }
       }
-      console.log(aadeInvoice);
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(
-        tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
-      );
-      await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
-      receiptData(
-        printer,
-        aadeInvoice,
-        settings,
-        orderNumber,
-        'DINE_IN',
-        lang,
-        project,
-        order
-      );
-      if (waiterName) {
-        printer.println(waiterName.toUpperCase());
-      }
-      if (aadeInvoice.closed) {
-        printer.setTextSize(1, 0);
-        printer.bold(true);
+      const copyCount = resolveCopies(settings, 'ORDERFORM');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
+        console.log(aadeInvoice);
+        printer.alignCenter();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.println(
-          tr(`${translations.printOrder.closed[lang]}`, settings.transliterate)
+          tr(
+            `${translations.printOrder.orderForm[lang]}`,
+            settings.transliterate
+          )
         );
-        printer.setTextSize(0, 0);
-      }
-      const discounts = order?.discounts || [];
-      const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
-        printer,
-        aadeInvoice,
-        order,
-        settings,
-        lang,
-        discounts,
-        false
-      );
-      if (discounts.length > 0) {
-        printDiscountAndTip(
+        await venueData(
           printer,
-          discounts,
-          order?.tip || 0,
+          aadeInvoice,
+          issuerText,
+          settings,
           lang,
-          settings.transliterate
+          venueLogoUrl
         );
-      }
-      printMarks(printer, aadeInvoice, lang, settings.transliterate);
-      if (settings.poweredByQuickord) {
+        receiptData(
+          printer,
+          aadeInvoice,
+          settings,
+          orderNumber,
+          'DINE_IN',
+          lang,
+          project,
+          order
+        );
+        if (waiterName) {
+          printer.println(waiterName.toUpperCase());
+        }
+        if (aadeInvoice.closed) {
+          printer.setTextSize(1, 0);
+          printer.bold(true);
+          printer.println(
+            tr(
+              `${translations.printOrder.closed[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.setTextSize(0, 0);
+        }
+        const discounts = order?.discounts || [];
+        const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
+          printer,
+          aadeInvoice,
+          order,
+          settings,
+          lang,
+          discounts,
+          false
+        );
+        if (discounts.length > 0) {
+          printDiscountAndTip(
+            printer,
+            discounts,
+            order?.tip || 0,
+            lang,
+            settings.transliterate
+          );
+        }
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
         printer.println(
-          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
         );
-      }
-      printer.newLine();
-      printer.println(
-        tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
-      );
-      printer.println(
-        tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
-      );
-      printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
-      printer.newLine();
-      printer.println(
-        tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
-      );
-      printer.println(
-        tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
-      );
-      printer.println(
-        tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
-      );
-      printer.alignCenter();
-      printer.cut();
+        printer.println(
+          tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
+        );
+        printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
+        printer.newLine();
+        printer.println(
+          tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
+        );
+        printer.println(
+          tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
+        );
+        printer.println(
+          tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
+        );
+        printer.alignCenter();
+        printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'order form print', {
-        orderNumber,
-        tableNumber,
-      });
-      successCount++;
-      successes.push(printerIdentifier);
+        await executePrinter(printer, printerIdentifier, 'order form print', {
+          orderNumber,
+          tableNumber,
+        });
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1723,171 +1744,185 @@ const printPaymentSlip = async (
         }
       }
 
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(
-        tr(
-          `${translations.printOrder.paymentSlip[lang]}`,
-          settings.transliterate
-        )
-      );
-      // issuerText (when present) replaces the issuer details, like the ALP.
-      await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
-      printer.newLine();
-      printer.alignLeft();
-      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
-      const day = rawDate.substring(8, 10);
-      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
-      const year = rawDate.substring(0, 4);
-      const formattedDate = `${day}/${month}/${year}`;
-      printer.newLine();
-      printer.println(`#${orderNumber}`);
-      printer.println(
-        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
-      );
-      printer.alignLeft();
-
-      printer.newLine();
-      printer.println(
-        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
-      );
-      printer.newLine();
-      printer.alignLeft();
-
-      let sumAmount = 0;
-      let sumQuantity = 0;
-
-      aadeInvoice?.details.forEach((detail: any) => {
-        printer.bold(true);
-        sumQuantity += detail.quantity;
-
-        const name = detail.name;
-        const quantity = detail.quantity.toFixed(0);
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
-          2
-        );
-        const vat = `${detail.tax.rate}%`; // "24%"
-        sumAmount += parseFloat(value);
-        printer.println(
-          name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
-            quantity.padStart(7) +
-            value.padStart(7) +
-            vat.padStart(7)
-        );
-        printer.bold(false);
-      });
-      drawLine2(printer);
-      printer.newLine();
-      // Print only overall discounts (not product-specific)
-      const overallDiscounts = discounts.filter((d: any) => !d.productId);
-      overallDiscounts.forEach((discount: any) => {
-        if (discount.amount && discount.type) {
-          let discountAmount = '';
-          if (discount.type === 'FIXED') {
-            discountAmount = (discount.amount / 100).toFixed(2) + '€';
-          } else if (
-            discount.type === 'PERCENTAGE' ||
-            discount.type === 'PERCENT'
-          ) {
-            discountAmount = discount.amount.toString() + '%';
-          }
-          if (discountAmount !== '') {
-            printer.println(
-              `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
-            );
-          }
+      const copyCount = resolveCopies(settings, 'PAYMENT-SLIP');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
         }
-      });
-      printer.alignRight();
-      const roundedSum = Number(sumAmount).toFixed(2);
-      printer.println(
-        `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
-      );
-      printer.bold(false);
-      printer.alignCenter();
-      drawLine2(printer);
-      printer.println(
-        tr(`${translations.printOrder.payments[lang]}:`, settings.transliterate)
-      );
-      const paymentMethods = aadeInvoice?.payment_methods ?? [];
-      // The tip is collected on top of the fiscal amount, so fold it into the
-      // primary (largest) payment so the printed amounts reflect money actually
-      // collected. `tip` is in cents.
-      let tipIdx = -1;
-      if (tip > 0) {
-        let max = 0;
-        paymentMethods.forEach((m: any, idx: number) => {
-          if (m.amount > max) {
-            max = m.amount;
-            tipIdx = idx;
+        printer.alignCenter();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        printer.println(
+          tr(
+            `${translations.printOrder.paymentSlip[lang]}`,
+            settings.transliterate
+          )
+        );
+        // issuerText (when present) replaces the issuer details, like the ALP.
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
+        printer.newLine();
+        printer.alignLeft();
+        const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
+        const day = rawDate.substring(8, 10);
+        const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
+        const year = rawDate.substring(0, 4);
+        const formattedDate = `${day}/${month}/${year}`;
+        printer.newLine();
+        printer.println(`#${orderNumber}`);
+        printer.println(
+          `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
+        );
+        printer.alignLeft();
+
+        printer.newLine();
+        printer.println(
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+        );
+        printer.newLine();
+        printer.alignLeft();
+
+        let sumAmount = 0;
+        let sumQuantity = 0;
+
+        aadeInvoice?.details.forEach((detail: any) => {
+          printer.bold(true);
+          sumQuantity += detail.quantity;
+
+          const name = detail.name;
+          const quantity = detail.quantity.toFixed(0);
+          const value = (
+            detail.net_value *
+            (1 + detail.tax.rate / 100)
+          ).toFixed(2);
+          const vat = `${detail.tax.rate}%`; // "24%"
+          sumAmount += parseFloat(value);
+          printer.println(
+            name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
+              quantity.padStart(7) +
+              value.padStart(7) +
+              vat.padStart(7)
+          );
+          printer.bold(false);
+        });
+        drawLine2(printer);
+        printer.newLine();
+        // Print only overall discounts (not product-specific)
+        const overallDiscounts = discounts.filter((d: any) => !d.productId);
+        overallDiscounts.forEach((discount: any) => {
+          if (discount.amount && discount.type) {
+            let discountAmount = '';
+            if (discount.type === 'FIXED') {
+              discountAmount = (discount.amount / 100).toFixed(2) + '€';
+            } else if (
+              discount.type === 'PERCENTAGE' ||
+              discount.type === 'PERCENT'
+            ) {
+              discountAmount = discount.amount.toString() + '%';
+            }
+            if (discountAmount !== '') {
+              printer.println(
+                `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
+              );
+            }
           }
         });
-      }
-      paymentMethods.forEach((detail: any, idx: number) => {
+        printer.alignRight();
+        const roundedSum = Number(sumAmount).toFixed(2);
+        printer.println(
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+        );
+        printer.bold(false);
+        printer.alignCenter();
+        drawLine2(printer);
+        printer.println(
+          tr(
+            `${translations.printOrder.payments[lang]}:`,
+            settings.transliterate
+          )
+        );
+        const paymentMethods = aadeInvoice?.payment_methods ?? [];
+        // The tip is collected on top of the fiscal amount, so fold it into the
+        // primary (largest) payment so the printed amounts reflect money actually
+        // collected. `tip` is in cents.
+        let tipIdx = -1;
+        if (tip > 0) {
+          let max = 0;
+          paymentMethods.forEach((m: any, idx: number) => {
+            if (m.amount > max) {
+              max = m.amount;
+              tipIdx = idx;
+            }
+          });
+        }
+        paymentMethods.forEach((detail: any, idx: number) => {
+          printer.newLine();
+          const amount = detail.amount + (idx === tipIdx ? tip / 100 : 0);
+          const methodDescription =
+            PaymentMethod[detail.code]?.description ||
+            translations.printOrder.unknown[lang];
+          printer.println(
+            `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${amount.toFixed(2)}€`
+          );
+        });
+        drawLine2(printer);
         printer.newLine();
-        const amount = detail.amount + (idx === tipIdx ? tip / 100 : 0);
-        const methodDescription =
-          PaymentMethod[detail.code]?.description ||
-          translations.printOrder.unknown[lang];
+        printer.alignLeft();
+        printer.println(`MARK ${aadeInvoice?.mark}`);
+        printer.println(`UID ${aadeInvoice?.uid}`);
+        printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+        printer.alignCenter();
+        printer.printQR(aadeInvoice?.url, {
+          cellSize: 4,
+          model: 4,
+          correction: 'Q',
+        });
+        printer.newLine();
+        const url = aadeInvoice?.url;
+
+        let providerUrl = '';
+
+        if (url.includes('invoiceportal')) {
+          providerUrl = 'www.invoiceportal.gr';
+        } else if (url.includes('etimologiera')) {
+          providerUrl = 'www.etimologiera.gr';
+        }
+
         printer.println(
-          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${amount.toFixed(2)}€`
+          `${translations.printOrder.provider[lang]} ${providerUrl}`
         );
-      });
-      drawLine2(printer);
-      printer.newLine();
-      printer.alignLeft();
-      printer.println(`MARK ${aadeInvoice?.mark}`);
-      printer.println(`UID ${aadeInvoice?.uid}`);
-      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
-      printer.alignCenter();
-      printer.printQR(aadeInvoice?.url, {
-        cellSize: 4,
-        model: 4,
-        correction: 'Q',
-      });
-      printer.newLine();
-      const url = aadeInvoice?.url;
-
-      let providerUrl = '';
-
-      if (url.includes('invoiceportal')) {
-        providerUrl = 'www.invoiceportal.gr';
-      } else if (url.includes('etimologiera')) {
-        providerUrl = 'www.etimologiera.gr';
-      }
-
-      printer.println(
-        `${translations.printOrder.provider[lang]} ${providerUrl}`
-      );
-      printer.newLine();
-      if (settings.poweredByQuickord) {
+        printer.newLine();
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
         printer.println(
-          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          tr(
+            `${translations.printOrder.paymentSlipEnd[lang]}`,
+            settings.transliterate
+          )
         );
-      }
-      printer.newLine();
-      printer.println(
-        tr(
-          `${translations.printOrder.paymentSlipEnd[lang]}`,
-          settings.transliterate
-        )
-      );
-      printer.alignCenter();
-      printer.cut();
+        printer.alignCenter();
+        printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'payment slip print', {
-        orderNumber,
-        mark: aadeInvoice?.mark,
-      });
-      successCount++;
-      successes.push(printerIdentifier);
+        await executePrinter(printer, printerIdentifier, 'payment slip print', {
+          orderNumber,
+          mark: aadeInvoice?.mark,
+        });
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1975,10 +2010,14 @@ const printPaymentReceipt = async (
       continue;
     }
     console.log('Printing ALP');
-    // `copies` setting applies only to orders & parking tickets; this document always prints once.
-    const copyCount = 1;
+    const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
 
@@ -1997,13 +2036,13 @@ const printPaymentReceipt = async (
         }
         printer.println(tr(invoiceTypeLabel, settings.transliterate));
         await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         receiptData(
           printer,
           aadeInvoice,
@@ -2206,19 +2245,23 @@ const printInvoice = async (
       continue;
     }
     console.log('printing invoice');
-    // `copies` setting applies only to orders & parking tickets; this document always prints once.
-    const copyCount = 1;
+    const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         printer.newLine();
         printer.println(
           tr(
@@ -2408,11 +2451,15 @@ const printMyPelatesReceipt = async (
         continue;
       }
     }
-    // `copies` setting applies only to orders & parking tickets; this document always prints once.
-    const copyCount = 1;
+    const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
@@ -2424,13 +2471,13 @@ const printMyPelatesReceipt = async (
           )
         );
         await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         receiptData(
           printer,
           aadeInvoice,
@@ -2617,21 +2664,25 @@ const printMyPelatesInvoice = async (
         continue;
       }
     }
-    // `copies` setting applies only to orders & parking tickets; this document always prints once.
-    const copyCount = 1;
+    const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         printer.newLine();
         printer.println(
           tr(
@@ -2881,122 +2932,133 @@ const printDeliveryNote = async (
         });
         continue;
       }
-      // Reset buffer state and select the configured code page, exactly like
-      // every other print route. Without this the printer stays on whatever
-      // page it was left on and prints Greek as gibberish.
-      printer.clear();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.alignCenter();
-      await venueData(
-        printer,
-        aadeInvoice,
-        issuerText,
-        settings,
-        lang,
-        venueLogoUrl
-      );
-      printer.newLine();
-      printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
-      printer.println(
-        tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate)
-      );
-      printer.println(
-        tr(`${aadeInvoice?.counterpart.activity}`, settings.transliterate)
-      );
-      printer.println(
-        tr(
-          `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`,
+      // A delivery note is an ALP-family document; it follows the ALP copies.
+      const copyCount = resolveCopies(settings, 'ALP');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        // Reset buffer state and select the configured code page, exactly like
+        // every other print route. Without this the printer stays on whatever
+        // page it was left on and prints Greek as gibberish.
+        printer.clear();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        printer.alignCenter();
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
+        printer.newLine();
+        printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
+        printer.println(
+          tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate)
+        );
+        printer.println(
+          tr(`${aadeInvoice?.counterpart.activity}`, settings.transliterate)
+        );
+        printer.println(
+          tr(
+            `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`,
+            settings.transliterate
+          )
+        );
+        printer.println(
+          tr(
+            `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`,
+            settings.transliterate
+          )
+        );
+        printer.newLine();
+        printer.println(tr('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
+        const movePurposeCode = aadeInvoice.move_purpose?.code;
+        const movePurposeKey = movePurposeCode
+          ? PayvoMovePurposeMapping[movePurposeCode]
+          : undefined;
+        const movePurposeLabel = movePurposeKey
+          ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] ||
+            'N/A'
+          : 'N/A';
+        printer.println(
+          tr(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`, settings.transliterate)
+        );
+        printer.println(
+          tr(
+            `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`,
+            settings.transliterate
+          )
+        );
+        printer.println(
+          tr(
+            `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`,
+            settings.transliterate
+          )
+        );
+        const shippingMethodCode = aadeInvoice.shipping_method;
+
+        const shippingMethodLabel = shippingMethodCode
+          ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
+              shippingMethodCode
+            ]?.[lang] || 'N/A'
+          : 'N/A';
+        printer.println(
+          tr(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`, settings.transliterate)
+        );
+        printer.println(
+          tr(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`, settings.transliterate)
+        );
+
+        // Use delivery note specific products and VAT breakdown functions
+        const [
+          sumAmount,
+          sumQuantity,
+          fixedBreakdown,
+          totalOriginalValue,
+          totalNetValue,
+          totalVatAmount,
+        ] = printDeliveryNoteProducts(
+          printer,
+          aadeInvoice,
+          lang,
           settings.transliterate
-        )
-      );
-      printer.println(
-        tr(
-          `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`,
-          settings.transliterate
-        )
-      );
-      printer.newLine();
-      printer.println(tr('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
-      const movePurposeCode = aadeInvoice.move_purpose?.code;
-      const movePurposeKey = movePurposeCode
-        ? PayvoMovePurposeMapping[movePurposeCode]
-        : undefined;
-      const movePurposeLabel = movePurposeKey
-        ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] || 'N/A'
-        : 'N/A';
-      printer.println(
-        tr(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`, settings.transliterate)
-      );
-      printer.println(
-        tr(
-          `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`,
-          settings.transliterate
-        )
-      );
-      printer.println(
-        tr(
-          `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`,
-          settings.transliterate
-        )
-      );
-      const shippingMethodCode = aadeInvoice.shipping_method;
+        );
 
-      const shippingMethodLabel = shippingMethodCode
-        ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
-            shippingMethodCode
-          ]?.[lang] || 'N/A'
-        : 'N/A';
-      printer.println(
-        tr(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`, settings.transliterate)
-      );
-      printer.println(
-        tr(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`, settings.transliterate)
-      );
+        // Line 1: Left-aligned item quantity (small text)
+        printer.setTextSize(0, 0);
 
-      // Use delivery note specific products and VAT breakdown functions
-      const [
-        sumAmount,
-        sumQuantity,
-        fixedBreakdown,
-        totalOriginalValue,
-        totalNetValue,
-        totalVatAmount,
-      ] = printDeliveryNoteProducts(
-        printer,
-        aadeInvoice,
-        lang,
-        settings.transliterate
-      );
+        // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
+        printDeliveryNoteVatBreakdown(
+          printer,
+          fixedBreakdown,
+          lang,
+          totalOriginalValue,
+          totalNetValue,
+          totalVatAmount,
+          sumAmount
+        );
 
-      // Line 1: Left-aligned item quantity (small text)
-      printer.setTextSize(0, 0);
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
 
-      // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
-      printDeliveryNoteVatBreakdown(
-        printer,
-        fixedBreakdown,
-        lang,
-        totalOriginalValue,
-        totalNetValue,
-        totalVatAmount,
-        sumAmount
-      );
+        printer.println(
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+        );
+        printer.cut();
 
-      printMarks(printer, aadeInvoice, lang, settings.transliterate);
+        await printer.execute({
+          waitForResponse: false,
+        });
 
-      printer.println(
-        tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
-      );
-      printer.cut();
-
-      await printer.execute({
-        waitForResponse: false,
-      });
-
-      printer?.clear();
-      logger.info(`Successfull delivery note to ${printerIdentifier}`);
-      successCount++;
-      successes.push(printerIdentifier);
+        printer?.clear();
+        logger.info(`Successfull delivery note to ${printerIdentifier}`);
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -3156,8 +3218,8 @@ export const printOrder = async (
         });
         continue;
       }
+      const requiredDocument = isFull ? 'FULL-ORDER' : 'ORDER';
       if (settings.documentsToPrint !== undefined) {
-        const requiredDocument = isFull ? 'FULL-ORDER' : 'ORDER';
         if (!settings.documentsToPrint?.includes(requiredDocument)) {
           console.log(`${requiredDocument} is not in documentsToPrint`);
           skipped.push({
@@ -3196,7 +3258,8 @@ export const printOrder = async (
       printer.clear();
 
       let copyExecError: unknown = null;
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      const copyCount = resolveCopies(settings, requiredDocument);
+      for (let copies = 0; copies < copyCount; copies += 1) {
         if (copies > 0) {
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
@@ -3924,13 +3987,13 @@ export const printOrder = async (
             await executePrinter(
               printer,
               printerIdentifier,
-              `order print copy ${copies + 1}/${settings.copies}`,
+              `order print copy ${copies + 1}/${copyCount}`,
               {
                 orderId: order._id,
                 orderNumber: order.number,
                 orderType: order.orderType,
                 copy: copies + 1,
-                totalCopies: settings.copies,
+                totalCopies: copyCount,
               }
             );
           } catch (execError) {
@@ -4090,8 +4153,7 @@ export const printOrderComments = async (
       const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
 
       let copyExecError: unknown = null;
-      // `copies` setting applies only to orders & parking tickets; comments always print once.
-      const copyCount = 1;
+      const copyCount = resolveCopies(settings, 'COMMENTS');
       for (let copies = 0; copies < copyCount; copies += 1) {
         if (copies > 0) {
           await new Promise((resolve) => setTimeout(resolve, 400));
