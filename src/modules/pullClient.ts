@@ -33,8 +33,14 @@ import {
 import logger from './logger';
 
 // Poll timeout must clear the backend's 25s hold with margin, so a healthy idle
-// poll is answered empty by the server rather than aborted here.
-const POLL_TIMEOUT_MS = 30_000;
+// poll is answered empty by the server rather than aborted here. The margin is
+// wide because this timer starts before the connection does: DNS + TCP + TLS
+// come out of it, and on a slow venue uplink they alone can eat 5s (undici's
+// own connect timeout is 10s). At 30s such a poll aborted while the backend was
+// answering normally at 25s. Nothing is lost by waiting longer: a backend that
+// genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
+// arrives as a status error rather than an abort.
+const POLL_TIMEOUT_MS = 45_000;
 const RESULT_TIMEOUT_MS = 10_000;
 // A result report that fails gets retried on this schedule (fresh creds each
 // attempt). The sum stays far below the backend's claim-result timeout, so a
@@ -142,8 +148,20 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
+    // An AbortError is this loop's own POLL_TIMEOUT_MS firing, not a broken
+    // fetch: the long poll is the only PS call that deliberately sits near its
+    // timeout, so it is the only one that can trip it on a slow-but-working
+    // link — and the curl fallback that follows then proves the link works.
+    // Reporting it raised incidents for healthy venues. Narrowed to the abort
+    // itself: a real uplink fault surfaces as a code (ECONNRESET,
+    // UND_ERR_CONNECT_TIMEOUT, ...) and is still reported below.
+    const selfInflictedTimeout = result.fetchFailure.fetchErrorName ===
+      'AbortError';
     const now = Date.now();
-    if (now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS) {
+    if (
+      !selfInflictedTimeout &&
+      now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
+    ) {
       lastFetchFailureReportAt = now;
       reportFetchFailure(result.fetchFailure).catch(() => {});
     }
