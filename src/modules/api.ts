@@ -67,12 +67,26 @@ const reportFetchFailure = async (
   const apiUrl = nconf.get('QUICKORD_API_URL');
   if (!apiUrl) return;
 
-  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
+  // Every venue reports the same method+url, so without the venueId an incident
+  // is unattributable — the ErrorModel has no venueId column and addError does
+  // not persist the caller's IP. Carried in both the message (what Slack shows)
+  // and the details, matching reportWebSocketFailure. Resolved lazily: wsClient
+  // imports this module, so a top-level import would close the cycle.
+  const venueId = ((): string => {
+    try {
+      return require('./wsClient').getVenueId() || 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  })();
+
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
   const mutation = buildAddErrorMutation(message, failure.url, {
     fetchErrorCode: failure.fetchErrorCode,
     fetchErrorCause: failure.fetchErrorCause,
     responseStatus: failure.responseStatus,
     curlOk: failure.curlOk,
+    venueId,
   });
 
   try {
