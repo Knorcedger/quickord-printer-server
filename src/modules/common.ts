@@ -671,74 +671,10 @@ interface ProductOption {
   choices?: OptionChoice[];
 }
 
-export const printOptionDetails = (
-  printer,
-  options: ProductOption[],
-  lang: string,
-  settings: any
-) => {
-  options?.forEach((option) => {
-    let optionLabel = normalizeGreek(getTitle(option.content, lang))
-      .toUpperCase()
-      .trim();
-    if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
-      optionLabel = `${optionLabel}: `;
-    } else if (optionLabel.length > 0) {
-      optionLabel += ' ';
-    }
-
-    const choiceValues: string[] = [];
-    let totalPrice = 0;
-
-    option.choices?.forEach((choice) => {
-      const amountLevel =
-        translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] || '';
-      const quantityPrefix =
-        Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
-      const title = normalizeGreek(getTitle(choice.content, lang));
-      choiceValues.push(
-        `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim()
-      );
-      if (choice.price && choice.price > 0)
-        totalPrice += choice.price * (Number(choice.quantity) || 1);
-    });
-
-    const indent = '     ';
-    let priceStr = '';
-    if (
-      totalPrice > 0 &&
-      (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
-    ) {
-      priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
-    }
-    const lineWidth = settings?.textOptions?.includes('BOLD_PRODUCTS')
-      ? 21
-      : 42;
-    const continuationIndent = `${indent}  `;
-    const firstPrefix = `${indent}- ${optionLabel}`;
-    const lines = wrapChoicesByCommas(
-      choiceValues,
-      lineWidth,
-      firstPrefix,
-      continuationIndent,
-      priceStr.length
-    );
-    lines.forEach((wrapped, idx) => {
-      const isLast = idx === lines.length - 1;
-      let out = wrapped;
-      if (isLast && priceStr.length > 0) {
-        const padded =
-          out.length + priceStr.length <= lineWidth
-            ? out.padEnd(lineWidth - priceStr.length)
-            : out;
-        out = padded + priceStr;
-      }
-      printer.println(tr(out, settings.transliterate));
-    });
-  });
-};
-
-const wrapChoicesByCommas = (
+// Lays out the choices of one option as a comma-separated run. A choice that
+// doesn't fit starts a new line; one longer than a whole line wraps on word
+// boundaries, and only a single over-long word is broken mid-word.
+const wrapChoices = (
   choices: string[],
   width: number,
   firstPrefix: string,
@@ -755,8 +691,18 @@ const wrapChoicesByCommas = (
     current = continuationIndent;
   };
 
-  const hardChunkInto = (segment: string) => {
-    let rem = segment;
+  const appendWord = (word: string) => {
+    const sep = current.length > 0 && !current.endsWith(' ') ? ' ' : '';
+    if (current.length + sep.length + word.length <= width) {
+      current += sep + word;
+      return;
+    }
+    if (current.trim().length > 0) pushCurrent();
+    if (current.length + word.length <= width) {
+      current += word;
+      return;
+    }
+    let rem = word;
     while (rem.length > 0) {
       const avail = width - current.length;
       if (avail <= 0) {
@@ -782,12 +728,16 @@ const wrapChoicesByCommas = (
     if (current.length + choice.length <= width) {
       current += choice;
     } else {
-      hardChunkInto(choice);
+      choice
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((word) => appendWord(word));
     }
   });
 
-  if (current.length > 0) lines.push(current);
+  if (current.trim().length > 0) lines.push(current);
 
+  // Keep the price off a line that is already full.
   if (
     lastLineReserved > 0 &&
     lines.length > 0 &&
@@ -797,6 +747,92 @@ const wrapChoicesByCommas = (
   }
 
   return lines;
+};
+
+// Word-wraps a single run of text to `width` cells. `lastLineReserved` keeps
+// room on the final line for something printed after it, e.g. a price column.
+export const wrapWords = (
+  text: string,
+  width: number,
+  continuationIndent = '',
+  lastLineReserved = 0
+): string[] =>
+  wrapChoices([text], width, '', continuationIndent, lastLineReserved);
+
+// `enlarged` tells us the caller left the text at double width (BOLD_PRODUCTS),
+// where every character costs two cells and only half the line is usable.
+export const printOptionDetails = (
+  printer,
+  options: ProductOption[],
+  lang: string,
+  settings: any,
+  enlarged = false
+) => {
+  const width = enlarged ? 21 : 42;
+
+  options?.forEach((option) => {
+    // Transliterate before measuring: it rewrites Greek to Latin (Θ → TH), so
+    // wrapping the raw text would size the lines against characters we never
+    // print. It also trims, hence the indent is applied after.
+    let optionLabel = tr(
+      normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
+      settings.transliterate
+    );
+    if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
+      optionLabel = `${optionLabel}: `;
+    } else if (optionLabel.length > 0) {
+      optionLabel += ' ';
+    }
+
+    const choiceValues: string[] = [];
+    let totalPrice = 0;
+
+    option.choices?.forEach((choice) => {
+      const amountLevel =
+        translations.printOrder.amountLevel?.[lang]?.[choice.amountLevel] || '';
+      const quantityPrefix =
+        Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
+      const title = normalizeGreek(getTitle(choice.content, lang));
+      choiceValues.push(
+        tr(
+          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+          settings.transliterate
+        )
+      );
+      if (choice.price && choice.price > 0)
+        totalPrice += choice.price * (Number(choice.quantity) || 1);
+    });
+
+    // A narrow (enlarged) line can't afford the wide indent — the marker alone
+    // would eat a third of it.
+    const indent = width < 30 ? ' ' : '     ';
+    let priceStr = '';
+    if (
+      totalPrice > 0 &&
+      (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
+    ) {
+      priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
+    }
+    const continuationIndent = `${indent}  `;
+    const lines = wrapChoices(
+      choiceValues,
+      width,
+      `${indent}- ${optionLabel}`,
+      continuationIndent,
+      priceStr.length
+    );
+    lines.forEach((wrapped, idx) => {
+      const isLast = idx === lines.length - 1;
+      let out = wrapped;
+      if (isLast && priceStr.length > 0) {
+        out =
+          out.length + priceStr.length <= width
+            ? out.padEnd(width - priceStr.length) + priceStr
+            : out + priceStr;
+      }
+      printer.println(out);
+    });
+  });
 };
 
 export const printProductDiscount = (

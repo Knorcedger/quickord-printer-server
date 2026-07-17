@@ -35,6 +35,7 @@ import {
   printProductDiscount,
   getInvoiceTypeLabel,
   isUSBPrinterOnline,
+  wrapWords,
 } from './common';
 import logger from './logger';
 import { resolveCopies } from './copies';
@@ -3608,22 +3609,31 @@ export const printOrder = async (
           const enlargePrice = boldPrices && !boldProducts && !!priceStr;
           const lineWidth = boldProducts ? 21 : 42;
           const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
-          const paddedLine = productLine.padEnd(
+          // Transliterate before wrapping — it rewrites Greek to Latin and
+          // trims, so measuring or padding the raw text would misalign the
+          // price column.
+          const titleLines = wrapWords(
+            tr(productLine, settings.transliterate),
+            lineWidth,
+            '   ',
+            priceCells
+          );
+          const lastLine = titleLines[titleLines.length - 1]!;
+          titleLines.slice(0, -1).forEach((line) => printer.println(line));
+          const paddedLine = lastLine.padEnd(
             Math.max(0, lineWidth - priceCells),
             ' '
           );
 
           if (enlargePrice) {
-            printer.print(tr(paddedLine, settings.transliterate));
+            printer.print(paddedLine);
             printer.setTextSize(1, 0);
             printer.print(priceStr);
             printer.setTextSize(0, 0);
             changeTextSize(printer, settings?.textSize || 'NORMAL');
             printer.newLine();
           } else {
-            printer.println(
-              `${tr(paddedLine, settings.transliterate)}${priceStr}`
-            );
+            printer.println(`${paddedLine}${priceStr}`);
           }
 
           // Handle product option details
@@ -3632,7 +3642,14 @@ export const printOrder = async (
             product.options
           ) {
             console.log('Printing details:', JSON.stringify(product.options));
-            printOptionDetails(printer, product.options, lang, settings);
+            // BOLD_PRODUCTS leaves the text enlarged for the option lines too.
+            printOptionDetails(
+              printer,
+              product.options,
+              lang,
+              settings,
+              boldProducts
+            );
           }
           // Comments (if any)
           if (product.comments) {
