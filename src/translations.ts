@@ -304,6 +304,10 @@ export default {
       el: 'ΣΕΡΒ',
       en: 'WTR',
     },
+    guests: {
+      el: 'ΑΤΟΜΑ',
+      en: 'GUESTS',
+    },
     productComments: {
       el: 'ΣΧΟΛΙΑ ΠΡΟΙΟΝΤΟΣ',
       en: 'PRODUCT COMMENTS',
