@@ -148,18 +148,25 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // An AbortError is this loop's own POLL_TIMEOUT_MS firing, not a broken
-    // fetch: the long poll is the only PS call that deliberately sits near its
-    // timeout, so it is the only one that can trip it on a slow-but-working
-    // link — and the curl fallback that follows then proves the link works.
-    // Reporting it raised incidents for healthy venues. Narrowed to the abort
-    // itself: a real uplink fault surfaces as a code (ECONNRESET,
-    // UND_ERR_CONNECT_TIMEOUT, ...) and is still reported below.
-    const selfInflictedTimeout = result.fetchFailure.fetchErrorName ===
-      'AbortError';
+    // Two failures on this path are noise, and both are proven healthy by the
+    // curl fallback that recovered the poll:
+    //   - AbortError: this loop's own POLL_TIMEOUT_MS firing. The long poll is
+    //     the only PS call that deliberately sits near its timeout, so it alone
+    //     can trip it on a slow-but-working link.
+    //   - UND_ERR_CONNECT_TIMEOUT with curlOk: a dropped SYN on the venue's
+    //     uplink. Measured over 14 days: 20 events across 8+ venues at all
+    //     hours, every one recovered by curl with no print lost.
+    // We only get here via the curl fallback, so curlOk is true by
+    // construction — kept in the check so this stays correct if that changes.
+    // Other codes (ECONNRESET, UND_ERR_SOCKET, HTTP 5xx) are still reported.
+    const { curlOk, fetchErrorCode, fetchErrorName } = result.fetchFailure;
+    const recoveredNoise =
+      curlOk &&
+      (fetchErrorName === 'AbortError' ||
+        fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
     const now = Date.now();
     if (
-      !selfInflictedTimeout &&
+      !recoveredNoise &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
       lastFetchFailureReportAt = now;
