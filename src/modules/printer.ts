@@ -3381,28 +3381,64 @@ export const printOrder = async (
               printer.bold(false);
             }
           }
+
         }
-        printer.bold(true);
-        printer.print(
-          tr(
-            `${translations.printOrder.orderType[lang]}: `,
-            settings.transliterate
-          )
+
+        // Headcount, right-aligned on the order-type line below. Present only
+        // when the venue records it — the backend strips numberOfGuests
+        // otherwise.
+        const guests = Number(order.numberOfGuests);
+        const guestsText =
+          Number.isFinite(guests) && guests > 0
+            ? tr(
+                `${translations.printOrder.guests[lang]}: ${guests}`,
+                settings.transliterate
+              )
+            : '';
+
+        const orderTypeLabel = tr(
+          `${translations.printOrder.orderType[lang]}: `,
+          settings.transliterate
         );
+        const orderTypeText = tr(
+          `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+          settings.transliterate
+        );
+
+        printer.bold(true);
+        printer.print(orderTypeLabel);
         printer.bold(false);
         if (boldOrderType) {
           printer.bold(true);
           printer.setTextSize(1, 0);
         }
-        printer.println(
-          tr(
-            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
-            settings.transliterate
-          )
-        );
+        printer.print(orderTypeText);
         printer.bold(false);
         printer.setTextSize(0, 0);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+        if (guestsText) {
+          // boldOrderType doubles the width of the type text, as on the table line.
+          const typeWidth = boldOrderType
+            ? orderTypeText.length * 2
+            : orderTypeText.length;
+          // Line up with the waiter above, which each branch positions
+          // differently: the bold path right-aligns it to the hardcoded 42,
+          // while the plain path uses printer.table(), whose cells are split on
+          // the printer's own configured width (48 by default).
+          const guestsStart = boldOrderType
+            ? 42 - guestsText.length
+            : Math.floor(printer.getWidth() / 2);
+          const padding = Math.max(
+            1,
+            guestsStart - orderTypeLabel.length - typeWidth
+          );
+          printer.bold(true);
+          printer.print(' '.repeat(padding));
+          printer.print(guestsText);
+          printer.bold(false);
+        }
+        printer.newLine();
 
         drawLine2(printer);
 

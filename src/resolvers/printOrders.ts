@@ -254,6 +254,13 @@ export const Order = z.object({
     required_error: 'tableNumber is required.',
   }),
   tableNumbers: z.array(z.any()).optional(),
+  // Dine-in headcount. Only present when the venue records guest counts.
+  numberOfGuests: z
+    .number({
+      invalid_type_error: 'numberOfGuests must be a number.',
+    })
+    .optional()
+    .nullable(),
   tip: z
     .number({
       invalid_type_error: 'tip must be a number.',
