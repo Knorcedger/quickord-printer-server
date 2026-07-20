@@ -50,6 +50,13 @@ const RESULT_RETRY_DELAYS_MS = [2_000, 10_000, 30_000];
 // Back-off before retrying after a failed poll (uplink down, backend 5xx), so a
 // hard outage doesn't spin the loop. A successful poll re-polls immediately.
 const POLL_ERROR_BACKOFF_MS = 3_000;
+// Spread applied to that back-off, as a fraction of it. A dyno restart fails
+// every venue's held long-poll within the same millisecond, so a fixed wait
+// would march all of them back onto the freshly-booted dyno together — a
+// thundering herd landing exactly when it is least able to absorb one, which
+// then risks failing them again in lockstep. Randomising each wait breaks the
+// synchronisation after a single cycle.
+const POLL_ERROR_BACKOFF_JITTER = 0.4;
 // Rejected venue credentials won't fix themselves — a /settings sync has to
 // land a new secret — so slow-retry instead of hammering the backend (matches
 // the WS client's auth-failure handling).
@@ -85,6 +92,13 @@ let running = false;
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
+
+// One jittered back-off wait, within ±POLL_ERROR_BACKOFF_JITTER of the base.
+const pollErrorBackoffMs = (): number =>
+  Math.round(
+    POLL_ERROR_BACKOFF_MS *
+      (1 + POLL_ERROR_BACKOFF_JITTER * (Math.random() * 2 - 1))
+  );
 
 function alreadySeen(jobId: string): boolean {
   const now = Date.now();
@@ -352,7 +366,7 @@ async function loop(): Promise<void> {
         continue;
       }
       logger.error('Print-job poll failed:', err);
-      await sleep(POLL_ERROR_BACKOFF_MS);
+      await sleep(pollErrorBackoffMs());
     }
   }
 }

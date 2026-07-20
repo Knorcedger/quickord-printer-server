@@ -150,14 +150,16 @@ const reportWebSocketFailure = async (details: {
   category: string;
   code: string;
   message: string;
+  outageMinutes: number;
   url: string;
   venueId: string;
 }): Promise<void> => {
-  const message = `Problem: printer-server cannot open its WebSocket to ${details.url} for venue ${details.venueId} after ${details.attempts} attempts — ${details.category} (${details.code}): ${details.message}. Backend->printer dispatch is down for this venue.`;
+  const message = `Problem: printer-server blocked from opening its WebSocket to ${details.url} for venue ${details.venueId} for ${details.outageMinutes}min (${details.attempts} attempts) — ${details.category} (${details.code}): ${details.message}. Sustained this long it is usually a firewall/proxy/TLS block on the venue's network, though a long uplink outage looks the same from here — the category above says which. Printing still works over the pull channel.`;
   const mutation = buildAddErrorMutation(message, details.url, {
     attempts: details.attempts,
     category: details.category,
     code: details.code,
+    outageMinutes: details.outageMinutes,
     venueId: details.venueId,
   });
 

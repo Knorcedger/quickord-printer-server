@@ -86,9 +86,28 @@ let connectionReportSent = false;
 // Last classified 'error' so the 'close' handler can attribute the failure.
 let lastWsError: { category: string; code: string; message: string } | null =
   null;
+// Start of the current failure episode, so the report gates on outage duration
+// rather than on a retry count.
+let firstConnectFailureAt = 0;
 // Only alert after a few failures so a transient blip (router reboot, brief
 // outage) self-heals quietly; a real block keeps failing past this.
 const REPORT_AFTER_FAILURES = 3;
+// ...and only once the outage has lasted this long. The back-off tops out at
+// 60s, so the attempt count alone fires after ~7s of downtime — noise. A real
+// block keeps failing indefinitely and still reports.
+const SUSTAINED_OUTAGE_MS = 15 * 60 * 1000;
+// Deliberately no category allow-list here. The commonest real block — a
+// firewall/proxy that accepts the TCP connect and black-holes the upgrade —
+// surfaces in `ws` as an opening-handshake timeout with no useful code, i.e.
+// TIMEOUT or UNKNOWN. Prod bears this out: over 2026-07-06..20 one venue
+// (6943c06a5db9b8d555b4fe4c) reported four times, every one of them an UNKNOWN
+// handshake timeout. Filtering on category would have made that venue silent.
+//
+// Noise control is SUSTAINED_OUTAGE_MS alone, not the category. Note the
+// tempting-but-wrong argument that connectivity failures self-suppress because
+// reportWebSocketFailure's own HTTPS call would fail too: in that same window
+// 104 of 143 reports were DNS/ENOTFOUND and every one reached Slack, because
+// the resolver recovers within seconds — long before the report POSTs.
 
 // Map a ws 'error' into a coarse category so the Slack incident and local log
 // say *why* the connection was rejected (firewall vs proxy vs TLS interception
@@ -583,6 +602,7 @@ function connect(): void {
       authFailureLogged = false;
       consecutiveConnectFailures = 0;
       connectionReportSent = false;
+      firstConnectFailureAt = 0;
       lastWsError = null;
     }, CONNECTION_STABLE_MS);
 
@@ -653,26 +673,30 @@ function connect(): void {
     logger.info(`WebSocket connection closed (code ${code})`);
 
     // Closed before ever opening => the venue's network rejected the connection
-    // (firewall/proxy/TLS), not an auth or skew issue. After a few consecutive
-    // such failures, report it once per episode so a permanently-blocked venue
-    // raises a single Slack incident instead of one per retry.
+    // (firewall/proxy/TLS), not an auth or skew issue. Report once per episode,
+    // and only once the failure has persisted long enough to rule out a passing
+    // blip.
     if (!opened) {
       consecutiveConnectFailures++;
+      if (!firstConnectFailureAt) firstConnectFailureAt = Date.now();
+      const info = lastWsError ?? {
+        category: 'UNKNOWN',
+        code: `close_${code}`,
+        message: `closed before open (code ${code})`,
+      };
+      const outageMs = Date.now() - firstConnectFailureAt;
       if (
+        !connectionReportSent &&
         consecutiveConnectFailures >= REPORT_AFTER_FAILURES &&
-        !connectionReportSent
+        outageMs >= SUSTAINED_OUTAGE_MS
       ) {
         connectionReportSent = true;
-        const info = lastWsError ?? {
-          category: 'UNKNOWN',
-          code: `close_${code}`,
-          message: `closed before open (code ${code})`,
-        };
         reportWebSocketFailure({
           attempts: consecutiveConnectFailures,
           category: info.category,
           code: info.code,
           message: info.message,
+          outageMinutes: Math.round(outageMs / 60000),
           url: getBackendWsUrl(),
           venueId: getVenueId(),
         }).catch(() => {});
@@ -821,6 +845,7 @@ export function reconnectWebSocketClient(): void {
   authFailureLogged = false;
   consecutiveConnectFailures = 0;
   connectionReportSent = false;
+  firstConnectFailureAt = 0;
   lastWsError = null;
   connect();
 }
