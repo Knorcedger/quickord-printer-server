@@ -86,6 +86,19 @@ function restartService() {
   // logging and restart-on-failure. Spawning the exe directly leaves an
   // orphan holding port 7810 outside the service, so it is only a fallback
   // for machines where the service is not installed.
+  // The SCM keeps these in the registry, not in printerServerService.xml, so an
+  // update that only copies files never reaches them. Same commands as
+  // applyServiceConfig() in src/autoupdate/autoupdate.ts; both are idempotent.
+  for (const cmd of [
+    "sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc",
+    "sc.exe failure printerServer reset= 86400 actions= restart/5000/restart/5000/restart/60000",
+  ]) {
+    try {
+      execSync(cmd, { stdio: "ignore" });
+    } catch (err) {
+      console.warn(`⚠️ Failed to apply service config (${cmd}):`, err.message);
+    }
+  }
   try {
     execSync("sc start printerServer", { stdio: "ignore" });
   } catch {
