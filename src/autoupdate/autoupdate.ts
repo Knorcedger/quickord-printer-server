@@ -107,9 +107,21 @@ export async function copyOnlyFiles(
   await walk(srcDir);
   console.log('🎉 Copy completed.');
 }
-export function launchDetached(appPath: string, args: string[]): boolean {
+/**
+ * `cwd` matters more than it looks: the server reads and writes its runtime
+ * files relative to the working directory (`./config.json`, `version`,
+ * `./settings.json`). The updater runs from %TMP%, so a launch that inherits
+ * its cwd would start the installed exe pointing at the temp copy's config.
+ * Callers that launch an *installed* exe must pass its own directory.
+ */
+export function launchDetached(
+  appPath: string,
+  args: string[],
+  cwd?: string
+): boolean {
   try {
     const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
+      cwd: cwd ?? path.dirname(appPath),
       detached: true,
       stdio: 'ignore',
       windowsHide: false,
@@ -123,6 +135,18 @@ export function launchDetached(appPath: string, args: string[]): boolean {
   }
 }
 
+// Work that must land before this process exits on the update path — the
+// on-demand update's result report to the backend. A fixed delay alone loses
+// it on a slow link, and the backend then has no answer for a command whose
+// whole point is the answer.
+const preExitTasks = new Set<Promise<unknown>>();
+const PRE_EXIT_CAP_MS = 15_000;
+
+export function registerPreExitTask(task: Promise<unknown>): void {
+  preExitTasks.add(task);
+  void task.catch(() => {}).finally(() => preExitTasks.delete(task));
+}
+
 export async function relaunchExe(
   appPath: string,
   args: string[],
@@ -134,8 +158,16 @@ export async function relaunchExe(
 
   // The delay lets the child get off the ground before this process dies. On
   // the remote-update path it also has to outlast the HTTP result report to
-  // the backend, hence the caller-tunable value.
-  setTimeout(() => {
+  // the backend — that one is awaited explicitly (capped, so a backend that
+  // never answers cannot keep the old exe alive forever).
+  setTimeout(async () => {
+    if (preExitTasks.size > 0) {
+      console.log(`Waiting for ${preExitTasks.size} pending report(s) before exit.`);
+      await Promise.race([
+        Promise.allSettled([...preExitTasks]),
+        sleep(PRE_EXIT_CAP_MS),
+      ]);
+    }
     process.exit(0);
   }, exitDelayMs);
 }
@@ -283,8 +315,12 @@ export async function startServiceOrFallback(installDir: string): Promise<boolea
   console.error(
     `Service did not reach Running (state: ${state}). Falling back to a direct launch.`
   );
-  const exe = path.join(path.resolve(installDir), 'builds', 'printerServer.exe');
-  return launchDetached(exe, []);
+  // The launch must run from the *installed* builds dir, not the updater's
+  // temp cwd, or the fallback instance reads config.json/settings.json/version
+  // out of %TMP%.
+  const buildsDir = path.join(path.resolve(installDir), 'builds');
+  const exe = path.join(buildsDir, 'printerServer.exe');
+  return launchDetached(exe, [], buildsDir);
 }
 
 /**
@@ -539,14 +575,37 @@ export function setUpdateHandler(fn: () => Promise<UpdateCheckResult>): void {
   updateHandler = fn;
 }
 
+// WS and the pull channel can both carry an update command for the same venue
+// (the backend may retry, or a user may click twice). Without a guard each one
+// spawns its own updater against the same install directory — two processes
+// deleting and copying the same tree. The in-flight run is shared instead, so
+// the second caller gets the first one's answer.
+let updateInFlight: Promise<UpdateCheckResult> | null = null;
+
 export async function triggerUpdate(): Promise<UpdateCheckResult> {
   if (!updateHandler) {
     return { error: 'No update handler registered', state: 'failed' };
   }
+  if (updateInFlight) {
+    console.log('An update is already in flight; reusing its result.');
+    return updateInFlight;
+  }
+  updateInFlight = (async () => {
+    try {
+      return await updateHandler!();
+    } catch (err: any) {
+      return { error: err?.message || String(err), state: 'failed' as const };
+    }
+  })();
   try {
-    return await updateHandler();
-  } catch (err: any) {
-    return { error: err?.message || String(err), state: 'failed' };
+    const result = await updateInFlight;
+    // Only a started update is worth latching: on `already-latest`/`failed`
+    // this process keeps running and must stay able to retry later.
+    if (result.state !== 'updating') updateInFlight = null;
+    return result;
+  } catch {
+    updateInFlight = null;
+    return { error: 'Update failed', state: 'failed' };
   }
 }
 
@@ -727,17 +786,59 @@ async function runUpdater(path: string[]): Promise<void> {
     console.warn(`No settings.json at ${settingsPath}, nothing to preserve.`);
   }
 
+  // The old install is *moved aside*, not deleted, so a copy that dies halfway
+  // (disk full, ACL, AV quarantine, a file that got re-locked) does not leave
+  // the venue with an empty or half-written install directory. A rename is
+  // atomic and cheap; the backup is only removed once the new build is in.
+  const backupDir = `${destDir}.old`;
+  await safeCleanup(backupDir); // a leftover from an earlier failed attempt
+  let backedUp = false;
   try {
+    await fsp.rename(destDir, backupDir);
+    backedUp = true;
+  } catch (err: any) {
+    // Rename can fail where a recursive delete still succeeds (e.g. the parent
+    // dir denies writes but its contents don't). Fall back to the old
+    // behaviour rather than refusing to update at all.
+    console.error(
+      `Could not move the old install aside (${err.message || err}); deleting it instead.`
+    );
     await deleteFolderRecursive(destDir);
+  }
+
+  try {
     await fsp.mkdir(destDir, { recursive: true });
     console.log('paths: ', srcDir, destDir);
     await copyWithCmd(srcDir, destDir);
   } catch (err: any) {
-    // Nothing to roll back to at this point; the best move is still to get
-    // the service up so the next boot can retry the update.
     console.error('Copy of the new build failed:', err.message || err);
+    if (!backedUp) {
+      // Nothing to roll back to: the old install is already gone. Start
+      // whatever is there so the next boot can retry the update.
+      console.error(
+        'No backup of the previous install exists — the install directory may be incomplete.'
+      );
+      await applyServiceConfig();
+      await startServiceOrFallback(destDir);
+      return;
+    }
+    console.error('Restoring the previous install from the backup.');
+    await safeCleanup(destDir);
+    try {
+      await fsp.rename(backupDir, destDir);
+      console.log('Previous install restored. Update aborted.');
+    } catch (restoreErr: any) {
+      console.error(
+        'Failed to restore the previous install:',
+        restoreErr.message || restoreErr
+      );
+    }
+    await applyServiceConfig();
+    await startServiceOrFallback(destDir);
+    return;
   }
 
+  await safeCleanup(backupDir);
   await applyServiceConfig();
   await startServiceOrFallback(destDir);
   // The temp folder is left behind on purpose: this process lives in it. The
