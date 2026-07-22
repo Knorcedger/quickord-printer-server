@@ -716,17 +716,29 @@ async function backupInstall(installDir: string): Promise<InstallBackup | null> 
         `backup at ${tmpBackup} is missing builds\\printerServer.exe`
       );
     }
-    await clearDirContents(installDir);
-    console.log(`Previous install backed up to ${tmpBackup}`);
-    return { moved: false, path: tmpBackup };
   } catch (err: any) {
     console.error(
       `Could not back up the current install (${err.message || err}).`
     );
+    // Nothing has touched `installDir` yet, so it is still exactly as it was.
     // The copy may have left a partial backup behind; it is worthless.
     await safeCleanup(tmpBackup);
     return null;
   }
+
+  // From here on the backup is verified, so it must survive: emptying the
+  // install can fail halfway and leave a partial install behind, and the only
+  // way back from that is this backup. Returning null here would tell the
+  // caller the install is untouched and let it start a gutted directory.
+  try {
+    await clearDirContents(installDir);
+  } catch (err: any) {
+    console.error(
+      `Could not fully empty ${installDir} (${err.message || err}); continuing — the new build is copied over it and ${tmpBackup} can restore it.`
+    );
+  }
+  console.log(`Previous install backed up to ${tmpBackup}`);
+  return { moved: false, path: tmpBackup };
 }
 
 /** Put the backup taken by `backupInstall` back where it came from. */
