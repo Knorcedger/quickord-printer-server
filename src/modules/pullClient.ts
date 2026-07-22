@@ -13,6 +13,7 @@
  * A job lost between claim and print ages out of the queue rather than reprinting
  * late; staff reprint manually if needed.
  */
+import { triggerUpdate } from '../autoupdate/autoupdate';
 import { reportFetchFailure } from './api';
 import { getBackendBaseUrl } from './backendUrl';
 import {
@@ -310,6 +311,14 @@ function dispatchJob(job: {
           undefined,
           await scanNetworkForConnections()
         )
+      );
+      return;
+    case 'update':
+      // Unlike restart, this one is awaited by the backend: reporting the
+      // outcome is the point of the command. triggerUpdate resolves before the
+      // update chain takes the process down (see setUpdateHandler in index.ts).
+      runCommand(job.jobId, async () =>
+        reportResult(job.jobId, 'success', undefined, await triggerUpdate())
       );
       return;
     case 'restart':

@@ -1,5 +1,18 @@
 @echo off
 cd /d "%~dp0"
+
+REM The update now drives the service manager (sc stop / sc start) instead of
+REM leaving a detached process behind, so it needs elevation. Double-clicked by
+REM a technician this script is normally NOT elevated, and every sc call would
+REM fail with access denied - the update would abort on purpose rather than
+REM half-copy the install. Re-launch ourselves elevated instead.
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Requesting administrator privileges...
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+)
+
 setlocal
 set SERVICE_NAME=printerServer
 set PORT=7810

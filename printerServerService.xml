@@ -4,6 +4,12 @@
   <description>This service runs the printer server app.</description>
   <executable>printerServer.exe</executable>
   <log mode="roll" />
+  <!-- A non-zero exit is how the app asks to be restarted (see restartServer()
+       in src/index.ts) and also how a genuine crash surfaces. Either way WinSW
+       brings it back as its own child, so the process stays service-managed
+       instead of being respawned detached. WinSW reads this file on every
+       service start, so an updated xml takes effect without reinstalling. -->
+  <onfailure action="restart" delay="5 sec"/>
   <startmode>Automatic</startmode>
   <delayedAutoStart/>
   <depend>Tcpip</depend>

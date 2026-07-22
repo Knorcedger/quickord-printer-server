@@ -107,9 +107,7 @@ export async function copyOnlyFiles(
   await walk(srcDir);
   console.log('🎉 Copy completed.');
 }
-export async function relaunchExe(appPath: string, args: string[]) {
-  const exePath = path.resolve(appPath); // Ensure absolute path
-
+export function launchDetached(appPath: string, args: string[]): boolean {
   try {
     const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
       detached: true,
@@ -118,16 +116,239 @@ export async function relaunchExe(appPath: string, args: string[]) {
     });
 
     child.unref();
-
-    console.log('Relaunched exe with args. Waiting to exit...');
-
-    setTimeout(async () => {
-      process.exit(0);
-    }, 500);
-    //}, 500); // 500ms delay to ensure safe spawn
+    return true;
   } catch (err) {
     console.error('Failed to relaunch exe:', err);
+    return false;
   }
+}
+
+export async function relaunchExe(
+  appPath: string,
+  args: string[],
+  exitDelayMs = 500
+) {
+  if (!launchDetached(appPath, args)) return;
+
+  console.log('Relaunched exe with args. Waiting to exit...');
+
+  // The delay lets the child get off the ground before this process dies. On
+  // the remote-update path it also has to outlast the HTTP result report to
+  // the backend, hence the caller-tunable value.
+  setTimeout(() => {
+    process.exit(0);
+  }, exitDelayMs);
+}
+
+// ---------------------------------------------------------------------------
+// Windows service control
+//
+// The update chain used to hand the running process off with detached spawns
+// and never touch the SCM, which left the printer server alive but orphaned
+// (service Stopped, exe still holding the port) after *every* update. These
+// helpers make the chain go through the service manager and, crucially, check
+// what it actually did instead of swallowing the exit code.
+// ---------------------------------------------------------------------------
+
+export const SERVICE_NAME = 'printerServer';
+
+export type ServiceState = 'RUNNING' | 'STOPPED' | 'PENDING' | 'ABSENT' | 'UNKNOWN';
+
+function runCmd(
+  cmd: string,
+  timeoutMs = 30_000
+): Promise<{ code: number; output: string }> {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
+      resolve({
+        code: error ? ((error as any).code ?? 1) : 0,
+        output: `${stdout ?? ''}\n${stderr ?? ''}`,
+      });
+    });
+  });
+}
+
+const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+export async function getServiceState(): Promise<ServiceState> {
+  const { code, output } = await runCmd(`sc.exe query ${SERVICE_NAME}`, 15_000);
+  if (/1060/.test(output)) return 'ABSENT'; // service does not exist
+  if (code !== 0) return 'UNKNOWN';
+  if (/STATE\s*:\s*\d+\s+RUNNING/i.test(output)) return 'RUNNING';
+  if (/STATE\s*:\s*\d+\s+STOPPED/i.test(output)) return 'STOPPED';
+  if (/STATE\s*:\s*\d+\s+\w+_PENDING/i.test(output)) return 'PENDING';
+  return 'UNKNOWN';
+}
+
+async function waitForState(
+  wanted: ServiceState[],
+  timeoutMs: number
+): Promise<ServiceState> {
+  const deadline = Date.now() + timeoutMs;
+  let state = await getServiceState();
+  while (!wanted.includes(state) && Date.now() < deadline) {
+    await sleep(1000);
+    state = await getServiceState();
+  }
+  return state;
+}
+
+// PIDs listening on `port`, excluding our own. netstat is parsed in JS rather
+// than piped through findstr so a missing match isn't an error exit code.
+async function findPortHolders(port: number): Promise<number[]> {
+  const { output } = await runCmd('netstat -ano -p TCP', 20_000);
+  const pids = new Set<number>();
+  for (const line of output.split(/\r?\n/)) {
+    if (!/LISTENING/i.test(line)) continue;
+    const parts = line.trim().split(/\s+/);
+    const local = parts[1] ?? '';
+    if (!local.endsWith(`:${port}`)) continue;
+    const pid = parseInt(parts[parts.length - 1] ?? '', 10);
+    if (!Number.isFinite(pid) || pid === 0 || pid === process.pid) continue;
+    pids.add(pid);
+  }
+  return [...pids];
+}
+
+/**
+ * Stop the service and make sure nothing is left holding the server port.
+ *
+ * Killing by image name is not an option here: the updater *is* a
+ * printerServer.exe (running from temp), so `taskkill /IM printerServer.exe`
+ * would kill the updater itself. Only the port holder is killed, by PID.
+ *
+ * Returns false when the machine is not in a safe state to overwrite the
+ * install directory — the caller must then abort *before* deleting anything.
+ */
+export async function stopServiceAndFreePort(port: number): Promise<boolean> {
+  const initial = await getServiceState();
+  console.log(`Service state before stop: ${initial}`);
+
+  if (initial !== 'ABSENT' && initial !== 'STOPPED') {
+    const { code, output } = await runCmd(`sc.exe stop ${SERVICE_NAME}`, 30_000);
+    // 1062 = service not started. Anything else non-zero (5 = access denied
+    // when force_autoupdate.bat runs unelevated) is worth surfacing, but the
+    // state poll below is what actually decides.
+    if (code !== 0) {
+      console.error(`sc stop returned ${code}: ${output.trim()}`);
+    }
+    const state = await waitForState(['STOPPED', 'ABSENT'], 45_000);
+    if (state !== 'STOPPED' && state !== 'ABSENT') {
+      console.error(
+        `Service did not reach Stopped (state: ${state}). Aborting update to avoid a half-copied install.`
+      );
+      return false;
+    }
+  }
+
+  // Orphan healing: a service-less printerServer.exe (left behind by an older
+  // build's detached relaunch) still owns the port and still locks its files.
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    const holders = await findPortHolders(port);
+    if (holders.length === 0) return true;
+    if (Date.now() > deadline) {
+      console.error(
+        `Port ${port} still held by PID(s) ${holders.join(', ')} after kill attempts. Aborting update.`
+      );
+      return false;
+    }
+    for (const pid of holders) {
+      console.log(`Killing stale process ${pid} holding port ${port}`);
+      await runCmd(`taskkill /PID ${pid} /F /T`, 15_000);
+    }
+    await sleep(1000);
+  }
+}
+
+/**
+ * Start the service and confirm it actually reached Running. Falls back to
+ * launching the exe directly only if the SCM refuses (service missing, or no
+ * privileges — force_autoupdate.bat runs as the technician, not LocalSystem),
+ * so a failed `sc start` can never leave the venue with nothing running.
+ */
+export async function startServiceOrFallback(installDir: string): Promise<boolean> {
+  const { code, output } = await runCmd(`sc.exe start ${SERVICE_NAME}`, 30_000);
+  // 1056 = already running.
+  if (code !== 0 && !/1056/.test(output)) {
+    console.error(`sc start returned ${code}: ${output.trim()}`);
+  }
+
+  const state = await waitForState(['RUNNING'], 45_000);
+  if (state === 'RUNNING') {
+    console.log('Service is running.');
+    return true;
+  }
+
+  console.error(
+    `Service did not reach Running (state: ${state}). Falling back to a direct launch.`
+  );
+  const exe = path.join(path.resolve(installDir), 'builds', 'printerServer.exe');
+  return launchDetached(exe, []);
+}
+
+/**
+ * Detached safety net for a restart: a few seconds after we exit, make sure the
+ * service is up again.
+ *
+ * It covers the two cases the exit code alone cannot. If we were orphaned, no
+ * WinSW is watching us and `sc start` is what brings the machine back under the
+ * SCM — the same call heals the orphan. If we were service-managed but the
+ * on-disk xml is still the pre-onfailure one (a venue that has not taken the
+ * update carrying the new xml yet), WinSW treats even a non-zero exit as the
+ * end of the service; the watchdog starts it again. On an already-running
+ * service `sc start` fails with 1056 and changes nothing.
+ *
+ * Written as a batch file rather than an inline `cmd /c` string because the
+ * `find "RUNNING"` quoting does not survive Node's argument escaping.
+ */
+export function scheduleServiceStartWatchdog(): void {
+  if (process.platform !== 'win32') return;
+  try {
+    const batPath = path.join(tmpdir(), 'quickord-restart-watchdog.bat');
+    const exe = process.execPath;
+    fs.writeFileSync(
+      batPath,
+      [
+        '@echo off',
+        'ping -n 9 127.0.0.1 >nul',
+        `sc start ${SERVICE_NAME} >nul 2>&1`,
+        'ping -n 6 127.0.0.1 >nul',
+        `sc query ${SERVICE_NAME} | find "RUNNING" >nul`,
+        `if errorlevel 1 start "" "${exe}"`,
+        '',
+      ].join('\r\n'),
+      'utf-8'
+    );
+    const child = spawn('cmd.exe', ['/c', batPath], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+  } catch (err: any) {
+    console.error('Failed to schedule the service-start watchdog:', err.message || err);
+  }
+}
+
+/**
+ * Are we running as a child of WinSW, i.e. can the SCM restart us?
+ *
+ * Only then does exiting non-zero mean "restart me". An orphaned instance that
+ * exits is simply gone, so restartServer() needs to know which world it is in.
+ * Failing closed (false) is the safe answer: the caller's fallback is a
+ * detached `sc start`, which is a no-op on an already-running service.
+ */
+export async function isServiceManaged(): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const ppid = process.ppid;
+  if (!ppid) return false;
+  const { code, output } = await runCmd(
+    `powershell -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${ppid}').Name"`,
+    15_000
+  );
+  if (code !== 0) return false;
+  return /printerServerService\.exe/i.test(output);
 }
 export async function deleteFolderRecursive(
   folderPath: string,
@@ -226,7 +447,16 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   }
 }
 
-export async function downloadLatestCode(): Promise<string | null> {
+export interface UpdateCheckResult {
+  currentVersion?: string;
+  error?: string;
+  latestVersion?: string;
+  state: 'already-latest' | 'updating' | 'failed';
+}
+
+export async function downloadLatestCode(
+  relaunchDelayMs = 500
+): Promise<UpdateCheckResult> {
   // Read current version
   let currentVersion = '';
   try {
@@ -244,7 +474,7 @@ export async function downloadLatestCode(): Promise<string | null> {
     if (isLatestVersion(currentVersion, latestVersion)) {
       console.log('Already up to date. No download needed.');
       console.log(`Current: ${currentVersion}, Latest: ${latestVersion}`);
-      return null; // no update needed
+      return { currentVersion, latestVersion, state: 'already-latest' };
     }
     console.log('Update available!');
     console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
@@ -252,7 +482,11 @@ export async function downloadLatestCode(): Promise<string | null> {
     console.log(
       'Could not fetch latest version from API (network not ready?). Skipping update.'
     );
-    return null;
+    return {
+      currentVersion,
+      error: 'Could not fetch the latest version',
+      state: 'failed',
+    };
   }
 
   // Proceed with download
@@ -292,8 +526,50 @@ export async function downloadLatestCode(): Promise<string | null> {
   args[2] = '--parent';
   args[3] = parentDir;
   path2 = tempCodePath + '/builds/printerServer.exe';
-  relaunchExe(path2, args);
-  return tempCodePath;
+  relaunchExe(path2, args, relaunchDelayMs);
+  return { currentVersion, latestVersion, state: 'updating' };
+}
+
+// Update trigger registered by index.ts, mirroring setRestartHandler. Lets the
+// WS/pull control channels ask for an explicit version check without going
+// through a restart — when there is nothing new, the server keeps running.
+let updateHandler: (() => Promise<UpdateCheckResult>) | null = null;
+
+export function setUpdateHandler(fn: () => Promise<UpdateCheckResult>): void {
+  updateHandler = fn;
+}
+
+export async function triggerUpdate(): Promise<UpdateCheckResult> {
+  if (!updateHandler) {
+    return { error: 'No update handler registered', state: 'failed' };
+  }
+  try {
+    return await updateHandler();
+  } catch (err: any) {
+    return { error: err?.message || String(err), state: 'failed' };
+  }
+}
+
+/**
+ * The update chain unpacks each release into %TMP%\quickord-cashier-server-update*
+ * and the updater that runs from there cannot delete its own directory. The
+ * freshly installed server does it instead, on the next boot — this replaces
+ * the old `--remove` hop, which was the reason a post-update process carried
+ * `--remove` args and silently skipped its version check on every restart.
+ */
+export async function sweepTempUpdateDirs(): Promise<void> {
+  if (process.platform !== 'win32') return;
+  const base = tmpdir();
+  const entries = await fsp.readdir(base).catch(() => [] as string[]);
+  const cwd = path.resolve(process.cwd()).toLowerCase();
+
+  for (const name of entries) {
+    if (!name.startsWith('quickord-cashier-server-update')) continue;
+    const full = path.join(base, name);
+    // Never delete the tree we are currently running from.
+    if (cwd.startsWith(full.toLowerCase())) continue;
+    await safeCleanup(full);
+  }
 }
 
 export async function safeCleanup(dirPath: string) {
@@ -397,57 +673,73 @@ export default async function autoUpdate(path: string[]) {
 
   if (path.length === 0) {
     await downloadLatestCode();
-  } else if (path[0] === '--update') {
-    srcDir = path[1]?.toString() || '';
-    destDir = path[3]?.toString() || '';
-    console.log(`srcDir: ${srcDir}`);
-    console.log(`destDir: ${destDir}`);
-    console.log(process.cwd());
-    process.chdir(srcDir + '\\builds');
-    console.log(process.cwd());
-    try {
-      const settingsPath = `${destDir}\\builds\\settings.json`;
-      await copySettingsFile(settingsPath, srcDir);
-      await deleteFolderRecursive(destDir);
-    } catch (err: any) {
-      console.error('cleanupMain failed:', err.message || err);
-    }
+    return;
+  }
 
-    console.log(process.cwd());
+  if (path[0] === '--update') {
+    await runUpdater(path);
+    // This process is the updater, not a server: it runs from %TMP% and the
+    // real instance is already back up under the service manager. Falling
+    // through to main() would bind the port from the temp copy.
+    process.exit(0);
+  }
+}
+
+/**
+ * The `--update` mode: replace the install directory and hand control back to
+ * the service manager. Runs from the freshly downloaded copy in %TMP%, so it is
+ * free to overwrite the install underneath it.
+ */
+async function runUpdater(path: string[]): Promise<void> {
+  srcDir = path[1]?.toString() || '';
+  destDir = path[3]?.toString() || '';
+  console.log(`srcDir: ${srcDir}`);
+  console.log(`destDir: ${destDir}`);
+  process.chdir(srcDir + '\\builds');
+
+  const port = Number(nconf.get('PORT')) || 7810;
+
+  // Stop the service (and any orphan holding the port) BEFORE touching the
+  // install dir. If that fails, the old install is still intact and running —
+  // far better than a half-copied directory with the service down.
+  if (!(await stopServiceAndFreePort(port))) {
+    console.error('Update aborted: could not free the install directory.');
+    await startServiceOrFallback(destDir);
+    return;
+  }
+
+  // settings.json is the only per-venue state in the install dir. Losing it
+  // means a venue with no printers configured, so a failed backup aborts the
+  // update instead of deleting anything.
+  const settingsPath = `${destDir}\\builds\\settings.json`;
+  if (fs.existsSync(settingsPath)) {
     try {
-      await fsp.mkdir(destDir, { recursive: true });
-      console.log(`Created folder: ${destDir}`);
+      await copySettingsFile(settingsPath, srcDir);
     } catch (err: any) {
       console.error(
-        `Failed to create folder "${destDir}":`,
+        'Update aborted: failed to back up settings.json:',
         err.message || err
       );
+      await startServiceOrFallback(destDir);
+      return;
     }
-    console.log('paths: ', srcDir, destDir);
-
-    await copyWithCmd(srcDir, destDir);
-    await applyServiceConfig();
-    path[0] = '--remove';
-    path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
-    console.log(path2);
-    console.log(srcDir, destDir);
-    const buildsDir = destDir + '\\builds';
-    try {
-      // Change directory to the 'builds' folder inside destDir
-      process.chdir(buildsDir);
-      console.log(`Successfully changed directory to ${buildsDir}`);
-    } catch (err) {
-      console.log(`Failed to change directory: ${err.message}`);
-    }
-    relaunchExe(path2, path);
-    //
-  } else if (path[0] === '--remove') {
-    let srcDir = path[1]?.toString() || '';
-    console.log(`srcDir: ${srcDir}`);
-
-    const currentDir = process.cwd();
-    const parentDir = dirname(srcDir);
-    console.log(parentDir);
-    await deleteFolderRecursive(parentDir);
+  } else {
+    console.warn(`No settings.json at ${settingsPath}, nothing to preserve.`);
   }
+
+  try {
+    await deleteFolderRecursive(destDir);
+    await fsp.mkdir(destDir, { recursive: true });
+    console.log('paths: ', srcDir, destDir);
+    await copyWithCmd(srcDir, destDir);
+  } catch (err: any) {
+    // Nothing to roll back to at this point; the best move is still to get
+    // the service up so the next boot can retry the update.
+    console.error('Copy of the new build failed:', err.message || err);
+  }
+
+  await applyServiceConfig();
+  await startServiceOrFallback(destDir);
+  // The temp folder is left behind on purpose: this process lives in it. The
+  // newly started server sweeps it on boot (sweepTempUpdateDirs).
 }
