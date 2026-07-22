@@ -45,6 +45,13 @@ let authFailureLogged = false;
 // can skip churning a healthy socket when settings sync with unchanged creds.
 let registeredVenueId = '';
 let registeredSecret = '';
+// Creds the in-flight connect() will register with once 'open' fires. Set before
+// the socket is created, because reconnectWebSocketClient() counts a CONNECTING
+// socket as live: without these, a settings sync landing inside the handshake
+// window (~1s on a venue line) compares the real venueId against the still-empty
+// registered* and tears down a socket that simply hadn't opened yet.
+let connectingVenueId = '';
+let connectingSecret = '';
 const MAX_RECONNECT_DELAY = 60000;
 const CONNECTION_STABLE_MS = 5000;
 // Ping cadence for the keepalive. A missed pong over one interval terminates the
@@ -583,6 +590,8 @@ function connect(): void {
   logger.info(`Connecting to backend WebSocket: ${url}`);
 
   connectStartedAt = Date.now();
+  connectingVenueId = venueId;
+  connectingSecret = secret;
   ws = new WebSocket(url, { handshakeTimeout: HANDSHAKE_TIMEOUT_MS });
   // Whether this socket ever reached 'open'. A close before open means the
   // connection was rejected at the transport level (firewall/proxy/TLS) — the
@@ -795,12 +804,14 @@ export function reconnectWebSocketClient(): void {
     return;
   }
 
-  const live =
-    !!ws &&
-    (ws.readyState === WebSocket.OPEN ||
-      ws.readyState === WebSocket.CONNECTING);
-  const credsChanged =
-    venueId !== registeredVenueId || secret !== registeredSecret;
+  const connecting = !!ws && ws.readyState === WebSocket.CONNECTING;
+  const live = (!!ws && ws.readyState === WebSocket.OPEN) || connecting;
+  // Compare against whatever the current socket is actually carrying: a socket
+  // still in CONNECTING hasn't run its 'open' handler, so registered* is empty
+  // (or stale from the previous socket) and would falsely read as a creds change.
+  const currentVenueId = connecting ? connectingVenueId : registeredVenueId;
+  const currentSecret = connecting ? connectingSecret : registeredSecret;
+  const credsChanged = venueId !== currentVenueId || secret !== currentSecret;
   if (live && !credsChanged) {
     logger.info(
       'reconnectWebSocketClient: already connected with current creds, no-op'
@@ -830,6 +841,12 @@ export function reconnectWebSocketClient(): void {
         heartbeatTimer = null;
       }
       ws.removeAllListeners();
+      // close() on a socket still in CONNECTING makes ws abort the handshake and
+      // emit 'error' on the *next tick* — outside this try/catch, and with no
+      // listeners left after removeAllListeners(). An EventEmitter with no
+      // 'error' listener throws, which would surface as an uncaughtException.
+      // Swallow it: we are discarding this socket on purpose.
+      ws.on('error', () => {});
       ws.close();
     } catch (err) {
       logger.error('reconnectWebSocketClient: error closing old socket:', err);
