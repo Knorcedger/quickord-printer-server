@@ -46,6 +46,48 @@ async function extractZip(zipBuffer, tempCodePath) {
   }
 }
 
+/**
+ * Recursive delete that works inside the nexe exe.
+ *
+ * `fs.rm({ recursive: true })` goes through node's `internal/fs/rimraf`, which
+ * calls `readdir(path, 'buffer')` and concatenates the returned Buffers. nexe
+ * patches fs for its virtual filesystem and ignores that encoding, so rimraf
+ * gets strings back and throws `ERR_INVALID_ARG_TYPE` from `Buffer.concat` —
+ * *inside a callback*, so it surfaces as an unhandled rejection that no
+ * try/catch around the `rm()` can see. Walking the tree ourselves with the
+ * plain (string) readdir keeps every delete on the update path survivable.
+ */
+export async function rmrf(target: string): Promise<void> {
+  const stat = await fsp.lstat(target).catch((err: any) => {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  });
+  if (!stat) return;
+
+  // Read-only files are common in an extracted release; rimraf's own EPERM
+  // handling (chmod, then retry) is the part worth keeping.
+  const withWinEperm = async (op: () => Promise<void>) => {
+    try {
+      await op();
+    } catch (err: any) {
+      if (err?.code !== 'EPERM') throw err;
+      await fsp.chmod(target, 0o666).catch(() => {});
+      await op();
+    }
+  };
+
+  if (!stat.isDirectory()) {
+    await withWinEperm(() => fsp.unlink(target));
+    return;
+  }
+
+  const entries = await fsp.readdir(target);
+  for (const name of entries) {
+    await rmrf(path.join(target, name));
+  }
+  await withWinEperm(() => fsp.rmdir(target));
+}
+
 export async function copyOnlyFiles(
   srcDir: string,
   destDir: string,
@@ -58,7 +100,7 @@ export async function copyOnlyFiles(
     options;
   const ignored = new Set(ignoreFolders);
 
-  await fs.promises.rm(destDir, { recursive: true, force: true });
+  await rmrf(destDir);
   await fs.promises.mkdir(destDir, { recursive: true });
 
   function isNestedBuildsPath(filepath: string): boolean {
@@ -640,7 +682,7 @@ export async function safeCleanup(dirPath: string) {
     // Tiny delay to ensure all streams are closed
     await new Promise((res) => setTimeout(res, 50));
 
-    await fsp.rm(resolvedPath, { recursive: true, force: true });
+    await rmrf(resolvedPath);
     console.log('✅ Temp folder cleaned up:', resolvedPath);
   } catch (err: any) {
     console.error('⚠️ Failed to clean temp folder:', err.message);
@@ -653,7 +695,7 @@ export async function safeCleanup(dirPath: string) {
  * silently failed delete is how a half-written install gets started.
  */
 async function removePath(target: string): Promise<void> {
-  await fsp.rm(path.resolve(target), { recursive: true, force: true });
+  await rmrf(path.resolve(target));
 }
 
 // Empty a directory without removing the directory itself — the only way to
@@ -665,7 +707,7 @@ async function clearDirContents(dir: string): Promise<void> {
     throw err;
   });
   for (const name of entries) {
-    await fsp.rm(path.join(dir, name), { recursive: true, force: true });
+    await rmrf(path.join(dir, name));
   }
 }
 
