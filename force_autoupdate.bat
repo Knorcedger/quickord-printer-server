@@ -46,4 +46,12 @@ if exist updater.exe (
 )
 popd
 
+REM An older updater.exe ends by spawning printerServer.exe detached, which
+REM leaves the service stopped and an orphan on the port. Clear it and start
+REM the service so the machine is left under SCM supervision either way.
+taskkill /IM printerServer.exe /F >nul 2>&1
+timeout /t 2 >nul
+echo Starting service...
+sc start "%SERVICE_NAME%"
+
 pause
