@@ -856,19 +856,36 @@ export function copyWithCmd(
   });
 }
 
-function applyServiceConfig(): Promise<void> {
+function runServiceConfigCmd(cmd: string): Promise<void> {
   return new Promise((resolve) => {
-    const cmd =
-      'sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc';
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
-        console.error('Failed to apply service config:', stderr || error.message);
+        console.error(`Failed to apply service config (${cmd}):`, stderr || error.message);
       } else {
         console.log('Service config applied:', stdout.trim());
       }
       resolve();
     });
   });
+}
+
+/**
+ * Service settings that live in the SCM's registry entry, not in the xml.
+ * `printerServerService.exe install` writes them once; an update only copies
+ * files, so re-applying them here is the only way they reach existing
+ * installs. Both calls are idempotent.
+ */
+function applyServiceConfig(): Promise<void> {
+  const cmds = [
+    'sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc',
+    // Mirrors <onfailure action="restart" delay="5 sec"/>. Without this the SCM
+    // reads a non-zero exit as "service finished" and leaves the venue down.
+    'sc.exe failure printerServer reset= 86400 actions= restart/5000/restart/5000/restart/60000',
+  ];
+  return cmds.reduce(
+    (chain, cmd) => chain.then(() => runServiceConfigCmd(cmd)),
+    Promise.resolve()
+  );
 }
 
 function copySettingsFile(settingsPath, destDir) {

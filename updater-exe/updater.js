@@ -82,6 +82,27 @@ function restoreSettings() {
 // Restart main service
 function restartService() {
   console.log("🚀 Restarting main service...");
+  // Go through the SCM so the server comes back as WinSW's child, with its
+  // logging and restart-on-failure. Spawning the exe directly leaves an
+  // orphan holding port 7810 outside the service, so it is only a fallback
+  // for machines where the service is not installed.
+  try {
+    execSync("sc start printerServer", { stdio: "ignore" });
+  } catch {
+    // Already running (1056) still ends up RUNNING below; not installed (1060)
+    // does not, and falls through to the direct launch.
+  }
+  // Startup is not instant, so poll instead of reading the state once.
+  for (let i = 0; i < 6; i++) {
+    try {
+      execSync('sc query printerServer | find "RUNNING"', { stdio: "ignore" });
+      console.log("✅ Service started");
+      return;
+    } catch {
+      execSync("ping -n 3 127.0.0.1 >nul", { stdio: "ignore" });
+    }
+  }
+  console.warn("⚠️ Service did not start, launching the exe directly");
   const exePath = path.join(__dirname, "builds", "printerServer.exe");
   spawn(exePath, [], {
     detached: true,

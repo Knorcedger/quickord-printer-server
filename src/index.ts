@@ -394,6 +394,10 @@ const main = async () => {
     logger.error(
       `Problem: failed to bind port ${SERVER_PORT} (${err.code || err.message}). Exiting so the service manager retries.`
     );
+    // The exit code only restarts us where the failure actions are configured,
+    // so schedule the watchdog too: it covers venues still on the old service
+    // config and orphaned instances, which have nobody watching them.
+    scheduleServiceStartWatchdog();
     process.exit(1);
   });
 };
