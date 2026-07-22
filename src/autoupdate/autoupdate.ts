@@ -647,6 +647,114 @@ export async function safeCleanup(dirPath: string) {
   }
 }
 
+/**
+ * Delete that *reports* failure. `safeCleanup`/`deleteFolderRecursive` swallow
+ * errors, which is fine for temp dirs but not on the update path: there, a
+ * silently failed delete is how a half-written install gets started.
+ */
+async function removePath(target: string): Promise<void> {
+  await fsp.rm(path.resolve(target), { recursive: true, force: true });
+}
+
+// Empty a directory without removing the directory itself — the only way to
+// clear an install whose *parent* denies writes (where rename/rmdir fail but
+// the contents are still deletable).
+async function clearDirContents(dir: string): Promise<void> {
+  const entries = await fsp.readdir(dir).catch((err: any) => {
+    if (err?.code === 'ENOENT') return [] as string[];
+    throw err;
+  });
+  for (const name of entries) {
+    await fsp.rm(path.join(dir, name), { recursive: true, force: true });
+  }
+}
+
+// A build is only usable if the exe is actually there; xcopy can return 0 after
+// skipping files, and a truncated copy must not be treated as a live install.
+function hasServerExe(dir: string): boolean {
+  return fs.existsSync(path.join(dir, 'builds', 'printerServer.exe'));
+}
+
+type InstallBackup = {
+  /** Where the previous install now lives. */
+  path: string;
+  /** true = the install dir was renamed away, false = copied then emptied. */
+  moved: boolean;
+};
+
+/**
+ * Put the current install somewhere recoverable before it is overwritten.
+ *
+ * Preferred path is a rename (atomic, cheap). When that fails — typically a
+ * parent directory that denies writes — we fall back to *copying* the install
+ * into %TMP% and then emptying it, never to deleting it outright: an update
+ * that proceeds with no backup is exactly the failure mode that bricks a venue.
+ * Returns null when neither worked, and in that case the install is left
+ * completely untouched so the caller can just start it again.
+ */
+async function backupInstall(installDir: string): Promise<InstallBackup | null> {
+  const sibling = `${installDir}.old`;
+  try {
+    await removePath(sibling); // a leftover from an earlier failed attempt
+    await fsp.rename(installDir, sibling);
+    console.log(`Previous install moved aside to ${sibling}`);
+    return { moved: true, path: sibling };
+  } catch (err: any) {
+    console.error(
+      `Could not move the old install aside (${err.message || err}); falling back to a copied backup.`
+    );
+  }
+
+  // Not under tmpdir()/quickord-cashier-server-update*, so sweepTempUpdateDirs
+  // cannot delete a backup we may still need.
+  const tmpBackup = path.join(tmpdir(), 'quickord-install-backup');
+  try {
+    await removePath(tmpBackup);
+    await copyWithCmd(installDir, tmpBackup);
+    if (!hasServerExe(tmpBackup)) {
+      throw new Error(
+        `backup at ${tmpBackup} is missing builds\\printerServer.exe`
+      );
+    }
+    await clearDirContents(installDir);
+    console.log(`Previous install backed up to ${tmpBackup}`);
+    return { moved: false, path: tmpBackup };
+  } catch (err: any) {
+    console.error(
+      `Could not back up the current install (${err.message || err}).`
+    );
+    // The copy may have left a partial backup behind; it is worthless.
+    await safeCleanup(tmpBackup);
+    return null;
+  }
+}
+
+/** Put the backup taken by `backupInstall` back where it came from. */
+async function restoreInstall(
+  backup: InstallBackup,
+  installDir: string
+): Promise<boolean> {
+  try {
+    if (backup.moved) {
+      await removePath(installDir);
+      await fsp.rename(backup.path, installDir);
+    } else {
+      await clearDirContents(installDir);
+      await copyWithCmd(backup.path, installDir);
+    }
+    if (!hasServerExe(installDir)) {
+      throw new Error(`restored install at ${installDir} has no exe`);
+    }
+    return true;
+  } catch (err: any) {
+    console.error(
+      'Failed to restore the previous install:',
+      err.message || err
+    );
+    return false;
+  }
+}
+
 export async function copyRecursive(
   sourceFolder: string,
   destFolder: string
@@ -736,11 +844,12 @@ export default async function autoUpdate(path: string[]) {
   }
 
   if (path[0] === '--update') {
-    await runUpdater(path);
+    const ok = await runUpdater(path);
     // This process is the updater, not a server: it runs from %TMP% and the
     // real instance is already back up under the service manager. Falling
-    // through to main() would bind the port from the temp copy.
-    process.exit(0);
+    // through to main() would bind the port from the temp copy. The exit code
+    // is what a technician running force_autoupdate.bat sees.
+    process.exit(ok ? 0 : 1);
   }
 }
 
@@ -749,7 +858,7 @@ export default async function autoUpdate(path: string[]) {
  * the service manager. Runs from the freshly downloaded copy in %TMP%, so it is
  * free to overwrite the install underneath it.
  */
-async function runUpdater(path: string[]): Promise<void> {
+async function runUpdater(path: string[]): Promise<boolean> {
   srcDir = path[1]?.toString() || '';
   destDir = path[3]?.toString() || '';
   console.log(`srcDir: ${srcDir}`);
@@ -764,7 +873,7 @@ async function runUpdater(path: string[]): Promise<void> {
   if (!(await stopServiceAndFreePort(port))) {
     console.error('Update aborted: could not free the install directory.');
     await startServiceOrFallback(destDir);
-    return;
+    return false;
   }
 
   // settings.json is the only per-venue state in the install dir. Losing it
@@ -780,67 +889,56 @@ async function runUpdater(path: string[]): Promise<void> {
         err.message || err
       );
       await startServiceOrFallback(destDir);
-      return;
+      return false;
     }
   } else {
     console.warn(`No settings.json at ${settingsPath}, nothing to preserve.`);
   }
 
-  // The old install is *moved aside*, not deleted, so a copy that dies halfway
-  // (disk full, ACL, AV quarantine, a file that got re-locked) does not leave
-  // the venue with an empty or half-written install directory. A rename is
-  // atomic and cheap; the backup is only removed once the new build is in.
-  const backupDir = `${destDir}.old`;
-  await safeCleanup(backupDir); // a leftover from an earlier failed attempt
-  let backedUp = false;
-  try {
-    await fsp.rename(destDir, backupDir);
-    backedUp = true;
-  } catch (err: any) {
-    // Rename can fail where a recursive delete still succeeds (e.g. the parent
-    // dir denies writes but its contents don't). Fall back to the old
-    // behaviour rather than refusing to update at all.
+  // The old install is preserved, never deleted outright, so a copy that dies
+  // halfway (disk full, ACL, AV quarantine, a file that got re-locked) does not
+  // leave the venue with an empty or half-written install directory. No
+  // backup means no update: the install stays exactly as it was.
+  const backup = await backupInstall(destDir);
+  if (!backup) {
     console.error(
-      `Could not move the old install aside (${err.message || err}); deleting it instead.`
+      'Update aborted: could not back up the current install. It was left untouched.'
     );
-    await deleteFolderRecursive(destDir);
+    await startServiceOrFallback(destDir);
+    return false;
   }
 
   try {
     await fsp.mkdir(destDir, { recursive: true });
     console.log('paths: ', srcDir, destDir);
     await copyWithCmd(srcDir, destDir);
+    if (!hasServerExe(destDir)) {
+      throw new Error(
+        `copy finished but ${destDir}\\builds\\printerServer.exe is missing`
+      );
+    }
   } catch (err: any) {
     console.error('Copy of the new build failed:', err.message || err);
-    if (!backedUp) {
-      // Nothing to roll back to: the old install is already gone. Start
-      // whatever is there so the next boot can retry the update.
-      console.error(
-        'No backup of the previous install exists — the install directory may be incomplete.'
-      );
-      await applyServiceConfig();
-      await startServiceOrFallback(destDir);
-      return;
-    }
     console.error('Restoring the previous install from the backup.');
-    await safeCleanup(destDir);
-    try {
-      await fsp.rename(backupDir, destDir);
-      console.log('Previous install restored. Update aborted.');
-    } catch (restoreErr: any) {
+    if (!(await restoreInstall(backup, destDir))) {
+      // Starting here would run a knowingly incomplete install. Leave the
+      // backup in place and say exactly where it is instead — a service that
+      // is down is recoverable by hand, a corrupted one silently misprints.
       console.error(
-        'Failed to restore the previous install:',
-        restoreErr.message || restoreErr
+        `CRITICAL: ${destDir} is incomplete and the rollback failed. The previous install is at ${backup.path}; restore it manually. Not starting the service.`
       );
+      return false;
     }
+    console.log('Previous install restored. Update aborted.');
     await applyServiceConfig();
     await startServiceOrFallback(destDir);
-    return;
+    return false;
   }
 
-  await safeCleanup(backupDir);
+  // Only now, with a verified new build on disk, is the backup expendable.
+  await safeCleanup(backup.path);
   await applyServiceConfig();
-  await startServiceOrFallback(destDir);
+  return startServiceOrFallback(destDir);
   // The temp folder is left behind on purpose: this process lives in it. The
   // newly started server sweeps it on boot (sweepTempUpdateDirs).
 }
