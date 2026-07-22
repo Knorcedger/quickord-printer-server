@@ -51,6 +51,17 @@ REM leaves the service stopped and an orphan on the port. Clear it and start
 REM the service so the machine is left under SCM supervision either way.
 taskkill /IM printerServer.exe /F >nul 2>&1
 timeout /t 2 >nul
+
+REM Same registry-side service settings applyServiceConfig() applies on the
+REM --update path. updater.exe is a prebuilt binary that is already old on
+REM venue machines, so this script is the only place the manual route can pick
+REM them up. Both calls are idempotent; failures are printed, not swallowed.
+echo Applying service config...
+sc.exe config "%SERVICE_NAME%" start= delayed-auto depend= Tcpip/Dnscache/NlaSvc
+if %errorlevel% neq 0 echo WARNING: sc config failed (%errorlevel%) - service start mode/dependencies not updated
+sc.exe failure "%SERVICE_NAME%" reset= 86400 actions= restart/5000/restart/5000/restart/60000
+if %errorlevel% neq 0 echo WARNING: sc failure failed (%errorlevel%) - the service will NOT be restarted after a crash
+
 echo Starting service...
 sc start "%SERVICE_NAME%"
 
