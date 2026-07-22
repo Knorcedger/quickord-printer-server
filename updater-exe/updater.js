@@ -4,10 +4,18 @@ const fs = require("fs");
 const path = require("path");
 const AdmZip = require("adm-zip/adm-zip.js");
 
-const BUILD_DIR = path.join(__dirname, "builds");
+// When this file is bundled into updater.exe, __dirname points inside the
+// binary's virtual filesystem, not at the install folder the exe sits in. The
+// updater only ever works on the install next to itself, so derive the root
+// from the executable when compiled and fall back to __dirname under `node`.
+const execName = path.basename(process.execPath).toLowerCase();
+const IS_COMPILED = execName !== "node" && execName !== "node.exe";
+const ROOT_DIR = IS_COMPILED ? path.dirname(process.execPath) : __dirname;
+
+const BUILD_DIR = path.join(ROOT_DIR, "builds");
 const SETTINGS_FILE = path.join(BUILD_DIR, "settings.json");
-const TEMP_SETTINGS = path.join(__dirname, "settings_backup.json");
-const ZIP_PATH = path.join(__dirname, "latest.zip");
+const TEMP_SETTINGS = path.join(ROOT_DIR, "settings_backup.json");
+const ZIP_PATH = path.join(ROOT_DIR, "latest.zip");
 
 // Kill process on port
 function killPort(port) {
@@ -65,7 +73,7 @@ function downloadLatestZip(url) {
 function extractZip() {
   console.log("📦 Extracting zip...");
   const zip = new AdmZip(ZIP_PATH);
-  zip.extractAllTo(__dirname, true);
+  zip.extractAllTo(ROOT_DIR, true);
   fs.unlinkSync(ZIP_PATH);
   console.log("✅ Extraction done");
 }
@@ -116,11 +124,11 @@ function restartService() {
     }
   }
   console.warn("⚠️ Service did not start, launching the exe directly");
-  const exePath = path.join(__dirname, "builds", "printerServer.exe");
+  const exePath = path.join(BUILD_DIR, "printerServer.exe");
   spawn(exePath, [], {
     detached: true,
     stdio: "ignore",
-    cwd: path.join(__dirname, "builds"),
+    cwd: BUILD_DIR,
   }).unref();
 }
 

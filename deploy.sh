@@ -34,6 +34,11 @@ cp -r node_modules/@img ./builds/node_modules/
 cp  version ./builds/builds/  || { echo "Failed to copy version"; exit 1; }
 cp  config.json ./builds/builds/ || { echo "Failed to copy config.json"; exit 1; }
 cp  printerServerService.exe ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
+# updater.exe is checked in, so copying it blindly ships whatever binary was
+# built last - updater-exe/updater.js changes (service config + sc start on the
+# manual force-update route) would silently never reach venues. Rebuild it here
+# so the shipped binary always matches the source in this commit.
+npm run build:updater || { echo "Failed to run npm build:updater"; exit 1; }
 cp  updater.exe ./builds/ || { echo "Failed to copy updater.exe"; exit 1; }
 cp  printerServerService.xml ./builds/builds/ || { echo "Failed to copy printerServerService.exe"; exit 1; }
 cp  start_printer_service.bat ./builds/builds/ || { echo "Failed to copy start_printer_service.bat"; exit 1; }
@@ -41,12 +46,6 @@ cp  stop_printer_service.bat ./builds/builds/ || { echo "Failed to copy stop_pri
 cp  uninstall_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
 cp  install_printer_service.bat ./builds/builds/ || { echo "Failed to copy uninstall_printer_service.bat"; exit 1; }
 cp  force_autoupdate.bat ./builds/builds/ || { echo "Failed to copy force_autoupdate.bat"; exit 1; }
-
-# Run the updater build command
-#npm run build:updater || { echo "Failed to run npm build:updater"; exit 1; }
-
-#rm ./dist/index.js
-
 
 # Create the zip archive
 (cd builds && zip -r ../builds/quickord-cashier-server.zip .) || { echo "Failed to create zip archive"; exit 1; }

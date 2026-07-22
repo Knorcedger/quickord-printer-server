@@ -88,6 +88,8 @@ npm run build
 
 Run `deploy.sh` on Windows. This builds the exe via nexe, copies native node_modules (@serialport, etc.), and creates the full zip with service files. Requires C++ build tools, Python, and nasm.
 
+It also rebuilds `updater.exe` (`npm run build:updater`, nexe over `updater-exe/updater.js`) before copying it into the release. `updater.exe` is the standalone binary `force_autoupdate.bat` runs; it is checked in, so without that rebuild step a release would ship whatever binary was built last and source changes to `updater-exe/updater.js` would never reach venues. The compiled binary resolves the install directory from `process.execPath` (nexe's `__dirname` points inside the binary's virtual filesystem).
+
 ## Windows Service Deployment
 
 On customer machines the server runs as a Windows service via **WinSW**:
