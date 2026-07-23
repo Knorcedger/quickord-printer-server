@@ -46,6 +46,13 @@ if exist updater.exe (
 )
 popd
 
+REM The updater can't overwrite its own running exe, so it stages the new one.
+REM Swap it in now that updater.exe has exited.
+if exist "..\updater.exe.new" (
+    echo Updating updater.exe...
+    move /Y "..\updater.exe.new" "..\updater.exe" >nul
+)
+
 REM An older updater.exe ends by spawning printerServer.exe detached, which
 REM leaves the service stopped and an orphan on the port. Clear it and start
 REM the service so the machine is left under SCM supervision either way.
