@@ -204,7 +204,9 @@ export async function relaunchExe(
   // never answers cannot keep the old exe alive forever).
   setTimeout(async () => {
     if (preExitTasks.size > 0) {
-      console.log(`Waiting for ${preExitTasks.size} pending report(s) before exit.`);
+      console.log(
+        `Waiting for ${preExitTasks.size} pending report(s) before exit.`
+      );
       await Promise.race([
         Promise.allSettled([...preExitTasks]),
         sleep(PRE_EXIT_CAP_MS),
@@ -226,19 +228,28 @@ export async function relaunchExe(
 
 export const SERVICE_NAME = 'printerServer';
 
-export type ServiceState = 'RUNNING' | 'STOPPED' | 'PENDING' | 'ABSENT' | 'UNKNOWN';
+export type ServiceState =
+  | 'RUNNING'
+  | 'STOPPED'
+  | 'PENDING'
+  | 'ABSENT'
+  | 'UNKNOWN';
 
 function runCmd(
   cmd: string,
   timeoutMs = 30_000
 ): Promise<{ code: number; output: string }> {
   return new Promise((resolve) => {
-    exec(cmd, { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
-      resolve({
-        code: error ? ((error as any).code ?? 1) : 0,
-        output: `${stdout ?? ''}\n${stderr ?? ''}`,
-      });
-    });
+    exec(
+      cmd,
+      { timeout: timeoutMs, windowsHide: true },
+      (error, stdout, stderr) => {
+        resolve({
+          code: error ? ((error as any).code ?? 1) : 0,
+          output: `${stdout ?? ''}\n${stderr ?? ''}`,
+        });
+      }
+    );
   });
 }
 
@@ -299,7 +310,10 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
   console.log(`Service state before stop: ${initial}`);
 
   if (initial !== 'ABSENT' && initial !== 'STOPPED') {
-    const { code, output } = await runCmd(`sc.exe stop ${SERVICE_NAME}`, 30_000);
+    const { code, output } = await runCmd(
+      `sc.exe stop ${SERVICE_NAME}`,
+      30_000
+    );
     // 1062 = service not started. Anything else non-zero (5 = access denied
     // when force_autoupdate.bat runs unelevated) is worth surfacing, but the
     // state poll below is what actually decides.
@@ -341,7 +355,9 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
  * privileges — force_autoupdate.bat runs as the technician, not LocalSystem),
  * so a failed `sc start` can never leave the venue with nothing running.
  */
-export async function startServiceOrFallback(installDir: string): Promise<boolean> {
+export async function startServiceOrFallback(
+  installDir: string
+): Promise<boolean> {
   const { code, output } = await runCmd(`sc.exe start ${SERVICE_NAME}`, 30_000);
   // 1056 = already running.
   if (code !== 0 && !/1056/.test(output)) {
@@ -405,7 +421,10 @@ export function scheduleServiceStartWatchdog(): void {
     });
     child.unref();
   } catch (err: any) {
-    console.error('Failed to schedule the service-start watchdog:', err.message || err);
+    console.error(
+      'Failed to schedule the service-start watchdog:',
+      err.message || err
+    );
   }
 }
 
@@ -734,7 +753,9 @@ type InstallBackup = {
  * Returns null when neither worked, and in that case the install is left
  * completely untouched so the caller can just start it again.
  */
-async function backupInstall(installDir: string): Promise<InstallBackup | null> {
+async function backupInstall(
+  installDir: string
+): Promise<InstallBackup | null> {
   const sibling = `${installDir}.old`;
   try {
     await removePath(sibling); // a leftover from an earlier failed attempt
@@ -860,7 +881,10 @@ function runServiceConfigCmd(cmd: string): Promise<void> {
   return new Promise((resolve) => {
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Failed to apply service config (${cmd}):`, stderr || error.message);
+        console.error(
+          `Failed to apply service config (${cmd}):`,
+          stderr || error.message
+        );
       } else {
         console.log('Service config applied:', stdout.trim());
       }
