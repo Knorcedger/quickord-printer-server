@@ -69,6 +69,15 @@ const main = async () => {
       logger.error('Failed to sweep temp update folders:', err);
     }
 
+    console.log('Update path:', process.argv);
+    // autoUpdate's normal-boot download reports fetch failures via
+    // reportFetchFailure(), which attributes the incident to a venueId resolved
+    // from the in-memory settings. Load them now on the normal-boot branch only (empty args);
+    // the --update/--remove branches chdir and relaunch and must not read/create
+    // settings here, and they never hit the reporting path anyway.
+    if (args.length === 0) {
+      await loadSettings();
+    }
     try {
       await autoUpdate(args);
     } catch (err) {
