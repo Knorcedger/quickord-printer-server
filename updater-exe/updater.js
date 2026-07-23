@@ -118,13 +118,16 @@ function restoreSettings() {
   }
 }
 
-// Replace a top-level folder from staging, keeping the old one aside for rollback.
-function replaceDir(name, { required }) {
+// Stage a replacement of a top-level folder from staging, keeping the old one
+// aside. Returns { commit, rollback } so multiple folders can be swapped as one
+// transaction: builds and node_modules must move together or not at all, or the
+// service restarts against a mixed (new builds / old native deps) install.
+function stageReplaceDir(name, { required }) {
   const staged = path.join(EXTRACT_DIR, name);
   if (!fs.existsSync(staged)) {
     if (required) throw new Error(`Staged release has no ${name} folder`);
     console.log(`Staged release has no ${name}; keeping the existing one.`);
-    return;
+    return { commit() {}, rollback() {} };
   }
 
   const live = path.join(ROOT_DIR, name);
@@ -143,16 +146,41 @@ function replaceDir(name, { required }) {
     throw err;
   }
 
-  fs.rmSync(backup, { recursive: true, force: true });
+  return {
+    // Drop the backup only once the whole swap is known good.
+    commit() {
+      fs.rmSync(backup, { recursive: true, force: true });
+    },
+    // Restore the old folder; safe to call any time before commit().
+    rollback() {
+      fs.rmSync(live, { recursive: true, force: true });
+      if (hadLive) fs.renameSync(backup, live);
+    },
+  };
 }
 
 function swapInstall() {
   backupSettings();
-  replaceDir("builds", { required: true });
+
+  const buildsTxn = stageReplaceDir("builds", { required: true });
   if (!fs.existsSync(path.join(BUILD_DIR, "printerServer.exe"))) {
+    buildsTxn.rollback();
     throw new Error("builds was replaced but printerServer.exe is missing");
   }
-  replaceDir("node_modules", { required: false });
+
+  // If node_modules can't be replaced, roll builds back too so the catch in
+  // main() restarts a coherent old install, never new builds on old deps.
+  let modulesTxn;
+  try {
+    modulesTxn = stageReplaceDir("node_modules", { required: false });
+  } catch (err) {
+    buildsTxn.rollback();
+    throw err;
+  }
+
+  // Both folders are in place — commit (drop the backups) only now.
+  buildsTxn.commit();
+  modulesTxn.commit();
   restoreSettings();
 }
 
