@@ -30,6 +30,35 @@ const SETTINGS_BACKUP = path.join(STAGING_DIR, "settings_backup.json");
 
 const PORT = 7810;
 
+// Exit code the .bat wrapper watches for: the install was left in a mixed or
+// partial state (a rollback itself failed) and MUST NOT be started. A service
+// that is down is recoverable by hand; a half-swapped one silently misprints.
+const CRITICAL_EXIT = 3;
+
+// Thrown when the install is knowingly inconsistent. main() propagates it as
+// CRITICAL_EXIT and never restarts the service; the .bat wrapper skips its own
+// service start on that code.
+class CriticalUpdateError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CriticalUpdateError";
+    this.critical = true;
+  }
+}
+
+// Run a rollback that, if it fails, leaves the install inconsistent. Escalate a
+// rollback failure to a critical error so the caller refuses to start it.
+function rollbackOrCritical(rollback, what) {
+  try {
+    rollback();
+  } catch (rollbackErr) {
+    throw new CriticalUpdateError(
+      `${what} rollback failed (${rollbackErr.message}); the install is left in ` +
+        `a mixed/partial state and will NOT be started. Manual restore required.`
+    );
+  }
+}
+
 function killPort(port) {
   try {
     console.log(`Killing process on port ${port}...`);
@@ -149,8 +178,18 @@ function stageReplaceDir(name, { required }) {
     fs.cpSync(staged, live, { recursive: true, force: true });
   } catch (err) {
     console.error(`Copy of ${name} failed (${err.message}); rolling back.`);
-    fs.rmSync(live, { recursive: true, force: true });
-    if (hadLive) fs.renameSync(backup, live);
+    // If the rollback (restore of the old folder) also fails, `name` is left
+    // partial — escalate so nothing tries to start it.
+    try {
+      fs.rmSync(live, { recursive: true, force: true });
+      if (hadLive) fs.renameSync(backup, live);
+    } catch (rollbackErr) {
+      throw new CriticalUpdateError(
+        `Copy of ${name} failed and its rollback also failed ` +
+          `(${rollbackErr.message}); ${name} is left in a partial state and ` +
+          `will NOT be started. Manual restore required.`
+      );
+    }
     throw err;
   }
 
@@ -172,7 +211,7 @@ function swapInstall() {
 
   const buildsTxn = stageReplaceDir("builds", { required: true });
   if (!fs.existsSync(path.join(BUILD_DIR, "printerServer.exe"))) {
-    buildsTxn.rollback();
+    rollbackOrCritical(buildsTxn.rollback, "builds");
     throw new Error("builds was replaced but printerServer.exe is missing");
   }
 
@@ -183,7 +222,12 @@ function swapInstall() {
   try {
     modulesTxn = stageReplaceDir("node_modules", { required: true });
   } catch (err) {
-    buildsTxn.rollback();
+    // node_modules already left itself partial (its own rollback failed) —
+    // don't mutate further, just propagate the critical state.
+    if (err.critical) throw err;
+    // node_modules is intact/old; builds is new. Restore builds so main()
+    // restarts a coherent old install. A failed builds rollback is critical.
+    rollbackOrCritical(buildsTxn.rollback, "builds");
     throw err;
   }
 
@@ -263,15 +307,25 @@ function main() {
     console.log("🎉 Update complete!");
   } catch (err) {
     console.error("❌ Updater failed:", err);
-    // Never reached the swap → install intact; bring it back up. (A failed swap
-    // already rolled builds back.)
-    if (!swapped) {
+    if (err && err.critical) {
+      // The install is knowingly mixed/partial (a rollback failed). Starting it
+      // would run a broken server; leave it down and signal the .bat wrapper so
+      // it does not start the service either. Manual restore required.
+      console.error(
+        `CRITICAL: the install is inconsistent and was NOT started (exit ${CRITICAL_EXIT}). Restore it manually.`
+      );
+      process.exitCode = CRITICAL_EXIT;
+    } else if (!swapped) {
+      // Never reached the swap, or the swap fully rolled back → install intact;
+      // bring it back up.
       try {
         restartService();
       } catch (e) {
         console.error("Also failed to restart the service:", e.message || e);
       }
     }
+    // swapped === true with a non-critical error: the new install is in place
+    // and coherent; restartService() (or its fallback) already ran.
   } finally {
     try {
       restoreSettings();
