@@ -97,6 +97,14 @@ function validateStaged() {
       throw new Error(`Staged release is missing builds/${f}`);
     }
   }
+  // deploy.sh packages node_modules (native serialport etc.) into every
+  // release. A release missing it is corrupt, not a "keep existing deps" case:
+  // installing new builds against old native deps is exactly the mixed install
+  // swapInstall() guards against. Reject it here, before touching the install.
+  const stagedModules = path.join(EXTRACT_DIR, "node_modules");
+  if (!fs.existsSync(stagedModules) || fs.readdirSync(stagedModules).length === 0) {
+    throw new Error("Staged release is missing a non-empty node_modules folder");
+  }
 }
 
 // settings.json is per-venue runtime state, not in the zip — back it up before
@@ -168,11 +176,12 @@ function swapInstall() {
     throw new Error("builds was replaced but printerServer.exe is missing");
   }
 
-  // If node_modules can't be replaced, roll builds back too so the catch in
-  // main() restarts a coherent old install, never new builds on old deps.
+  // node_modules ships with every release (validateStaged enforces it). If it
+  // can't be swapped in, roll builds back too so the catch in main() restarts a
+  // coherent old install, never new builds on old deps.
   let modulesTxn;
   try {
-    modulesTxn = stageReplaceDir("node_modules", { required: false });
+    modulesTxn = stageReplaceDir("node_modules", { required: true });
   } catch (err) {
     buildsTxn.rollback();
     throw err;
