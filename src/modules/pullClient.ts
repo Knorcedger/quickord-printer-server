@@ -13,6 +13,7 @@
  * A job lost between claim and print ages out of the queue rather than reprinting
  * late; staff reprint manually if needed.
  */
+import { registerPreExitTask, triggerUpdate } from '../autoupdate/autoupdate';
 import { reportFetchFailure } from './api';
 import { getBackendBaseUrl } from './backendUrl';
 import {
@@ -196,13 +197,16 @@ async function postJson(
 // the report is worth several attempts. Detached from the pull loop — it must
 // never block or crash it — and creds are re-read per attempt so a secret
 // rotated mid-retry is picked up.
+// Returns the retry chain so a caller that must not race the process exiting
+// (the update command) can await the report landing; every other caller
+// ignores it and stays fire-and-forget.
 function reportResult(
   jobId: string,
   status: 'failed' | 'success',
   error?: string,
   result?: unknown
-): void {
-  void (async () => {
+): Promise<void> {
+  return (async () => {
     for (let attempt = 0; ; attempt++) {
       try {
         const data = await postJson(
@@ -311,6 +315,19 @@ function dispatchJob(job: {
           await scanNetworkForConnections()
         )
       );
+      return;
+    case 'update':
+      // Unlike restart, this one is awaited by the backend: reporting the
+      // outcome is the point of the command. triggerUpdate resolves before the
+      // update chain takes the process down (see setUpdateHandler in index.ts),
+      // but the process then exits on a fixed delay, so on a slow link the
+      // report is registered as a pre-exit task and the exit waits for it.
+      runCommand(job.jobId, async () => {
+        const result = await triggerUpdate();
+        const report = reportResult(job.jobId, 'success', undefined, result);
+        if (result.state === 'updating') registerPreExitTask(report);
+        await report;
+      });
       return;
     case 'restart':
       // Ack before exiting so the backend row settles; the process may die

@@ -13,6 +13,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import nconf from 'nconf';
+import { triggerUpdate } from '../autoupdate/autoupdate';
 import { reportWebSocketFailure } from './api';
 import { getBackendWsUrl } from './backendUrl';
 import { isUSBPrinterOnline } from './common';
@@ -508,6 +509,24 @@ async function handleMessage(raw: string): Promise<void> {
       case 'restartRequest': {
         logger.info('Received restart request from backend');
         triggerRestart();
+        break;
+      }
+
+      case 'updateRequest': {
+        logger.info('Received update request from backend');
+        // Answer before the update chain can take the process down: on an
+        // available update this replies `updating` and the exe is replaced
+        // moments later. On `already-latest` nothing restarts at all.
+        const result = await triggerUpdate();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'updateResponse',
+              requestId: msg.requestId,
+              data: { ...result, venueId: getVenueId() },
+            })
+          );
+        }
         break;
       }
 

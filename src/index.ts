@@ -35,7 +35,13 @@ import { checkPrinters } from './modules/printer';
 import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
-import autoUpdate from './autoupdate/autoupdate';
+import autoUpdate, {
+  downloadLatestCode,
+  isServiceManaged,
+  scheduleServiceStartWatchdog,
+  setUpdateHandler,
+  sweepTempUpdateDirs,
+} from './autoupdate/autoupdate';
 import { getLocalIP, registerPrinterServerIp } from './modules/api';
 import {
   curlExecJson,
@@ -54,11 +60,13 @@ const main = async () => {
   const args = process.argv.slice(2); // Get arguments after the script name
   if (args[0] !== '--noupdate') {
     console.log('Arguments:', args);
-    let updatePath: string | null = null;
-    for (let i = 0; i < args.length; i++) {
-      if (args[i] === '--update' && i + 1 < args.length) {
-        updatePath = args[i + 1] ?? null; // Get the next argument as the update path
-      }
+
+    // Clear out the temp trees left by previous updates. Done before the
+    // version check so a failed update never accumulates copies of the build.
+    try {
+      await sweepTempUpdateDirs();
+    } catch (err) {
+      logger.error('Failed to sweep temp update folders:', err);
     }
 
     console.log('Update path:', process.argv);
@@ -71,7 +79,7 @@ const main = async () => {
       await loadSettings();
     }
     try {
-      await autoUpdate(args); // Ensure updatePath is a string
+      await autoUpdate(args);
     } catch (err) {
       logger.error(
         'Auto-update failed (network not ready?), continuing startup:',
@@ -190,36 +198,65 @@ const main = async () => {
     });
 
   // Restart this process. Triggered by the HTTP route (legacy/local) and by a
-  // backend restartRequest over the WebSocket (remote). A short delay lets the
-  // HTTP response flush before the process exits.
+  // backend restart command over the pull channel / WebSocket (remote).
+  //
+  // We do NOT respawn ourselves. A detached spawn is what used to take the
+  // server out from under the service manager: WinSW saw its child exit
+  // cleanly, marked the service Stopped, and the survivor kept running as an
+  // orphan on the port — no supervision, no logs. It also carried the current
+  // argv over, so a process that had been left with the update chain's
+  // `--remove ...` args re-entered that branch and skipped the version check
+  // entirely, which is why a remote update silently did nothing.
+  //
+  // Instead: exit and let the SCM start us clean, with no args, so a restart
+  // always means "boot + version check".
+  async function doRestart(): Promise<void> {
+    const isDev = process.argv[1]?.endsWith('.ts');
+    if (isDev) {
+      process.exit(0);
+    }
+
+    // A non-zero exit is only meaningful as "restart me" if WinSW is our
+    // parent. Orphaned instances exit 0 and rely on the watchdog below, which
+    // also brings them back under the SCM.
+    const managed = await isServiceManaged();
+    logger.info(
+      `Restarting (service-managed: ${managed}); the SCM will start a fresh instance`
+    );
+    scheduleServiceStartWatchdog();
+
+    let exited = false;
+    const exit = () => {
+      if (exited) return;
+      exited = true;
+      process.exit(managed ? 1 : 0);
+    };
+    // Keep-alive sockets can hold server.close() open indefinitely; the port is
+    // released by the exit anyway.
+    setTimeout(exit, 3000);
+    server.close(exit);
+  }
+
   function restartServer(): void {
+    // Short delay so the HTTP response flushes before the process goes away.
     setTimeout(() => {
-      const isDev = process.argv[1]?.endsWith('.ts');
-      if (isDev) {
-        process.exit(0);
-      }
-      // Production: close server to release port, then spawn new process
-      server.close(() => {
-        const { spawn } =
-          require('child_process') as typeof import('child_process');
-        const child = spawn(
-          process.execPath,
-          [...process.execArgv, ...process.argv.slice(1)],
-          {
-            detached: true,
-            stdio: 'ignore',
-            cwd: process.cwd(),
-            env: process.env,
-          }
-        );
-        child.unref();
-        process.exit(0);
-      });
+      void doRestart();
     }, 500);
   }
 
   // Let a backend restartRequest trigger the same restart path as the HTTP route.
   setRestartHandler(restartServer);
+
+  // Explicit version check on demand, without a restart: when there is nothing
+  // newer the server keeps serving, and the caller gets told so. When there is,
+  // downloadLatestCode hands over to the update chain and this process exits —
+  // the delay gives the result report time to reach the backend first.
+  setUpdateHandler(async () => {
+    if (process.platform !== 'win32') {
+      return { error: 'Auto-update is only supported on Windows', state: 'failed' as const };
+    }
+    return downloadLatestCode(3000);
+  });
 
   app.post('/restart', (req: Request, res: Response) => {
     res.status(200).send({ status: 'restarting' });
@@ -356,6 +393,21 @@ const main = async () => {
 
     // Primary print-job channel: long-poll the backend and pull jobs to print
     initPullClient();
+  });
+
+  // Without this, a failed bind is swallowed and the service reports itself as
+  // started while nothing is listening — exactly what happens when an orphaned
+  // instance is still holding the port. Exiting non-zero makes WinSW retry
+  // (onfailure restart), which recovers as soon as the port frees up.
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    logger.error(
+      `Problem: failed to bind port ${SERVER_PORT} (${err.code || err.message}). Exiting so the service manager retries.`
+    );
+    // The exit code only restarts us where the failure actions are configured,
+    // so schedule the watchdog too: it covers venues still on the old service
+    // config and orphaned instances, which have nobody watching them.
+    scheduleServiceStartWatchdog();
+    process.exit(1);
   });
 };
 
