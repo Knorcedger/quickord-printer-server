@@ -18,8 +18,23 @@ import {
   curlExec,
   curlExecJson,
   httpStatusError,
+  HttpResult,
   tryFetchWithFallback,
 } from '../modules/http';
+import { reportFetchFailure } from '../modules/api';
+
+// The update path uses tryFetchWithFallback exactly like the runtime paths
+// (poll/apiCall/common) but never looked at viaFallback, so a fetch that failed
+// and only succeeded via the curl fallback went unreported here. Mirror the
+// runtime wiring: when the update download/version check falls back to curl,
+// report it so a fetch that is quietly broken on the update path is visible too.
+// Fire-and-forget, same as the runtime call sites; a report failure must never
+// hold up or break an update.
+function reportIfViaFallback<T>(result: HttpResult<T>): void {
+  if (result.viaFallback && result.fetchFailure) {
+    reportFetchFailure(result.fetchFailure).catch(() => {});
+  }
+}
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -210,6 +225,7 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
           `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`
         ),
     });
+    reportIfViaFallback(result);
     const releaseData = result.data;
     const tagName = releaseData.tag_name;
 
@@ -262,7 +278,7 @@ export async function downloadLatestCode(): Promise<string | null> {
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  await tryFetchWithFallback<void>({
+  const downloadResult = await tryFetchWithFallback<void>({
     url,
     method: 'GET',
     fetchFn: async () => {
@@ -275,6 +291,7 @@ export async function downloadLatestCode(): Promise<string | null> {
       await curlExec(`curl -L "${url}" -o "${zipPath}"`);
     },
   });
+  reportIfViaFallback(downloadResult);
 
   // Extract zip
   const tempCodePath = path.resolve(srcDir, 'code');
