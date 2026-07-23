@@ -80,11 +80,15 @@ const reportFetchFailure = async (
     }
   })();
 
-  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
+  // fetchAttempts tells the story at a glance: 3× = fetch is consistently broken
+  // on this machine (curl-vs-fetch), 1× = a lingering blip. curlOk shows curl
+  // recovered where fetch couldn't.
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'} (fetch tried ${failure.fetchAttempts}×, curl ${failure.curlOk ? 'ok' : 'failed'})`;
   const mutation = buildAddErrorMutation(message, failure.url, {
     fetchErrorCode: failure.fetchErrorCode,
     fetchErrorCause: failure.fetchErrorCause,
     responseStatus: failure.responseStatus,
+    fetchAttempts: failure.fetchAttempts,
     curlOk: failure.curlOk,
     venueId,
   });

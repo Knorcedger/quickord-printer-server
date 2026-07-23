@@ -42,6 +42,15 @@ import logger from './logger';
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
 const RESULT_TIMEOUT_MS = 10_000;
+// Before falling back to curl, retry fetch this many extra times (up to 3 total
+// attempts). If a retry succeeds the failure was a transient blip; if every
+// attempt fails and only curl works, it's fetch-specific — the distinction we
+// want to trace. Kept small: "retry everything" includes the poll's own 45s
+// AbortError, and each retry re-holds the long poll, so a hung backend can
+// stretch a cycle to ~2-3min before curl. 2 bounds that (prints only flow
+// through this channel, and this only bites when the backend is already down).
+const POLL_FETCH_RETRIES = 2;
+const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
 // attempt). The sum stays far below the backend's claim-result timeout, so a
 // report that eventually lands still beats the sweep that would otherwise
@@ -121,6 +130,8 @@ async function postJson(
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
+    fetchRetries: POLL_FETCH_RETRIES,
+    retryDelayMs: FETCH_RETRY_DELAY_MS,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
@@ -162,27 +173,17 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // Two failures on this path are noise, and both are proven healthy by the
-    // curl fallback that recovered the poll:
-    //   - AbortError: this loop's own POLL_TIMEOUT_MS firing. The long poll is
-    //     the only PS call that deliberately sits near its timeout, so it alone
-    //     can trip it on a slow-but-working link.
-    //   - UND_ERR_CONNECT_TIMEOUT with curlOk: a dropped SYN on the venue's
-    //     uplink. Measured over 14 days: 20 events across 8+ venues at all
-    //     hours, every one recovered by curl with no print lost.
-    // We only get here via the curl fallback, so curlOk is true by
-    // construction — kept in the check so this stays correct if that changes.
-    // Other codes (ECONNRESET, UND_ERR_SOCKET, HTTP 5xx) are still reported.
-    const { curlOk, fetchErrorCode, fetchErrorName } = result.fetchFailure;
-    const recoveredNoise =
-      curlOk &&
-      (fetchErrorName === 'AbortError' ||
-        fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
+    // Reaching the curl fallback now means every one of the POLL_FETCH_RETRIES+1
+    // fetch attempts failed — not a single fluke. Previously we suppressed
+    // AbortError / UND_ERR_CONNECT_TIMEOUT here as "recovered noise" (a curl
+    // fallback papered over one transient blip). With the retry loop those blips
+    // recover on a retry before we ever get here, so a fallback that still lands
+    // on these codes is the persistent, fetch-specific case we're trying to
+    // trace — worth one report. The hourly throttle keeps volume to one per
+    // machine, and fetchFailure.fetchAttempts distinguishes a lingering 1× from
+    // a consistent 3×.
     const now = Date.now();
-    if (
-      !recoveredNoise &&
-      now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
-    ) {
+    if (now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS) {
       lastFetchFailureReportAt = now;
       reportFetchFailure(result.fetchFailure).catch(() => {});
     }
