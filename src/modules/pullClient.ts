@@ -49,13 +49,9 @@ const RESULT_TIMEOUT_MS = 10_000;
 // AbortError, and each retry re-holds the long poll, so a hung backend can
 // stretch a cycle to ~2-3min before curl. 2 bounds that (prints only flow
 // through this channel, and this only bites when the backend is already down).
-//
-// Poll-only, deliberately: the poll has no deadline (a slow cycle just delays
-// the next one), while a result report is racing the backend's 120s
-// claim-result timeout. Extending result reporting to 3 fetch attempts would
-// put its worst case (~206s) past that timeout, so the sweep would broadcast a
-// venue-wide failure for a receipt that actually printed — the exact false
-// signal these retries exist to help diagnose. See postJson's fetchRetries.
+// Poll-only: the poll has no deadline, while a result report races the
+// backend's 120s claim-result timeout — retrying it would push its worst case
+// to ~206s and have the sweep fail a receipt that actually printed.
 const POLL_FETCH_RETRIES = 2;
 const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
@@ -130,9 +126,8 @@ function alreadySeen(jobId: string): boolean {
 // PS→BE call (api.ts): on some venue machines Node's fetch is broken by a
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
-// fetchRetries defaults to 0 (single fetch, then curl) because the deadline-free
-// long poll is the only caller that can afford the extra attempts — see
-// POLL_FETCH_RETRIES.
+// fetchRetries defaults to 0: only the deadline-free long poll can afford the
+// extra attempts (see POLL_FETCH_RETRIES).
 async function postJson(
   path: string,
   body: Record<string, unknown>,
@@ -184,17 +179,24 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // Reaching the curl fallback now means every one of the POLL_FETCH_RETRIES+1
-    // fetch attempts failed — not a single fluke. Previously we suppressed
-    // AbortError / UND_ERR_CONNECT_TIMEOUT here as "recovered noise" (a curl
-    // fallback papered over one transient blip). With the retry loop those blips
-    // recover on a retry before we ever get here, so a fallback that still lands
-    // on these codes is the persistent, fetch-specific case we're trying to
-    // trace — worth one report. The hourly throttle keeps volume to one per
-    // machine, and fetchFailure.fetchAttempts distinguishes a lingering 1× from
-    // a consistent 3×.
+    // A single fetch attempt that curl then recovered is a known blip (the
+    // caller's own timeout, or a dropped SYN — 20 events / 14 days / 8+ venues,
+    // no print lost). With retries a blip recovers before reaching here, so
+    // reaching it after 3 attempts is the persistent fetch-specific case worth
+    // reporting. Gate on fetchAttempts, not the path: /print-jobs/result stays
+    // at 0 retries for the claim-result window, so it keeps the suppression.
+    const { curlOk, fetchAttempts, fetchErrorCode, fetchErrorName } =
+      result.fetchFailure;
+    const recoveredNoise =
+      fetchAttempts === 1 &&
+      curlOk &&
+      (fetchErrorName === 'AbortError' ||
+        fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
     const now = Date.now();
-    if (now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS) {
+    if (
+      !recoveredNoise &&
+      now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
+    ) {
       lastFetchFailureReportAt = now;
       reportFetchFailure(result.fetchFailure).catch(() => {});
     }
