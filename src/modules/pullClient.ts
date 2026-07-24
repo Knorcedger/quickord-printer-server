@@ -49,6 +49,13 @@ const RESULT_TIMEOUT_MS = 10_000;
 // AbortError, and each retry re-holds the long poll, so a hung backend can
 // stretch a cycle to ~2-3min before curl. 2 bounds that (prints only flow
 // through this channel, and this only bites when the backend is already down).
+//
+// Poll-only, deliberately: the poll has no deadline (a slow cycle just delays
+// the next one), while a result report is racing the backend's 120s
+// claim-result timeout. Extending result reporting to 3 fetch attempts would
+// put its worst case (~206s) past that timeout, so the sweep would broadcast a
+// venue-wide failure for a receipt that actually printed — the exact false
+// signal these retries exist to help diagnose. See postJson's fetchRetries.
 const POLL_FETCH_RETRIES = 2;
 const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
@@ -123,14 +130,18 @@ function alreadySeen(jobId: string): boolean {
 // PS→BE call (api.ts): on some venue machines Node's fetch is broken by a
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
+// fetchRetries defaults to 0 (single fetch, then curl) because the deadline-free
+// long poll is the only caller that can afford the extra attempts — see
+// POLL_FETCH_RETRIES.
 async function postJson(
   path: string,
   body: Record<string, unknown>,
-  timeoutMs: number
+  timeoutMs: number,
+  fetchRetries = 0
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
-    fetchRetries: POLL_FETCH_RETRIES,
+    fetchRetries,
     retryDelayMs: FETCH_RETRY_DELAY_MS,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
@@ -250,7 +261,8 @@ async function pollOnce(): Promise<void> {
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
-    POLL_TIMEOUT_MS
+    POLL_TIMEOUT_MS,
+    POLL_FETCH_RETRIES
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
