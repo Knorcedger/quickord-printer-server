@@ -21,6 +21,10 @@ export interface FetchFailureDetails {
   fetchErrorCode?: string;
   fetchErrorCause?: unknown;
   responseStatus?: number;
+  // How many times fetch was tried before giving up and falling back to curl.
+  // 1 with the retry loop disabled; >1 means every retry failed too — the
+  // "fetch is broken here, not a transient blip" signal.
+  fetchAttempts: number;
   curlOk: boolean;
   networkDown: boolean;
 }
@@ -28,6 +32,9 @@ export interface FetchFailureDetails {
 export interface HttpResult<T> {
   data: T;
   viaFallback: boolean;
+  // Number of fetch attempts made (whether it eventually succeeded or fell
+  // back to curl). Present on both the success and fallback paths.
+  fetchAttempts: number;
   fetchFailure?: FetchFailureDetails;
 }
 
@@ -68,12 +75,17 @@ const buildFetchErrorContext = (
 const finalize = (
   ctx: ReturnType<typeof buildFetchErrorContext>,
   fetchErr: any,
+  fetchAttempts: number,
   curlOk: boolean
 ): FetchFailureDetails => ({
   ...ctx,
+  fetchAttempts,
   curlOk,
   networkDown: isNetworkDown(fetchErr, ctx.responseStatus),
 });
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((r) => setTimeout(r, ms));
 
 // ---------- curl primitives (exec a raw curl command) ----------
 
@@ -144,6 +156,14 @@ export interface TryFetchOpts<T> {
   method: string;
   fetchFn: () => Promise<FetchFnResult<T>>;
   curlFn: () => Promise<T>;
+  // Extra fetch attempts before falling back to curl. Default 0 (single try,
+  // original behavior). When >0, a fetch failure is retried up to this many
+  // times — if a retry succeeds it was a transient blip; if all fail and curl
+  // then works, the failure is fetch-specific.
+  fetchRetries?: number;
+  // Pause between fetch attempts. Default 500ms. Only consulted when
+  // fetchRetries > 0.
+  retryDelayMs?: number;
 }
 
 // Run fetchFn; if it throws (or returns non-2xx surfaced via thrown error),
@@ -152,38 +172,59 @@ export const tryFetchWithFallback = async <T>(
   opts: TryFetchOpts<T>
 ): Promise<HttpResult<T>> => {
   const { url, method, fetchFn, curlFn } = opts;
+  const maxAttempts = 1 + Math.max(0, opts.fetchRetries ?? 0);
+  const retryDelayMs = opts.retryDelayMs ?? 500;
   let fetchErr: any;
   let responseStatus: number | undefined;
+  let attempt = 0;
 
-  try {
-    const r = await fetchFn();
-    return { data: r.data, viaFallback: false };
-  } catch (err: any) {
-    fetchErr = err;
-    responseStatus = err?.responseStatus;
+  // Try fetch up to maxAttempts times. A retry that succeeds means the earlier
+  // failure was a transient connection blip — logged (as the tracing signal)
+  // but not surfaced as a failure. Only when every attempt fails do we fall
+  // back to curl below.
+  for (attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const r = await fetchFn();
+      if (attempt > 1) {
+        logger.warn(
+          { url, method, attempt, maxAttempts },
+          'fetch recovered on retry'
+        );
+      }
+      return { data: r.data, viaFallback: false, fetchAttempts: attempt };
+    } catch (err: any) {
+      fetchErr = err;
+      responseStatus = err?.responseStatus;
+      if (attempt < maxAttempts) await sleep(retryDelayMs);
+    }
   }
 
+  const fetchAttempts = maxAttempts;
   const ctx = buildFetchErrorContext(url, method, fetchErr, responseStatus);
-  logger.error(ctx, 'fetch failed, attempting curl fallback');
+  logger.error(
+    { ...ctx, fetchAttempts },
+    'fetch failed, attempting curl fallback'
+  );
 
   try {
     const data = await curlFn();
-    logger.info({ url, method }, 'curl fallback succeeded');
+    logger.info({ url, method, fetchAttempts }, 'curl fallback succeeded');
     return {
       data,
       viaFallback: true,
-      fetchFailure: finalize(ctx, fetchErr, true),
+      fetchAttempts,
+      fetchFailure: finalize(ctx, fetchErr, fetchAttempts, true),
     };
   } catch (curlErr: any) {
     logger.error(
-      { ...ctx, curlStderr: curlErr?.stderr || curlErr?.message },
+      { ...ctx, fetchAttempts, curlStderr: curlErr?.stderr || curlErr?.message },
       'curl fallback also failed'
     );
     const wrapped: any = new Error(
       `fetch and curl both failed for ${method} ${url}: ${fetchErr?.message}`
     );
     wrapped.cause = fetchErr;
-    wrapped.fetchFailure = finalize(ctx, fetchErr, false);
+    wrapped.fetchFailure = finalize(ctx, fetchErr, fetchAttempts, false);
     throw wrapped;
   }
 };

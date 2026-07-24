@@ -42,6 +42,18 @@ import logger from './logger';
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
 const RESULT_TIMEOUT_MS = 10_000;
+// Before falling back to curl, retry fetch this many extra times (up to 3 total
+// attempts). If a retry succeeds the failure was a transient blip; if every
+// attempt fails and only curl works, it's fetch-specific — the distinction we
+// want to trace. Kept small: "retry everything" includes the poll's own 45s
+// AbortError, and each retry re-holds the long poll, so a hung backend can
+// stretch a cycle to ~2-3min before curl. 2 bounds that (prints only flow
+// through this channel, and this only bites when the backend is already down).
+// Poll-only: the poll has no deadline, while a result report races the
+// backend's 120s claim-result timeout — retrying it would push its worst case
+// to ~206s and have the sweep fail a receipt that actually printed.
+const POLL_FETCH_RETRIES = 2;
+const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
 // attempt). The sum stays far below the backend's claim-result timeout, so a
 // report that eventually lands still beats the sweep that would otherwise
@@ -114,13 +126,18 @@ function alreadySeen(jobId: string): boolean {
 // PS→BE call (api.ts): on some venue machines Node's fetch is broken by a
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
+// fetchRetries defaults to 0: only the deadline-free long poll can afford the
+// extra attempts (see POLL_FETCH_RETRIES).
 async function postJson(
   path: string,
   body: Record<string, unknown>,
-  timeoutMs: number
+  timeoutMs: number,
+  fetchRetries = 0
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
+    fetchRetries,
+    retryDelayMs: FETCH_RETRY_DELAY_MS,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
@@ -162,19 +179,16 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // Two failures on this path are noise, and both are proven healthy by the
-    // curl fallback that recovered the poll:
-    //   - AbortError: this loop's own POLL_TIMEOUT_MS firing. The long poll is
-    //     the only PS call that deliberately sits near its timeout, so it alone
-    //     can trip it on a slow-but-working link.
-    //   - UND_ERR_CONNECT_TIMEOUT with curlOk: a dropped SYN on the venue's
-    //     uplink. Measured over 14 days: 20 events across 8+ venues at all
-    //     hours, every one recovered by curl with no print lost.
-    // We only get here via the curl fallback, so curlOk is true by
-    // construction — kept in the check so this stays correct if that changes.
-    // Other codes (ECONNRESET, UND_ERR_SOCKET, HTTP 5xx) are still reported.
-    const { curlOk, fetchErrorCode, fetchErrorName } = result.fetchFailure;
+    // A single fetch attempt that curl then recovered is a known blip (the
+    // caller's own timeout, or a dropped SYN — 20 events / 14 days / 8+ venues,
+    // no print lost). With retries a blip recovers before reaching here, so
+    // reaching it after 3 attempts is the persistent fetch-specific case worth
+    // reporting. Gate on fetchAttempts, not the path: /print-jobs/result stays
+    // at 0 retries for the claim-result window, so it keeps the suppression.
+    const { curlOk, fetchAttempts, fetchErrorCode, fetchErrorName } =
+      result.fetchFailure;
     const recoveredNoise =
+      fetchAttempts === 1 &&
       curlOk &&
       (fetchErrorName === 'AbortError' ||
         fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
@@ -249,7 +263,8 @@ async function pollOnce(): Promise<void> {
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
-    POLL_TIMEOUT_MS
+    POLL_TIMEOUT_MS,
+    POLL_FETCH_RETRIES
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
