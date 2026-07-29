@@ -23,13 +23,13 @@ import {
 } from './http';
 import scanNetworkForConnections from './network';
 import { checkPrinters } from './printer';
+import { executePrintJob } from './printJob';
 import {
-  executePrintJob,
   getPrinterVersion,
   getVenueId,
   getWsSecret,
   triggerRestart,
-} from './wsClient';
+} from './psIdentity';
 import logger from './logger';
 
 // Poll timeout must clear the backend's 25s hold with margin, so a healthy idle

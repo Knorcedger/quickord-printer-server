@@ -44,7 +44,7 @@ import {
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { initPullClient } from './modules/pullClient';
-import { initWebSocketClient, setRestartHandler } from './modules/wsClient';
+import { setRestartHandler } from './modules/psIdentity';
 
 const main = async () => {
   const SERVER_PORT =
@@ -351,10 +351,9 @@ const main = async () => {
       );
     }
 
-    // Connect to backend via WebSocket for liveness/control and test-page pushes
-    initWebSocketClient();
-
-    // Primary print-job channel: long-poll the backend and pull jobs to print
+    // Sole backend channel: long-poll the backend and pull jobs to print. Also
+    // carries liveness, control ops (check/scan/restart/update), test prints, and
+    // version reporting.
     initPullClient();
   });
 };

@@ -4,6 +4,10 @@
 
 Node.js/TypeScript Express server (port 7810) that bridges the Quickord restaurant ordering platform with ESC/POS thermal printers. Receives order data via HTTP from the Quickord web app, formats it, and sends it to configured printers via TCP (network) or serial (USB).
 
+### Backend channel
+
+The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. There is no WebSocket client — it was removed in favor of pull, which survives half-open connections. When the pull channel is down the backend returns `PS_OFFLINE` and the frontend falls back to a direct LAN HTTP call to this server's `/print-*` endpoints.
+
 ## Tech Stack
 
 - **Runtime**: Node.js (v24.8.0)
@@ -20,6 +24,11 @@ src/
 ├── index.ts                    # Entry point - Express server, routes, startup
 ├── modules/
 │   ├── printer.ts              # Core print logic - all print formatting and sending
+│   ├── pullClient.ts           # Long-poll pull loop — sole backend channel (see below)
+│   ├── printJob.ts             # Raw ESC/POS job execution (TCP/local), per-printer serialization
+│   ├── psIdentity.ts           # venueId/secret/version accessors + restart trigger
+│   ├── api.ts                  # Backend GraphQL calls (IP register, error reporting)
+│   ├── backendUrl.ts           # Derives the backend HTTP base from QUICKORD_API_URL
 │   ├── settings.ts             # Zod schemas, settings load/save to settings.json
 │   ├── common.ts               # Utilities: transliteration (tr), text formatting, images
 │   ├── modem.ts                # Serial modem for phone call routing

@@ -1,7 +1,7 @@
 /**
- * Single source for deriving backend endpoints from QUICKORD_API_URL, so the
- * WebSocket channel and the HTTP pull channel can never point at different
- * hosts (they previously each re-derived the base with different strip rules).
+ * Single source for deriving the backend HTTP base from QUICKORD_API_URL, so
+ * every caller of the pull/HTTP channel resolves the same host (they previously
+ * each re-derived the base with different strip rules).
  */
 import nconf from 'nconf';
 
@@ -20,14 +20,4 @@ export function getBackendBaseUrl(): string {
     nconf.get('QUICKORD_API_URL') ||
     DEFAULT_API_URL;
   return base.replace(/\/graphql\/?$/, '').replace(/\/+$/, '');
-}
-
-// Backend WebSocket URL, derived from the same base. Overridable via
-// BACKEND_WS_URL.
-export function getBackendWsUrl(): string {
-  const wsUrl = nconf.get('BACKEND_WS_URL');
-  if (wsUrl) return wsUrl;
-  return getBackendBaseUrl()
-    .replace('https://', 'wss://')
-    .replace('http://', 'ws://');
 }

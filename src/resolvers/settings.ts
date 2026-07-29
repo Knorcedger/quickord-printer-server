@@ -5,7 +5,6 @@ import { registerPrinterServerIp } from '../modules/api';
 import logger from '../modules/logger';
 import { createModem } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
-import { reconnectWebSocketClient } from '../modules/wsClient';
 import {
   getSettings,
   IPrinterSettings,
@@ -101,10 +100,9 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       await registerPrinterServerIp(newSettings.venueId);
     }
 
-    // Register over WS now that venueId + wsSecret are on disk, so the secret
-    // sync doesn't require a process restart to take effect. Self-guards, so a
-    // same-creds resync is a no-op.
-    reconnectWebSocketClient();
+    // No explicit reconnect needed: the pull loop re-reads creds every iteration
+    // and retries every NO_CREDS_RETRY_MS, so a secret sync takes effect on its
+    // own without a process restart.
   } catch (error) {
     logger.error('Error updating settings:', error);
     res.status(400).send({ error: error.message });
