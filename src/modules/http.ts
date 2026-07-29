@@ -64,9 +64,14 @@ const freshSockets = new WeakSet<object>();
 const socketReuseByRequest = new Map<string, boolean>();
 let reuseTracingStarted = false;
 
+// Must match the setter's key exactly: undici's request.path is pathname+search
+// and origin carries the host, so a signed URL's query and the target host both
+// belong in the key (else socketReused is always undefined for query-bearing
+// image/autoupdate URLs, and two hosts sharing a path would collide).
 const requestTraceKey = (method: string, url: string): string | undefined => {
   try {
-    return `${method} ${new URL(url).pathname}`;
+    const u = new URL(url);
+    return `${method} ${u.origin}${u.pathname}${u.search}`;
   } catch {
     return undefined;
   }
@@ -84,7 +89,10 @@ const ensureSocketReuseTracing = (): void => {
       if (!request?.method || !request?.path) return;
       // delete() consumes the mark: fresh for the first request on it only.
       const wasFresh = msg?.socket ? freshSockets.delete(msg.socket) : false;
-      socketReuseByRequest.set(`${request.method} ${request.path}`, !wasFresh);
+      socketReuseByRequest.set(
+        `${request.method} ${request.origin}${request.path}`,
+        !wasFresh
+      );
     });
   } catch (err) {
     logger.warn({ err }, 'socket-reuse tracing unavailable');
@@ -271,6 +279,8 @@ export const tryFetchWithFallback = async <T>(
           'fetch recovered on retry'
         );
       }
+      // Consume the mark so unique (signed-URL) keys don't accumulate.
+      if (traceKey) socketReuseByRequest.delete(traceKey);
       return { data: r.data, viaFallback: false, fetchAttempts: attempt };
     } catch (err: any) {
       fetchErr = err;
@@ -283,9 +293,11 @@ export const tryFetchWithFallback = async <T>(
 
   const fetchAttempts = Math.min(attempt, maxAttempts);
   const ctx = buildFetchErrorContext(url, method, fetchErr, responseStatus);
-  const socketReused = traceKey
-    ? socketReuseByRequest.get(traceKey)
-    : undefined;
+  let socketReused: boolean | undefined;
+  if (traceKey) {
+    socketReused = socketReuseByRequest.get(traceKey);
+    socketReuseByRequest.delete(traceKey);
+  }
   logger.error(
     { ...ctx, fetchAttempts, fetchDurationMs, socketReused },
     'fetch failed, attempting curl fallback'

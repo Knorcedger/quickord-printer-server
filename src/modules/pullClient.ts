@@ -106,6 +106,11 @@ let lastFetchFailureReportAt = 0;
 // No single event tells them apart, only persistence — so count consecutive
 // fallbacks. Resets on any fetch success; never advances when curl fails too,
 // since that's a dead uplink and the loop's back-off already covers it.
+// Poll-only: the poll is serialized (one in flight at a time), so its streak
+// really is persistence. Result reports fan out concurrently (one per printer),
+// so counting them would let a single ~2s blip across three in-flight reports
+// hit the threshold in one instant — and successful ones would reset a genuinely
+// broken poll's streak.
 const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
 let consecutiveFetchFallbacks = 0;
 
@@ -136,12 +141,15 @@ function alreadySeen(jobId: string): boolean {
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
 // fetchRetries defaults to 0: only the deadline-free long poll can afford the
-// extra attempts (see POLL_FETCH_RETRIES).
+// extra attempts (see POLL_FETCH_RETRIES). trackFallbackStreak is likewise
+// poll-only — the streak measures persistence, which only the serialized poll
+// path can (see FETCH_FALLBACK_STREAK_TO_REPORT).
 async function postJson(
   path: string,
   body: Record<string, unknown>,
   timeoutMs: number,
-  fetchRetries = 0
+  fetchRetries = 0,
+  trackFallbackStreak = false
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
@@ -176,8 +184,10 @@ async function postJson(
     url,
   });
 
-  if (result.viaFallback) consecutiveFetchFallbacks++;
-  else consecutiveFetchFallbacks = 0;
+  if (trackFallbackStreak) {
+    if (result.viaFallback) consecutiveFetchFallbacks++;
+    else consecutiveFetchFallbacks = 0;
+  }
 
   if (result.viaFallback && result.fetchFailure) {
     // A 401 is an auth rejection, not the transient fetch/proxy failure the
@@ -194,6 +204,7 @@ async function postJson(
     }
     const now = Date.now();
     if (
+      trackFallbackStreak &&
       consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
@@ -267,7 +278,8 @@ async function pollOnce(): Promise<void> {
       version: getPrinterVersion(),
     },
     POLL_TIMEOUT_MS,
-    POLL_FETCH_RETRIES
+    POLL_FETCH_RETRIES,
+    true
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
