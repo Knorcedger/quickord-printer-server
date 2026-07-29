@@ -16,8 +16,8 @@ import { reportFetchFailure } from './api';
 const execAsync = promisify(exec);
 
 // Canonical Windows shared-printer online check, shared by the legacy
-// /available status path (printer.ts) and the WS print path (wsClient.ts) so the
-// WMI query and its quoting live in one place and the two can't diverge.
+// /available status path (printer.ts) and the pull print path (printJob.ts) so
+// the WMI query and its quoting live in one place and the two can't diverge.
 // Escapes single quotes (the WQL/PowerShell escape is doubling).
 // Verified on a venue Windows machine: WorkOffline flips False->True within
 // ~10s of powering a shared USB printer off, so it tracks real connectivity.

@@ -440,7 +440,7 @@ export const checkPrinters = async () => {
   // budget (and Heroku's 30s router cap), so checkPrintersStatus timed out and
   // reported every printer offline. Distinct printers use distinct sockets, so
   // parallel probing is safe and caps total time at a single printer's worst
-  // case. Matches the explicit-list branch in wsClient, which already fans out.
+  // case.
   const results = await Promise.all(
     printers.map(async (entry, i) => {
       const settings = entry?.[1];

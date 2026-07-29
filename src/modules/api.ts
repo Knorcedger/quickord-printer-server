@@ -9,6 +9,7 @@ import {
   withTempJsonPayload,
 } from './http';
 import logger from './logger';
+import { getVenueId } from './psIdentity';
 
 nconf.argv().env().file({ file: './config.json' });
 
@@ -70,15 +71,8 @@ const reportFetchFailure = async (
   // Every venue reports the same method+url, so without the venueId an incident
   // is unattributable — the ErrorModel has no venueId column and addError does
   // not persist the caller's IP. Carried in both the message (what Slack shows)
-  // and the details, matching reportWebSocketFailure. Resolved lazily: wsClient
-  // imports this module, so a top-level import would close the cycle.
-  const venueId = ((): string => {
-    try {
-      return require('./wsClient').getVenueId() || 'unknown';
-    } catch {
-      return 'unknown';
-    }
-  })();
+  // and the details.
+  const venueId = getVenueId() || 'unknown';
 
   const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
   const mutation = buildAddErrorMutation(message, failure.url, {
@@ -140,37 +134,6 @@ export const apiCall = async (query: string): Promise<any> => {
   return result.data;
 };
 
-// Reports a printer-server WebSocket connection failure to the BE via the same
-// `addError` mutation as fetch failures — the BE logs every addError with a
-// "Problem:" prefix, so it surfaces as a Slack incident. Goes through apiCall
-// (fetch-first, curl fallback): the WS upgrade was rejected, but plain HTTPS to
-// the GraphQL endpoint usually still works, and curl covers the proxy case.
-const reportWebSocketFailure = async (details: {
-  attempts: number;
-  category: string;
-  code: string;
-  message: string;
-  outageMinutes: number;
-  url: string;
-  venueId: string;
-}): Promise<void> => {
-  const message = `Problem: printer-server blocked from opening its WebSocket to ${details.url} for venue ${details.venueId} for ${details.outageMinutes}min (${details.attempts} attempts) — ${details.category} (${details.code}): ${details.message}. Sustained this long it is usually a firewall/proxy/TLS block on the venue's network, though a long uplink outage looks the same from here — the category above says which. Printing still works over the pull channel.`;
-  const mutation = buildAddErrorMutation(message, details.url, {
-    attempts: details.attempts,
-    category: details.category,
-    code: details.code,
-    outageMinutes: details.outageMinutes,
-    venueId: details.venueId,
-  });
-
-  try {
-    await apiCall(mutation);
-    logger.info('Reported WebSocket connection failure to BE');
-  } catch (err) {
-    logger.error('Failed to report WebSocket connection failure to BE:', err);
-  }
-};
-
 export const registerPrinterServerIp = async (
   venueId: string
 ): Promise<void> => {
@@ -197,4 +160,4 @@ export const registerPrinterServerIp = async (
   }
 };
 
-export { reportFetchFailure, reportWebSocketFailure };
+export { reportFetchFailure };
