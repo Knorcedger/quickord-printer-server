@@ -19,6 +19,7 @@ import {
   curlExecJson,
   httpStatusError,
   isCheapRetryableFetchError,
+  isRecoveredFetchNoise,
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
@@ -203,15 +204,24 @@ async function postJson(
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
     const now = Date.now();
+    // The poll gates on the streak (only its serialized path measures
+    // persistence). The result path can't — its reports fan out concurrently —
+    // so it reports any genuine fetch break, skipping the noise curl silently
+    // recovers. Both share the hourly throttle, so a machine pages at most once
+    // regardless of which path is broken.
+    const worthReporting = trackFallbackStreak
+      ? consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT
+      : !isRecoveredFetchNoise(result.fetchFailure);
     if (
-      trackFallbackStreak &&
-      consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT &&
+      worthReporting &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
       lastFetchFailureReportAt = now;
       reportFetchFailure({
         ...result.fetchFailure,
-        consecutiveFallbacks: consecutiveFetchFallbacks,
+        consecutiveFallbacks: trackFallbackStreak
+          ? consecutiveFetchFallbacks
+          : undefined,
       }).catch(() => {});
     }
   }

@@ -167,6 +167,14 @@ export const isCheapRetryableFetchError = (err: any): boolean => {
   return CHEAP_RETRYABLE_CODES.has(extractErrorCode(err) ?? '');
 };
 
+// A fallback the curl path silently papers over with no action attached:
+// measured as frequent and always curl-recovered. Used to gate the result
+// report path, which can't use the poll's persistence streak. AbortError is
+// deliberately absent — on the result path's 10s timeout it's the one signal
+// that fetch is broken only there (the poll's 45s budget would survive).
+export const isRecoveredFetchNoise = (f: FetchFailureDetails): boolean =>
+  f.fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT';
+
 // ---------- curl primitives (exec a raw curl command) ----------
 
 export const curlExec = (
