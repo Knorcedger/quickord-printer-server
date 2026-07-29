@@ -18,6 +18,7 @@ import { getBackendBaseUrl } from './backendUrl';
 import {
   curlExecJson,
   httpStatusError,
+  isCheapRetryableFetchError,
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
@@ -45,10 +46,10 @@ const RESULT_TIMEOUT_MS = 10_000;
 // Before falling back to curl, retry fetch this many extra times (up to 3 total
 // attempts). If a retry succeeds the failure was a transient blip; if every
 // attempt fails and only curl works, it's fetch-specific — the distinction we
-// want to trace. Kept small: "retry everything" includes the poll's own 45s
-// AbortError, and each retry re-holds the long poll, so a hung backend can
-// stretch a cycle to ~2-3min before curl. 2 bounds that (prints only flow
-// through this channel, and this only bites when the backend is already down).
+// want to trace, since it decides whether the curl fallback can ever be
+// dropped. Only failures isCheapRetryableFetchError accepts are retried, so
+// these attempts cost seconds, not minutes: the poll's own 45s AbortError goes
+// straight to curl instead of re-holding the long poll twice more.
 // Poll-only: the poll has no deadline, while a result report races the
 // backend's 120s claim-result timeout — retrying it would push its worst case
 // to ~206s and have the sweep fail a receipt that actually printed.
@@ -100,6 +101,14 @@ const seenJobs = new Map<string, number>();
 const FETCH_FAILURE_REPORT_INTERVAL_MS = 60 * 60 * 1000;
 let lastFetchFailureReportAt = 0;
 
+// One fallback is the venue's link breathing and recovers by itself; fetch that
+// stays broken while curl works (a proxy black-holing Node) is the incident.
+// No single event tells them apart, only persistence — so count consecutive
+// fallbacks. Resets on any fetch success; never advances when curl fails too,
+// since that's a dead uplink and the loop's back-off already covers it.
+const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
+let consecutiveFetchFallbacks = 0;
+
 let running = false;
 
 const sleep = (ms: number): Promise<void> =>
@@ -138,6 +147,7 @@ async function postJson(
   const result = await tryFetchWithFallback<any>({
     fetchRetries,
     retryDelayMs: FETCH_RETRY_DELAY_MS,
+    shouldRetry: isCheapRetryableFetchError,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
@@ -166,6 +176,9 @@ async function postJson(
     url,
   });
 
+  if (result.viaFallback) consecutiveFetchFallbacks++;
+  else consecutiveFetchFallbacks = 0;
+
   if (result.viaFallback && result.fetchFailure) {
     // A 401 is an auth rejection, not the transient fetch/proxy failure the
     // curl fallback exists to paper over — curl just re-fetches the same 401,
@@ -179,26 +192,16 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // A single fetch attempt that curl then recovered is a known blip (the
-    // caller's own timeout, or a dropped SYN — 20 events / 14 days / 8+ venues,
-    // no print lost). With retries a blip recovers before reaching here, so
-    // reaching it after 3 attempts is the persistent fetch-specific case worth
-    // reporting. Gate on fetchAttempts, not the path: /print-jobs/result stays
-    // at 0 retries for the claim-result window, so it keeps the suppression.
-    const { curlOk, fetchAttempts, fetchErrorCode, fetchErrorName } =
-      result.fetchFailure;
-    const recoveredNoise =
-      fetchAttempts === 1 &&
-      curlOk &&
-      (fetchErrorName === 'AbortError' ||
-        fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
     const now = Date.now();
     if (
-      !recoveredNoise &&
+      consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
       lastFetchFailureReportAt = now;
-      reportFetchFailure(result.fetchFailure).catch(() => {});
+      reportFetchFailure({
+        ...result.fetchFailure,
+        consecutiveFallbacks: consecutiveFetchFallbacks,
+      }).catch(() => {});
     }
   }
   return result.data;

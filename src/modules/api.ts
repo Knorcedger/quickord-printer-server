@@ -80,16 +80,20 @@ const reportFetchFailure = async (
     }
   })();
 
-  // fetchAttempts tells the story at a glance: 3× = fetch is consistently broken
-  // on this machine (curl-vs-fetch), 1× = a lingering blip. curlOk shows curl
-  // recovered where fetch couldn't.
-  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'} (fetch tried ${failure.fetchAttempts}×, curl ${failure.curlOk ? 'ok' : 'failed'})`;
+  // The streak is the headline: it's what says fetch is broken here rather than
+  // blipping. socketReused=false alongside it rules out stale keep-alive.
+  const streak = failure.consecutiveFallbacks;
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'} (fetch tried ${failure.fetchAttempts}×, curl ${failure.curlOk ? 'ok' : 'failed'}${streak ? `, ${streak} consecutive fallbacks` : ''})`;
   const mutation = buildAddErrorMutation(message, failure.url, {
-    fetchErrorCode: failure.fetchErrorCode,
-    fetchErrorCause: failure.fetchErrorCause,
-    responseStatus: failure.responseStatus,
-    fetchAttempts: failure.fetchAttempts,
+    consecutiveFallbacks: failure.consecutiveFallbacks,
+    curlDurationMs: failure.curlDurationMs,
     curlOk: failure.curlOk,
+    fetchAttempts: failure.fetchAttempts,
+    fetchDurationMs: failure.fetchDurationMs,
+    fetchErrorCause: failure.fetchErrorCause,
+    fetchErrorCode: failure.fetchErrorCode,
+    responseStatus: failure.responseStatus,
+    socketReused: failure.socketReused,
     venueId,
   });
 
