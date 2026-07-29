@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
-import { PrinterTextSize } from './settings';
+import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
 import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
@@ -980,7 +980,7 @@ export const printProducts = (
     }
     if (
       showOptions &&
-      settings.documentsToPrint?.includes('OPTION-DETAILS') &&
+      shouldPrintOptionDetails(settings) &&
       matchedProduct?.options
     ) {
       console.log('Printing details:', JSON.stringify(matchedProduct.options));
