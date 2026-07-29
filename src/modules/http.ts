@@ -62,6 +62,10 @@ const extractErrorCode = (err: any): string | undefined => {
 // undici internals, so a rename costs us the field, not the app.
 const freshSockets = new WeakSet<object>();
 const socketReuseByRequest = new Map<string, boolean>();
+// Only keys we're actively awaiting are recorded; redirect hops (redirect:
+// 'follow') fire sendHeaders on a different key we never look up, so gating on
+// this stops them accumulating forever in a long-lived service.
+const inFlightTraceKeys = new Set<string>();
 let reuseTracingStarted = false;
 
 // Must match the setter's key exactly: undici's request.path is pathname+search
@@ -87,12 +91,12 @@ const ensureSocketReuseTracing = (): void => {
     diagnosticsChannel.subscribe('undici:client:sendHeaders', (msg: any) => {
       const request = msg?.request;
       if (!request?.method || !request?.path) return;
+      const key = `${request.method} ${request.origin}${request.path}`;
+      // Skip redirect targets and any request we aren't awaiting a mark for.
+      if (!inFlightTraceKeys.has(key)) return;
       // delete() consumes the mark: fresh for the first request on it only.
       const wasFresh = msg?.socket ? freshSockets.delete(msg.socket) : false;
-      socketReuseByRequest.set(
-        `${request.method} ${request.origin}${request.path}`,
-        !wasFresh
-      );
+      socketReuseByRequest.set(key, !wasFresh);
     });
   } catch (err) {
     logger.warn({ err }, 'socket-reuse tracing unavailable');
@@ -267,6 +271,7 @@ export const tryFetchWithFallback = async <T>(
   const shouldRetry = opts.shouldRetry ?? (() => true);
   ensureSocketReuseTracing();
   const traceKey = requestTraceKey(method, url);
+  if (traceKey) inFlightTraceKeys.add(traceKey);
   let fetchErr: any;
   let responseStatus: number | undefined;
   let fetchDurationMs: number | undefined;
@@ -288,7 +293,10 @@ export const tryFetchWithFallback = async <T>(
         );
       }
       // Consume the mark so unique (signed-URL) keys don't accumulate.
-      if (traceKey) socketReuseByRequest.delete(traceKey);
+      if (traceKey) {
+        socketReuseByRequest.delete(traceKey);
+        inFlightTraceKeys.delete(traceKey);
+      }
       return { data: r.data, viaFallback: false, fetchAttempts: attempt };
     } catch (err: any) {
       fetchErr = err;
@@ -305,6 +313,7 @@ export const tryFetchWithFallback = async <T>(
   if (traceKey) {
     socketReused = socketReuseByRequest.get(traceKey);
     socketReuseByRequest.delete(traceKey);
+    inFlightTraceKeys.delete(traceKey);
   }
   logger.error(
     { ...ctx, fetchAttempts, fetchDurationMs, socketReused },
