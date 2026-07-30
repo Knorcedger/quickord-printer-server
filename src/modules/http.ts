@@ -22,17 +22,15 @@ export interface FetchFailureDetails {
   fetchErrorCode?: string;
   fetchErrorCause?: unknown;
   responseStatus?: number;
-  // How many times fetch was tried before giving up and falling back to curl.
-  // 1 with the retry loop disabled; >1 means every retry failed too — the
-  // "fetch is broken here, not a transient blip" signal.
+  // >1 means every retry failed too: fetch is broken here, not blipping.
   fetchAttempts: number;
   curlOk: boolean;
   networkDown: boolean;
   // A curl that answers fast where fetch hung means the link was fine.
   fetchDurationMs?: number;
   curlDurationMs?: number;
-  // undefined = no mark recorded: a connect-phase failure, or a concurrent
-  // request to the same method+URL consumed it first.
+  // undefined = no mark: connect-phase failure, or a concurrent request to the
+  // same method+URL consumed it first.
   socketReused?: boolean;
   // Set by callers tracking consecutive fallbacks (the pull loop).
   consecutiveFallbacks?: number;
@@ -41,8 +39,7 @@ export interface FetchFailureDetails {
 export interface HttpResult<T> {
   data: T;
   viaFallback: boolean;
-  // Number of fetch attempts made (whether it eventually succeeded or fell
-  // back to curl). Present on both the success and fallback paths.
+  // Attempts made, on both the success and fallback paths.
   fetchAttempts: number;
   fetchFailure?: FetchFailureDetails;
 }
@@ -57,17 +54,14 @@ const extractErrorCode = (err: any): string | undefined => {
 
 // ---------- socket-reuse tracing (observation only) ----------
 
-// fetch reuses keep-alive sockets, curl never does. A socket the router killed
-// can be handed back out and hang, which looks like fetch being broken on the
-// machine — this flag tells the two apart. Passive; the channel names are
-// undici internals, so a rename costs us the field, not the app.
+// fetch reuses keep-alive sockets, curl never does: a socket the router killed
+// can be handed back out and hang, looking like fetch is broken on the machine.
+// Passive — the channel names are undici internals, so a rename costs the field.
 const freshSockets = new WeakSet<object>();
 const socketReuseByRequest = new Map<string, boolean>();
-// Only keys we're actively awaiting are recorded; redirect hops (redirect:
-// 'follow') fire sendHeaders on a different key we never look up, so gating on
-// this stops them accumulating forever in a long-lived service. Refcounted:
-// result reports fan out concurrently on one key, and the first to finish must
-// not stop tracing for the ones still in flight.
+// Records only keys we're awaiting, so redirect hops can't accumulate forever.
+// Refcounted: concurrent reports share a key, the first to finish must not stop
+// tracing for the rest.
 const inFlightTraceKeys = new Map<string, number>();
 let reuseTracingStarted = false;
 
@@ -86,9 +80,7 @@ const releaseTraceKey = (key: string): void => {
 };
 
 // Must match the setter's key exactly: undici's request.path is pathname+search
-// and origin carries the host, so a signed URL's query and the target host both
-// belong in the key (else socketReused is always undefined for query-bearing
-// image/autoupdate URLs, and two hosts sharing a path would collide).
+// and origin carries the host, so both belong in the key.
 const requestTraceKey = (method: string, url: string): string | undefined => {
   try {
     const u = new URL(url);
@@ -109,10 +101,8 @@ const ensureSocketReuseTracing = (): void => {
       const request = msg?.request;
       if (!request?.method || !request?.path) return;
       const key = `${request.method} ${request.origin}${request.path}`;
-      // delete() consumes the mark: fresh for the first request on it only.
-      // Consume for every request, tracked or not — an untracked one (redirect
-      // hop, plain fetch) that leaves the mark set would make the next request
-      // on that reused socket look fresh.
+      // delete() consumes the mark: fresh for the first request only. Consume
+      // even when untracked, else the next request on it would look fresh.
       const wasFresh = msg?.socket ? freshSockets.delete(msg.socket) : false;
       // Only record for keys we're awaiting, so the map can't grow unbounded.
       if (!inFlightTraceKeys.has(key)) return;
@@ -183,9 +173,8 @@ const CHEAP_RETRYABLE_CODES = new Set([
   'EPIPE',
 ]);
 
-// AbortError is excluded: it only fires once the caller's whole timeout is
-// spent (45s on the poll), so a retry doubles the wait before curl and gains
-// nothing the next poll cycle wouldn't give for free.
+// AbortError is excluded: it fires only once the caller's whole timeout is
+// spent, so a retry just doubles the wait before curl.
 export const isCheapRetryableFetchError = (err: any): boolean => {
   if (err?.name === 'AbortError') return false;
   const status = err?.responseStatus;
@@ -194,11 +183,9 @@ export const isCheapRetryableFetchError = (err: any): boolean => {
   return CHEAP_RETRYABLE_CODES.has(extractErrorCode(err) ?? '');
 };
 
-// A fallback the curl path silently papers over with no action attached:
-// measured as frequent and always curl-recovered. Used to gate the result
-// report path, which can't use the poll's persistence streak. AbortError is
-// deliberately absent — on the result path's 10s timeout it's the one signal
-// that fetch is broken only there (the poll's 45s budget would survive).
+// Measured as frequent and always curl-recovered, so no action attached. Gates
+// the result path, which can't use the poll's streak. AbortError is absent: on
+// its 10s timeout it's a real signal, unlike the poll's 45s budget.
 export const isRecoveredFetchNoise = (f: FetchFailureDetails): boolean =>
   f.fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT';
 
@@ -271,13 +258,9 @@ export interface TryFetchOpts<T> {
   method: string;
   fetchFn: () => Promise<FetchFnResult<T>>;
   curlFn: () => Promise<T>;
-  // Extra fetch attempts before falling back to curl. Default 0 (single try,
-  // original behavior). When >0, a fetch failure is retried up to this many
-  // times — if a retry succeeds it was a transient blip; if all fail and curl
-  // then works, the failure is fetch-specific.
+  // Extra fetch attempts before falling back to curl. Default 0 (single try).
   fetchRetries?: number;
-  // Pause between fetch attempts. Default 500ms. Only consulted when
-  // fetchRetries > 0.
+  // Pause between fetch attempts. Default 500ms.
   retryDelayMs?: number;
   // Filters which failures the retries apply to. Defaults to all of them.
   shouldRetry?: (err: any) => boolean;

@@ -44,16 +44,9 @@ import logger from './logger';
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
 const RESULT_TIMEOUT_MS = 10_000;
-// Before falling back to curl, retry fetch this many extra times (up to 3 total
-// attempts). If a retry succeeds the failure was a transient blip; if every
-// attempt fails and only curl works, it's fetch-specific — the distinction we
-// want to trace, since it decides whether the curl fallback can ever be
-// dropped. Only failures isCheapRetryableFetchError accepts are retried, so
-// these attempts cost seconds, not minutes: the poll's own 45s AbortError goes
-// straight to curl instead of re-holding the long poll twice more.
-// Poll-only: the poll has no deadline, while a result report races the
-// backend's 120s claim-result timeout — retrying it would push its worst case
-// to ~206s and have the sweep fail a receipt that actually printed.
+// Extra fetch attempts before curl: a retry that succeeds was a blip, all-fail
+// + curl-works is fetch-specific. Only cheap failures are retried (seconds).
+// Poll-only: a result report races the backend's 120s claim-result timeout.
 const POLL_FETCH_RETRIES = 2;
 const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
@@ -102,16 +95,10 @@ const seenJobs = new Map<string, number>();
 const FETCH_FAILURE_REPORT_INTERVAL_MS = 60 * 60 * 1000;
 let lastFetchFailureReportAt = 0;
 
-// One fallback is the venue's link breathing and recovers by itself; fetch that
-// stays broken while curl works (a proxy black-holing Node) is the incident.
-// No single event tells them apart, only persistence — so count consecutive
-// fallbacks. Resets on any fetch success; never advances when curl fails too,
-// since that's a dead uplink and the loop's back-off already covers it.
-// Poll-only: the poll is serialized (one in flight at a time), so its streak
-// really is persistence. Result reports fan out concurrently (one per printer),
-// so counting them would let a single ~2s blip across three in-flight reports
-// hit the threshold in one instant — and successful ones would reset a genuinely
-// broken poll's streak.
+// A single fallback is the link breathing; fetch that stays broken while curl
+// works is the incident — only persistence tells them apart.
+// Poll-only: the poll is serialized, so its streak really is persistence;
+// concurrent result reports could hit the threshold on one shared blip.
 const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
 let consecutiveFetchFallbacks = 0;
 
@@ -141,10 +128,8 @@ function alreadySeen(jobId: string): boolean {
 // PS→BE call (api.ts): on some venue machines Node's fetch is broken by a
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
-// fetchRetries defaults to 0: only the deadline-free long poll can afford the
-// extra attempts (see POLL_FETCH_RETRIES). trackFallbackStreak is likewise
-// poll-only — the streak measures persistence, which only the serialized poll
-// path can (see FETCH_FALLBACK_STREAK_TO_REPORT).
+// fetchRetries and trackFallbackStreak are poll-only; see POLL_FETCH_RETRIES
+// and FETCH_FALLBACK_STREAK_TO_REPORT.
 async function postJson(
   path: string,
   body: Record<string, unknown>,
@@ -183,16 +168,21 @@ async function postJson(
     },
     method: 'POST',
     url,
+  }).catch((err) => {
+    // curl failed too: a dead uplink, not fetch-specific.
+    if (trackFallbackStreak) consecutiveFetchFallbacks = 0;
+    throw err;
   });
 
   if (trackFallbackStreak) {
-    // Only transport failures count. A 401/404/5xx came back over a connection
-    // fetch opened fine, so curl "recovering" it says nothing about fetch —
-    // and a bad-creds venue would otherwise sit at the threshold forever.
-    if (!result.viaFallback) consecutiveFetchFallbacks = 0;
-    else if (result.fetchFailure?.responseStatus === undefined) {
-      consecutiveFetchFallbacks++;
-    }
+    // Only consecutive transport failures count: a 401/404/5xx came back over a
+    // connection fetch opened fine, so it proves fetch works and breaks the
+    // streak.
+    const transportFallback =
+      result.viaFallback && result.fetchFailure?.responseStatus === undefined;
+    consecutiveFetchFallbacks = transportFallback
+      ? consecutiveFetchFallbacks + 1
+      : 0;
   }
 
   if (result.viaFallback && result.fetchFailure) {
@@ -209,11 +199,9 @@ async function postJson(
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
     const now = Date.now();
-    // The poll gates on the streak (only its serialized path measures
-    // persistence). The result path can't — its reports fan out concurrently —
-    // so it reports any genuine fetch break, skipping the noise curl silently
-    // recovers. Both share the hourly throttle, so a machine pages at most once
-    // regardless of which path is broken.
+    // The poll gates on the streak; the result path can't measure persistence,
+    // so it reports anything but the noise curl silently recovers. The hourly
+    // throttle is shared, so a machine pages once either way.
     const worthReporting = trackFallbackStreak
       ? consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT
       : !isRecoveredFetchNoise(result.fetchFailure);
