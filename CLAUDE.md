@@ -100,6 +100,7 @@ To change service config (start mode, dependencies) on already-installed machine
 
 ## Code Style
 
+- **Never add a `Co-Authored-By:` trailer to commit messages.**
 - **Keep comments short.** One or two lines. Explain the non-obvious *why*, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
 
 ## Key Patterns

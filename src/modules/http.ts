@@ -31,7 +31,8 @@ export interface FetchFailureDetails {
   // A curl that answers fast where fetch hung means the link was fine.
   fetchDurationMs?: number;
   curlDurationMs?: number;
-  // undefined = never got as far as sending headers (connect-phase failure).
+  // undefined = no mark recorded: a connect-phase failure, or a concurrent
+  // request to the same method+URL consumed it first.
   socketReused?: boolean;
   // Set by callers tracking consecutive fallbacks (the pull loop).
   consecutiveFallbacks?: number;
@@ -64,9 +65,25 @@ const freshSockets = new WeakSet<object>();
 const socketReuseByRequest = new Map<string, boolean>();
 // Only keys we're actively awaiting are recorded; redirect hops (redirect:
 // 'follow') fire sendHeaders on a different key we never look up, so gating on
-// this stops them accumulating forever in a long-lived service.
-const inFlightTraceKeys = new Set<string>();
+// this stops them accumulating forever in a long-lived service. Refcounted:
+// result reports fan out concurrently on one key, and the first to finish must
+// not stop tracing for the ones still in flight.
+const inFlightTraceKeys = new Map<string, number>();
 let reuseTracingStarted = false;
+
+const trackTraceKey = (key: string): void => {
+  inFlightTraceKeys.set(key, (inFlightTraceKeys.get(key) ?? 0) + 1);
+};
+
+const releaseTraceKey = (key: string): void => {
+  const n = (inFlightTraceKeys.get(key) ?? 1) - 1;
+  if (n > 0) {
+    inFlightTraceKeys.set(key, n);
+    return;
+  }
+  inFlightTraceKeys.delete(key);
+  socketReuseByRequest.delete(key);
+};
 
 // Must match the setter's key exactly: undici's request.path is pathname+search
 // and origin carries the host, so a signed URL's query and the target host both
@@ -92,10 +109,13 @@ const ensureSocketReuseTracing = (): void => {
       const request = msg?.request;
       if (!request?.method || !request?.path) return;
       const key = `${request.method} ${request.origin}${request.path}`;
-      // Skip redirect targets and any request we aren't awaiting a mark for.
-      if (!inFlightTraceKeys.has(key)) return;
       // delete() consumes the mark: fresh for the first request on it only.
+      // Consume for every request, tracked or not — an untracked one (redirect
+      // hop, plain fetch) that leaves the mark set would make the next request
+      // on that reused socket look fresh.
       const wasFresh = msg?.socket ? freshSockets.delete(msg.socket) : false;
+      // Only record for keys we're awaiting, so the map can't grow unbounded.
+      if (!inFlightTraceKeys.has(key)) return;
       socketReuseByRequest.set(key, !wasFresh);
     });
   } catch (err) {
@@ -148,6 +168,9 @@ const finalize = (
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
+
+// ±50% spread, so retries from many venues don't land in the same instant.
+const jittered = (ms: number): number => Math.round(ms * (0.5 + Math.random()));
 
 // Failures that surface within seconds, so a retry costs little.
 const CHEAP_RETRYABLE_CODES = new Set([
@@ -271,7 +294,7 @@ export const tryFetchWithFallback = async <T>(
   const shouldRetry = opts.shouldRetry ?? (() => true);
   ensureSocketReuseTracing();
   const traceKey = requestTraceKey(method, url);
-  if (traceKey) inFlightTraceKeys.add(traceKey);
+  if (traceKey) trackTraceKey(traceKey);
   let fetchErr: any;
   let responseStatus: number | undefined;
   let fetchDurationMs: number | undefined;
@@ -293,17 +316,16 @@ export const tryFetchWithFallback = async <T>(
         );
       }
       // Consume the mark so unique (signed-URL) keys don't accumulate.
-      if (traceKey) {
-        socketReuseByRequest.delete(traceKey);
-        inFlightTraceKeys.delete(traceKey);
-      }
+      if (traceKey) releaseTraceKey(traceKey);
       return { data: r.data, viaFallback: false, fetchAttempts: attempt };
     } catch (err: any) {
       fetchErr = err;
       responseStatus = err?.responseStatus;
       fetchDurationMs = Date.now() - startedAt;
       if (!shouldRetry(err)) break;
-      if (attempt < maxAttempts) await sleep(retryDelayMs);
+      // Jittered: a dyno restart fails every venue's poll at once, and a fixed
+      // wait would march them all back onto the booting dyno together.
+      if (attempt < maxAttempts) await sleep(jittered(retryDelayMs));
     }
   }
 
@@ -312,8 +334,7 @@ export const tryFetchWithFallback = async <T>(
   let socketReused: boolean | undefined;
   if (traceKey) {
     socketReused = socketReuseByRequest.get(traceKey);
-    socketReuseByRequest.delete(traceKey);
-    inFlightTraceKeys.delete(traceKey);
+    releaseTraceKey(traceKey);
   }
   logger.error(
     { ...ctx, fetchAttempts, fetchDurationMs, socketReused },

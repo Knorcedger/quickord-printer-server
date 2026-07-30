@@ -186,8 +186,13 @@ async function postJson(
   });
 
   if (trackFallbackStreak) {
-    if (result.viaFallback) consecutiveFetchFallbacks++;
-    else consecutiveFetchFallbacks = 0;
+    // Only transport failures count. A 401/404/5xx came back over a connection
+    // fetch opened fine, so curl "recovering" it says nothing about fetch —
+    // and a bad-creds venue would otherwise sit at the threshold forever.
+    if (!result.viaFallback) consecutiveFetchFallbacks = 0;
+    else if (result.fetchFailure?.responseStatus === undefined) {
+      consecutiveFetchFallbacks++;
+    }
   }
 
   if (result.viaFallback && result.fetchFailure) {
