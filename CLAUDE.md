@@ -107,6 +107,11 @@ On customer machines the server runs as a Windows service via **WinSW**:
 
 To change service config (start mode, dependencies) on already-installed machines, either reinstall the service or run `sc.exe config printerServer ...`. `autoupdate.ts` applies service config via `sc.exe` on every `--update` phase (idempotent).
 
+## Code Style
+
+- **Never add a `Co-Authored-By:` trailer to commit messages.**
+- **Keep comments short.** One or two lines. Explain the non-obvious *why*, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
+
 ## Key Patterns
 
 - **Transliteration**: All printed text passes through `tr(text, settings.transliterate)` from `common.ts`. When enabled, converts Greek → Latin characters. Every `printer.println()` / `printer.print()` call with translatable text must use this wrapper.

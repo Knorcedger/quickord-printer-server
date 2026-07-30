@@ -74,12 +74,20 @@ const reportFetchFailure = async (
   // and the details.
   const venueId = getVenueId() || 'unknown';
 
-  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'}`;
+  // The streak is the headline: it's what says fetch is broken here rather than
+  // blipping. socketReused=false alongside it rules out stale keep-alive.
+  const streak = failure.consecutiveFallbacks;
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'} (fetch tried ${failure.fetchAttempts}×, curl ${failure.curlOk ? 'ok' : 'failed'}${streak ? `, ${streak} consecutive fallbacks` : ''})`;
   const mutation = buildAddErrorMutation(message, failure.url, {
-    fetchErrorCode: failure.fetchErrorCode,
-    fetchErrorCause: failure.fetchErrorCause,
-    responseStatus: failure.responseStatus,
+    consecutiveFallbacks: failure.consecutiveFallbacks,
+    curlDurationMs: failure.curlDurationMs,
     curlOk: failure.curlOk,
+    fetchAttempts: failure.fetchAttempts,
+    fetchDurationMs: failure.fetchDurationMs,
+    fetchErrorCause: failure.fetchErrorCause,
+    fetchErrorCode: failure.fetchErrorCode,
+    responseStatus: failure.responseStatus,
+    socketReused: failure.socketReused,
     venueId,
   });
 
