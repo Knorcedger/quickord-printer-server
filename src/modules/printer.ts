@@ -39,7 +39,11 @@ import {
 } from './common';
 import logger from './logger';
 import { resolveCopies } from './copies';
-import { IPrinterSettings, ISettings } from './settings';
+import {
+  IPrinterSettings,
+  ISettings,
+  shouldPrintOptionDetails,
+} from './settings';
 import { SupportedLanguages, translations } from './translations';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
 
@@ -440,7 +444,7 @@ export const checkPrinters = async () => {
   // budget (and Heroku's 30s router cap), so checkPrintersStatus timed out and
   // reported every printer offline. Distinct printers use distinct sockets, so
   // parallel probing is safe and caps total time at a single printer's worst
-  // case. Matches the explicit-list branch in wsClient, which already fans out.
+  // case.
   const results = await Promise.all(
     printers.map(async (entry, i) => {
       const settings = entry?.[1];
@@ -3117,9 +3121,10 @@ export const printOrder = async (
   // FULL-ORDER is an explicit, on-demand print of the whole order: prices+VAT
   // always shown, no VAT-analysis table, customizations always included, and
   // category/order-method filters bypassed. We force the relevant settings so
-  // the existing ORDER render path is reused as-is. OPTION-DETAILS is injected
-  // into documentsToPrint so customizations are always rendered, even if the
-  // printer was configured for FULL-ORDER without OPTION-DETAILS.
+  // the existing ORDER render path is reused as-is. optionDetails is forced on
+  // so customizations are always rendered, even if the printer was configured
+  // for FULL-ORDER without them. OPTION-DETAILS is kept in documentsToPrint too
+  // for backward compatibility with the legacy check.
   const isFull = mode === 'FULL-ORDER';
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -3131,6 +3136,7 @@ export const printOrder = async (
             ...rawSettings,
             priceOnOrder: true,
             vatAnalysis: false,
+            optionDetails: true,
             documentsToPrint: Array.from(
               new Set([
                 ...(rawSettings.documentsToPrint ?? []),
@@ -3673,10 +3679,7 @@ export const printOrder = async (
           }
 
           // Handle product option details
-          if (
-            settings.documentsToPrint?.includes('OPTION-DETAILS') &&
-            product.options
-          ) {
+          if (shouldPrintOptionDetails(settings) && product.options) {
             console.log('Printing details:', JSON.stringify(product.options));
             // BOLD_PRODUCTS leaves the text enlarged for the option lines too.
             printOptionDetails(

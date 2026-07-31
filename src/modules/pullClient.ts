@@ -19,18 +19,20 @@ import { getBackendBaseUrl } from './backendUrl';
 import {
   curlExecJson,
   httpStatusError,
+  isCheapRetryableFetchError,
+  isRecoveredFetchNoise,
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
 import scanNetworkForConnections from './network';
 import { checkPrinters } from './printer';
+import { executePrintJob } from './printJob';
 import {
-  executePrintJob,
   getPrinterVersion,
   getVenueId,
   getWsSecret,
   triggerRestart,
-} from './wsClient';
+} from './psIdentity';
 import logger from './logger';
 
 // Poll timeout must clear the backend's 25s hold with margin, so a healthy idle
@@ -43,6 +45,11 @@ import logger from './logger';
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
 const RESULT_TIMEOUT_MS = 10_000;
+// Extra fetch attempts before curl: a retry that succeeds was a blip, all-fail
+// + curl-works is fetch-specific. Only cheap failures are retried (seconds).
+// Poll-only: a result report races the backend's 120s claim-result timeout.
+const POLL_FETCH_RETRIES = 2;
+const FETCH_RETRY_DELAY_MS = 500;
 // A result report that fails gets retried on this schedule (fresh creds each
 // attempt). The sum stays far below the backend's claim-result timeout, so a
 // report that eventually lands still beats the sweep that would otherwise
@@ -89,6 +96,13 @@ const seenJobs = new Map<string, number>();
 const FETCH_FAILURE_REPORT_INTERVAL_MS = 60 * 60 * 1000;
 let lastFetchFailureReportAt = 0;
 
+// A single fallback is the link breathing; fetch that stays broken while curl
+// works is the incident — only persistence tells them apart.
+// Poll-only: the poll is serialized, so its streak really is persistence;
+// concurrent result reports could hit the threshold on one shared blip.
+const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
+let consecutiveFetchFallbacks = 0;
+
 let running = false;
 
 const sleep = (ms: number): Promise<void> =>
@@ -115,13 +129,20 @@ function alreadySeen(jobId: string): boolean {
 // PS→BE call (api.ts): on some venue machines Node's fetch is broken by a
 // proxy while curl works, and without the fallback the pull loop would fail
 // every poll forever while the rest of the app hums along.
+// fetchRetries and trackFallbackStreak are poll-only; see POLL_FETCH_RETRIES
+// and FETCH_FALLBACK_STREAK_TO_REPORT.
 async function postJson(
   path: string,
   body: Record<string, unknown>,
-  timeoutMs: number
+  timeoutMs: number,
+  fetchRetries = 0,
+  trackFallbackStreak = false
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
+    fetchRetries,
+    retryDelayMs: FETCH_RETRY_DELAY_MS,
+    shouldRetry: isCheapRetryableFetchError,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
@@ -148,7 +169,22 @@ async function postJson(
     },
     method: 'POST',
     url,
+  }).catch((err) => {
+    // curl failed too: a dead uplink, not fetch-specific.
+    if (trackFallbackStreak) consecutiveFetchFallbacks = 0;
+    throw err;
   });
+
+  if (trackFallbackStreak) {
+    // Only consecutive transport failures count: a 401/404/5xx came back over a
+    // connection fetch opened fine, so it proves fetch works and breaks the
+    // streak.
+    const transportFallback =
+      result.viaFallback && result.fetchFailure?.responseStatus === undefined;
+    consecutiveFetchFallbacks = transportFallback
+      ? consecutiveFetchFallbacks + 1
+      : 0;
+  }
 
   if (result.viaFallback && result.fetchFailure) {
     // A 401 is an auth rejection, not the transient fetch/proxy failure the
@@ -163,29 +199,24 @@ async function postJson(
     if (result.fetchFailure.responseStatus === 401) {
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
-    // Two failures on this path are noise, and both are proven healthy by the
-    // curl fallback that recovered the poll:
-    //   - AbortError: this loop's own POLL_TIMEOUT_MS firing. The long poll is
-    //     the only PS call that deliberately sits near its timeout, so it alone
-    //     can trip it on a slow-but-working link.
-    //   - UND_ERR_CONNECT_TIMEOUT with curlOk: a dropped SYN on the venue's
-    //     uplink. Measured over 14 days: 20 events across 8+ venues at all
-    //     hours, every one recovered by curl with no print lost.
-    // We only get here via the curl fallback, so curlOk is true by
-    // construction — kept in the check so this stays correct if that changes.
-    // Other codes (ECONNRESET, UND_ERR_SOCKET, HTTP 5xx) are still reported.
-    const { curlOk, fetchErrorCode, fetchErrorName } = result.fetchFailure;
-    const recoveredNoise =
-      curlOk &&
-      (fetchErrorName === 'AbortError' ||
-        fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT');
     const now = Date.now();
+    // The poll gates on the streak; the result path can't measure persistence,
+    // so it reports anything but the noise curl silently recovers. The hourly
+    // throttle is shared, so a machine pages once either way.
+    const worthReporting = trackFallbackStreak
+      ? consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT
+      : !isRecoveredFetchNoise(result.fetchFailure);
     if (
-      !recoveredNoise &&
+      worthReporting &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
       lastFetchFailureReportAt = now;
-      reportFetchFailure(result.fetchFailure).catch(() => {});
+      reportFetchFailure({
+        ...result.fetchFailure,
+        consecutiveFallbacks: trackFallbackStreak
+          ? consecutiveFetchFallbacks
+          : undefined,
+      }).catch(() => {});
     }
   }
   return result.data;
@@ -253,7 +284,9 @@ async function pollOnce(): Promise<void> {
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
-    POLL_TIMEOUT_MS
+    POLL_TIMEOUT_MS,
+    POLL_FETCH_RETRIES,
+    true
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
