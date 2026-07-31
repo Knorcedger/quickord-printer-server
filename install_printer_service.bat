@@ -1,21 +1,70 @@
 @echo off
 cd /d "%~dp0"
-setlocal
+setlocal enabledelayedexpansion
 
 :: Use the actual Windows Service name (matches printerServerService.xml <id>)
 set SERVICE_NAME=printerServer
+set SERVICE_EXE=printerServerService.exe
+
+:: sc create/delete need elevation; double-clicking does not give it.
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Requesting administrator privileges...
+    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+)
+
+:: Without the WinSW binary there is nothing to install from.
+if not exist "%SERVICE_EXE%" (
+    echo %SERVICE_EXE% is missing from this folder - the install is incomplete.
+    echo Run force_autoupdate.bat to re-download a full build, then run this again.
+    pause
+    exit /b 1
+)
 
 :: Check if the service is already installed
 sc query "%SERVICE_NAME%" >nul 2>&1
-if %errorlevel%==0 (
-    echo Service is already installed.
+if %errorlevel%==0 goto :registered
+goto :install
+
+:registered
+:: A registration can outlive its binary (an update that lost the exe). Then
+:: install says "already installed" and uninstall cannot run - a dead end.
+:: Read where the SCM points and drop the entry if that file is gone.
+set BINPATH=
+for /f "tokens=1,* delims=:" %%a in ('sc qc "%SERVICE_NAME%" ^| findstr /i "BINARY_PATH_NAME"') do set BINPATH=%%b
+for /f "tokens=*" %%x in ("!BINPATH!") do set BINPATH=%%x
+set BINPATH=!BINPATH:"=!
+
+if not defined BINPATH (
+    echo Service is already installed but its binary path could not be read.
+    pause
+    exit /b 1
+)
+
+if exist "!BINPATH!" (
+    echo Service is already installed ^(!BINPATH!^).
     pause
     exit /b
 )
 
+echo Service is registered but its binary is missing:
+echo   !BINPATH!
+echo Removing the orphaned registration...
+sc stop "%SERVICE_NAME%" >nul 2>&1
+timeout /t 3 >nul
+sc delete "%SERVICE_NAME%"
+if %errorlevel% neq 0 (
+    echo Failed to remove the orphaned service. Reboot and try again.
+    pause
+    exit /b 1
+)
+timeout /t 2 >nul
+
+:install
 :: Try to install the service
 echo Installing service...
-printerServerService.exe install
+%SERVICE_EXE% install
 
 :: Wait a moment for Windows to register the service
 timeout /t 2 >nul
