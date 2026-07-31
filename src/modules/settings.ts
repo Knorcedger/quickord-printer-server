@@ -103,6 +103,12 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'TEXT']),
+  optionDetails: z
+    .boolean({
+      description: 'Whether to print per-product option/customization details.',
+      invalid_type_error: 'optionDetails must be a boolean.',
+    })
+    .optional(),
   printerType: z
     .enum(['KIOSK', 'DESKTOP'], {
       description: 'The type of the printer.',
@@ -206,6 +212,15 @@ export const PrinterSettings = z.object({
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
+
+// Option details moved from the legacy 'OPTION-DETAILS' pseudo-document to a
+// dedicated boolean. Fall back to the array for settings not yet migrated.
+export const shouldPrintOptionDetails = (
+  settings: Pick<IPrinterSettings, 'optionDetails' | 'documentsToPrint'>
+): boolean =>
+  settings.optionDetails ??
+  settings.documentsToPrint?.includes('OPTION-DETAILS') ??
+  false;
 
 export const ModemSettings = z.object({
   port: z.string({ required_error: 'the modem port is required' }),

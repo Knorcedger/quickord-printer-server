@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
-import { PrinterTextSize } from './settings';
+import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
 import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
@@ -16,8 +16,8 @@ import { reportFetchFailure } from './api';
 const execAsync = promisify(exec);
 
 // Canonical Windows shared-printer online check, shared by the legacy
-// /available status path (printer.ts) and the WS print path (wsClient.ts) so the
-// WMI query and its quoting live in one place and the two can't diverge.
+// /available status path (printer.ts) and the pull print path (printJob.ts) so
+// the WMI query and its quoting live in one place and the two can't diverge.
 // Escapes single quotes (the WQL/PowerShell escape is doubling).
 // Verified on a venue Windows machine: WorkOffline flips False->True within
 // ~10s of powering a shared USB printer off, so it tracks real connectivity.
@@ -980,7 +980,7 @@ export const printProducts = (
     }
     if (
       showOptions &&
-      settings.documentsToPrint?.includes('OPTION-DETAILS') &&
+      shouldPrintOptionDetails(settings) &&
       matchedProduct?.options
     ) {
       console.log('Printing details:', JSON.stringify(matchedProduct.options));

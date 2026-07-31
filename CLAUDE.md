@@ -4,6 +4,10 @@
 
 Node.js/TypeScript Express server (port 7810) that bridges the Quickord restaurant ordering platform with ESC/POS thermal printers. Receives order data via HTTP from the Quickord web app, formats it, and sends it to configured printers via TCP (network) or serial (USB).
 
+### Backend channel
+
+The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. There is no WebSocket client — it was removed in favor of pull, which survives half-open connections. When the pull channel is down the backend returns `PS_OFFLINE` and the frontend falls back to a direct LAN HTTP call to this server's `/print-*` endpoints.
+
 ## Tech Stack
 
 - **Runtime**: Node.js (v24.8.0)
@@ -20,6 +24,11 @@ src/
 ├── index.ts                    # Entry point - Express server, routes, startup
 ├── modules/
 │   ├── printer.ts              # Core print logic - all print formatting and sending
+│   ├── pullClient.ts           # Long-poll pull loop — sole backend channel (see below)
+│   ├── printJob.ts             # Raw ESC/POS job execution (TCP/local), per-printer serialization
+│   ├── psIdentity.ts           # venueId/secret/version accessors + restart trigger
+│   ├── api.ts                  # Backend GraphQL calls (IP register, error reporting)
+│   ├── backendUrl.ts           # Derives the backend HTTP base from QUICKORD_API_URL
 │   ├── settings.ts             # Zod schemas, settings load/save to settings.json
 │   ├── common.ts               # Utilities: transliteration (tr), text formatting, images
 │   ├── modem.ts                # Serial modem for phone call routing
@@ -99,6 +108,11 @@ On customer machines the server runs as a Windows service via **WinSW**:
 - `install_printer_service.bat` / `uninstall_printer_service.bat` / `start_printer_service.bat` / `stop_printer_service.bat` - wrappers around `printerServerService.exe install/uninstall/start/stop`.
 
 To change service config (start mode, dependencies, failure actions) on already-installed machines, either reinstall the service or run `sc.exe config` / `sc.exe failure printerServer ...`. `applyServiceConfig()` in `autoupdate.ts` applies both on every `--update` phase (idempotent) — that is how existing installs get the `<onfailure>` restart policy, since copying a newer xml does not.
+
+## Code Style
+
+- **Never add a `Co-Authored-By:` trailer to commit messages.**
+- **Keep comments short.** One or two lines. Explain the non-obvious *why*, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
 
 ## Key Patterns
 
