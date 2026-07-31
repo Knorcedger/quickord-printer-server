@@ -5,6 +5,14 @@ set SERVICE=printerServerService.exe
 set SERVICE_NAME=printerServer
 set PORT=7810
 
+:: Fail with the real reason instead of cmd's "is not recognized" further down.
+if not exist "%SERVICE%" (
+    echo %SERVICE% is missing from this folder - the install is incomplete.
+    echo Run force_autoupdate.bat to re-download a full build, then run this again.
+    pause
+    exit /b 1
+)
+
 :: Kill any stale printerServer.exe processes first
 echo Cleaning up stale processes...
 taskkill /IM printerServer.exe /F >nul 2>&1

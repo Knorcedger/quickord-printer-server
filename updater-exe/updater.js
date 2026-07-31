@@ -121,7 +121,10 @@ function extractZip() {
 // A partial build must never overwrite a working install.
 function validateStaged() {
   const stagedBuilds = path.join(EXTRACT_DIR, "builds");
-  for (const f of ["printerServer.exe", "config.json"]) {
+  // printerServerService.exe: without it the service cannot be started,
+  // stopped or uninstalled after the next reboot, while the running server
+  // looks fine — so a release missing it must never reach the install.
+  for (const f of ["printerServer.exe", "printerServerService.exe", "config.json"]) {
     if (!fs.existsSync(path.join(stagedBuilds, f))) {
       throw new Error(`Staged release is missing builds/${f}`);
     }
@@ -210,9 +213,12 @@ function swapInstall() {
   backupSettings();
 
   const buildsTxn = stageReplaceDir("builds", { required: true });
-  if (!fs.existsSync(path.join(BUILD_DIR, "printerServer.exe"))) {
+  const missing = ["printerServer.exe", "printerServerService.exe"].filter(
+    (f) => !fs.existsSync(path.join(BUILD_DIR, f))
+  );
+  if (missing.length) {
     rollbackOrCritical(buildsTxn.rollback, "builds");
-    throw new Error("builds was replaced but printerServer.exe is missing");
+    throw new Error(`builds was replaced but ${missing.join(", ")} is missing`);
   }
 
   // node_modules ships with every release (validateStaged enforces it). If it

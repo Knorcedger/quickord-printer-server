@@ -753,6 +753,16 @@ function hasServerExe(dir: string): boolean {
   return fs.existsSync(path.join(dir, 'builds', 'printerServer.exe'));
 }
 
+// Losing printerServerService.exe leaves the running server up but the service
+// unstartable (and un-uninstallable) at the next reboot. Checked on the new
+// build only — an install already missing it is what an update must repair.
+function missingBuildFiles(dir: string): string[] {
+  const builds = path.join(dir, 'builds');
+  return ['printerServer.exe', 'printerServerService.exe'].filter(
+    (name) => !fs.existsSync(path.join(builds, name))
+  );
+}
+
 type InstallBackup = {
   /** Where the previous install now lives. */
   path: string;
@@ -1024,9 +1034,10 @@ async function runUpdater(path: string[]): Promise<boolean> {
     await fsp.mkdir(destDir, { recursive: true });
     console.log('paths: ', srcDir, destDir);
     await copyWithCmd(srcDir, destDir);
-    if (!hasServerExe(destDir)) {
+    const missing = missingBuildFiles(destDir);
+    if (missing.length) {
       throw new Error(
-        `copy finished but ${destDir}\\builds\\printerServer.exe is missing`
+        `copy finished but ${destDir}\\builds is missing ${missing.join(', ')}`
       );
     }
   } catch (err: any) {
