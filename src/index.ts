@@ -18,6 +18,7 @@ import {
 } from './modules/printer';
 import { printText } from './modules/printer';
 import {
+  getModems,
   getPublicSettings,
   getSettings,
   loadSettings,
@@ -341,7 +342,7 @@ const main = async () => {
     );
 
     // Self-register printer server IP with the backend
-    const venueId = getSettings().venueId || getSettings().modem?.venueId;
+    const venueId = getSettings().venueId || getModems()[0]?.venueId;
 
     if (venueId) {
       registerPrinterServerIp(venueId);
