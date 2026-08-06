@@ -170,6 +170,17 @@ const lastConnectedState = new Map<string, boolean>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// KIOSK printers only accept kiosk-app jobs, and kiosk jobs only go to KIOSK printers.
+const kioskSkipReason = (settings: IPrinterSettings, appId: string) => {
+  if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+    return 'Printer is configured as KIOSK printer only';
+  }
+  if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
+    return 'Kiosk request, printer is not a KIOSK printer';
+  }
+  return null;
+};
+
 // Retries the network connection probe a few times before giving up, so a
 // printer that is slow to wake from WiFi power-save gets a chance to respond
 // within a single status check.
@@ -2006,12 +2017,10 @@ const printPaymentReceipt = async (
       }
     }
 
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
     console.log('Printing ALP');
@@ -2240,16 +2249,15 @@ const printInvoice = async (
         continue;
       }
     }
-    console.log(appId, settings.printerType);
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
-    console.log('printing invoice');
+
+    console.log('Printing invoice');
     const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
@@ -3128,7 +3136,6 @@ export const printOrder = async (
   const isFull = mode === 'FULL-ORDER';
 
   for (let i = 0; i < printers.length; i += 1) {
-    let dontPrint = false;
     const rawSettings = printers[i]?.[1];
     const settings =
       isFull && rawSettings
@@ -3174,6 +3181,12 @@ export const printOrder = async (
           });
           continue;
         }
+      }
+
+      const kioskSkip = kioskSkipReason(settings, appId);
+      if (kioskSkip) {
+        skipped.push({ printerIdentifier, reason: kioskSkip });
+        continue;
       }
 
       const isOrderFromPlatform =
@@ -3387,7 +3400,6 @@ export const printOrder = async (
               printer.bold(false);
             }
           }
-
         }
 
         // Headcount, right-aligned on the order-type line below. Present only
@@ -3569,15 +3581,7 @@ export const printOrder = async (
           let total = product.total || 0;
           let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
-          console.log(order.appId, settings.printerType);
-          console.log(
-            'cond',
-            order.appId !== 'kiosk' && settings.printerType === 'KIOSK'
-          );
-          if (order.appId !== 'kiosk' && settings.printerType === 'KIOSK') {
-            dontPrint = true;
-            return;
-          }
+
           if (isEdit) {
             const editStatus = getEditStatus(product);
             if (editStatus === 'TRANSFERRED') {
@@ -4038,52 +4042,46 @@ export const printOrder = async (
 
         printer.cut();
 
-        if (!dontPrint) {
-          try {
-            await executePrinter(
-              printer,
-              printerIdentifier,
-              `order print copy ${copies + 1}/${copyCount}`,
-              {
-                orderId: order._id,
-                orderNumber: order.number,
-                orderType: order.orderType,
-                copy: copies + 1,
-                totalCopies: copyCount,
-              }
-            );
-          } catch (execError) {
-            copyExecError = execError;
-            break;
-          }
+        try {
+          await executePrinter(
+            printer,
+            printerIdentifier,
+            `order print copy ${copies + 1}/${copyCount}`,
+            {
+              orderId: order._id,
+              orderNumber: order.number,
+              orderType: order.orderType,
+              copy: copies + 1,
+              totalCopies: copyCount,
+            }
+          );
+        } catch (execError) {
+          copyExecError = execError;
+          break;
         }
       }
 
-      if (!dontPrint) {
-        if (copyExecError) {
-          if (copyExecError instanceof PrinterConnectionError) {
-            logger.error(
-              `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
-            );
-            errors.push({ printerIdentifier, error: copyExecError });
-          } else {
-            logger.error(`Failed to print order to ${printerIdentifier}:`, {
-              error:
-                copyExecError instanceof Error
-                  ? copyExecError.message
-                  : String(copyExecError),
-              orderId: order._id,
-              orderNumber: order.number,
-              stack:
-                copyExecError instanceof Error
-                  ? copyExecError.stack
-                  : undefined,
-            });
-            errors.push({ printerIdentifier, error: copyExecError });
-          }
+      if (copyExecError) {
+        if (copyExecError instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
+          );
+          errors.push({ printerIdentifier, error: copyExecError });
         } else {
-          successes.push(printerIdentifier);
+          logger.error(`Failed to print order to ${printerIdentifier}:`, {
+            error:
+              copyExecError instanceof Error
+                ? copyExecError.message
+                : String(copyExecError),
+            orderId: order._id,
+            orderNumber: order.number,
+            stack:
+              copyExecError instanceof Error ? copyExecError.stack : undefined,
+          });
+          errors.push({ printerIdentifier, error: copyExecError });
         }
+      } else {
+        successes.push(printerIdentifier);
       }
     } catch (error) {
       logger.error(`Error preparing order print for ${printerIdentifier}:`, {
