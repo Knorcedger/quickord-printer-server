@@ -170,6 +170,17 @@ const lastConnectedState = new Map<string, boolean>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// KIOSK printers only accept kiosk-app jobs, and kiosk jobs only go to KIOSK printers.
+const kioskSkipReason = (settings: IPrinterSettings, appId: string) => {
+  if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+    return 'Printer is configured as KIOSK printer only';
+  }
+  if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
+    return 'Kiosk request, printer is not a KIOSK printer';
+  }
+  return null;
+};
+
 // Retries the network connection probe a few times before giving up, so a
 // printer that is slow to wake from WiFi power-save gets a chance to respond
 // within a single status check.
@@ -2006,20 +2017,10 @@ const printPaymentReceipt = async (
       }
     }
 
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
-      continue;
-    }
-    if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
-      console.log('skipping kiosk request on non-KIOSK printer');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Kiosk request, printer is not a KIOSK printer',
-      });
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
     console.log('Printing ALP');
@@ -2248,24 +2249,15 @@ const printInvoice = async (
         continue;
       }
     }
-    console.log(appId, settings.printerType);
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
-    if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
-      console.log('skipping kiosk request on non-KIOSK printer');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Kiosk request, printer is not a KIOSK printer',
-      });
-      continue;
-    }
-    console.log('printing invoice');
+
+    console.log('Printing invoice');
     const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
@@ -3191,18 +3183,9 @@ export const printOrder = async (
         }
       }
 
-      if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-        skipped.push({
-          printerIdentifier,
-          reason: 'Printer is configured as KIOSK printer only',
-        });
-        continue;
-      }
-      if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
-        skipped.push({
-          printerIdentifier,
-          reason: 'Kiosk request, printer is not a KIOSK printer',
-        });
+      const kioskSkip = kioskSkipReason(settings, appId);
+      if (kioskSkip) {
+        skipped.push({ printerIdentifier, reason: kioskSkip });
         continue;
       }
 
