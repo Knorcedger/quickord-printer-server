@@ -58,8 +58,8 @@ describe('modem registry', () => {
     await syncModems([modem('COM3'), modem('COM4')]);
     await settle();
 
-    expect(recordingOf('COM3')).toContain('AT+GCI=B5\rAT+VCID=1\r');
-    expect(recordingOf('COM4')).toContain('AT+GCI=B5\rAT+VCID=1\r');
+    expect(recordingOf('COM3')).toContain('AT+GCI=B5\rATS24=0\rAT+VCID=1\r');
+    expect(recordingOf('COM4')).toContain('AT+GCI=B5\rATS24=0\rAT+VCID=1\r');
   });
 
   it('M3: reports a call from one port once', async () => {

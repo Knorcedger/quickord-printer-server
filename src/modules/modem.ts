@@ -147,7 +147,9 @@ const openPort = async (inst: ModemInstance) => {
 
   // AT+VCID=1 -> this enables caller id on the modem
   // AT+GCI=B5 -> this changes the setup country (B5 is for USA but caller id is not working with Greece(46))
-  serial.write(Buffer.from('AT+GCI=B5\rAT+VCID=1\r'));
+  // ATS24=0 -> disables the Conexant sleep-inactivity timer; a sleeping chip
+  // misses the CID burst on the first call after long idle (ignored by others)
+  serial.write(Buffer.from('AT+GCI=B5\rATS24=0\rAT+VCID=1\r'));
 
   serial.on('data', (d: Buffer) => {
     const chunk = d.toString();
