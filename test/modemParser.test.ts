@@ -54,10 +54,31 @@ describe('modemParser.feed', () => {
     expect(res.phoneNumber).toBeUndefined();
   });
 
-  it('ignores noise', () => {
-    const res = feed('', 'OK\r\nOK\r\n');
+  it('drops keepalive/init chatter instead of buffering it', () => {
+    let buffer = '';
+    for (let i = 0; i < 200; i++) {
+      const res = feed(buffer, 'AT\r\r\nOK\r\n');
+      buffer = res.buffer;
+      expect(res.overflowed).toBeUndefined();
+    }
+    expect(buffer).toBe('');
+  });
+
+  it('keeps CID lines while dropping surrounding chatter', () => {
+    const res = feed('', 'AT\r\r\nOK\r\nRING\r\nNMBR = 69');
     expect(res.phoneNumber).toBeUndefined();
-    expect(res.buffer).toBe('OK\r\nOK\r\n');
+    expect(res.buffer).toBe('RING\r\nNMBR = 69');
+  });
+
+  it('survives a CID burst that straddles the overflow moment', () => {
+    // Non-noise garbage lines the parser has to keep, near the 1024 limit.
+    const garbage = `${'Z'.repeat(1020)}\r\n`;
+    const first = feed(garbage, 'RING\r\nNMBR = 69');
+    expect(first.overflowed).toBeDefined();
+    expect(first.buffer).toBe('NMBR = 69');
+
+    const second = feed(first.buffer, '49713533\r\n');
+    expect(second.phoneNumber).toBe('6949713533');
   });
 
   it('keeps two interleaved feed chains fully independent', () => {
