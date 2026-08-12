@@ -145,6 +145,16 @@ const openPort = async (inst: ModemInstance) => {
     });
   }
 
+  // A concurrent sync may have closed/replaced this instance while open() or
+  // the init delay was pending; attaching now would leak an untracked open
+  // port with a keepalive nothing can ever clear.
+  if (inst.closing || registry.get(inst.key) !== inst) {
+    serial.removeAllListeners();
+    serial.on('error', () => {});
+    if (serial.isOpen) serial.close();
+    throw new Error('modem instance superseded while opening');
+  }
+
   // AT+VCID=1 -> this enables caller id on the modem
   // AT+GCI=B5 -> this changes the setup country (B5 is for USA but caller id is not working with Greece(46))
   // ATS24=0 -> disables the Conexant sleep-inactivity timer; a sleeping chip

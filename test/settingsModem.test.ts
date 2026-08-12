@@ -118,6 +118,9 @@ describe('settings resolver — modems', () => {
       'COM4',
     ]);
     expect(onDisk.modem.port).toBe('COM3');
+    // Old builds read venueId off the modem itself, so a mirror without it
+    // would break the rollback it exists for.
+    expect(onDisk.modem.venueId).toBe('venue-1');
   });
 
   it('closes every modem when the list is emptied', async () => {

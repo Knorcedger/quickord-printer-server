@@ -1,7 +1,7 @@
 import signale from 'signale';
 
 import { apiCall } from '../src/modules/api';
-import { syncModems } from '../src/modules/modem';
+import { __setInitDelayMs, syncModems } from '../src/modules/modem';
 import { __resetDedup } from '../src/modules/modemDedup';
 import { Settings, updateSettings } from '../src/modules/settings';
 
@@ -209,6 +209,32 @@ describe('modem registry', () => {
     expect(
       errorSpy.mock.calls.some((c) => String(c[0]).includes('COM9'))
     ).toBe(true);
+
+    errorSpy.mockRestore();
+  });
+
+  it('M15: a sync arriving while another sync is opening does not leak a half-open port', async () => {
+    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+
+    // Reopen the race window that useFakePorts closes with a 0ms init delay.
+    __setInitDelayMs(20);
+
+    const first = syncModems([modem('COM3')]);
+    await settle();
+    const early = instanceFor('COM3');
+
+    const second = syncModems([modem('COM3')]);
+    await jest.advanceTimersByTimeAsync(2_000);
+    await Promise.all([first, second]);
+
+    const final = instanceFor('COM3')!;
+    expect(final.serial?.isOpen).toBe(true);
+
+    // A superseded instance must not have adopted the port it was opening.
+    if (early && early !== final) {
+      expect(early.serial).toBeNull();
+      expect(early.keepalive).toBeNull();
+    }
 
     errorSpy.mockRestore();
   });

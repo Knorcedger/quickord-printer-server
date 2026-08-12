@@ -33,7 +33,17 @@ describe('modemParser.feed', () => {
   it('holds the buffer while the NMBR line is incomplete', () => {
     const res = feed('', 'RING\r\nNMBR = 6976641604');
     expect(res.phoneNumber).toBeUndefined();
-    expect(res.buffer).toBe('RING\r\nNMBR = 6976641604');
+    // The completed RING line is dropped as noise, the partial line is kept.
+    expect(res.buffer).toBe('NMBR = 6976641604');
+  });
+
+  it('emits when a trailing RING closes an unterminated NMBR line', () => {
+    const held = feed('', 'RING\r\nNMBR = 6976641604');
+    expect(held.phoneNumber).toBeUndefined();
+
+    const res = feed(held.buffer, 'RING\r\n');
+    expect(res.phoneNumber).toBe('6976641604');
+    expect(res.buffer).toBe('');
   });
 
   it('handles two successive calls on the same buffer chain', () => {
@@ -67,7 +77,27 @@ describe('modemParser.feed', () => {
   it('keeps CID lines while dropping surrounding chatter', () => {
     const res = feed('', 'AT\r\r\nOK\r\nRING\r\nNMBR = 69');
     expect(res.phoneNumber).toBeUndefined();
-    expect(res.buffer).toBe('RING\r\nNMBR = 69');
+    expect(res.buffer).toBe('NMBR = 69');
+  });
+
+  it('is not poisoned by stale RINGs from a previous unanswered call', () => {
+    // Call 1 emits; its trailing RING arrives as its own chunk afterwards.
+    const a = feed(
+      '',
+      'RING\r\nDATE = 0718\r\nTIME = 1730\r\nNMBR = 6976641604\r\n'
+    );
+    expect(a.phoneNumber).toBe('6976641604');
+    const b = feed(a.buffer, 'RING\r\n');
+    expect(b.phoneNumber).toBeUndefined();
+
+    // Call 2: a chunk splitting mid-number must not emit a truncated number.
+    const c = feed(b.buffer, 'RING\r\n');
+    const d = feed(c.buffer, 'DATE = 0719\r\nTIME = 1145\r\nNMBR = 69712');
+    expect(d.phoneNumber).toBeUndefined();
+
+    const e = feed(d.buffer, '34567\r\n');
+    expect(e.phoneNumber).toBe('6971234567');
+    expect(e.buffer).toBe('');
   });
 
   it('survives a CID burst that straddles the overflow moment', () => {

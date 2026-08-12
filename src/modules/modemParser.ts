@@ -7,8 +7,9 @@ const MAX_BUFFER_LENGTH = 1024;
 // burst arriving at that exact moment is not lost.
 const MAX_TAIL_KEEP = 64;
 
-// Keepalive/init chatter — command echoes and result codes, never CID data.
-const NOISE_LINE = /^(AT.*|OK|ERROR)$/i;
+// Keepalive/init chatter plus bare RING lines. A completed RING carries no CID
+// data, and one left in the buffer would poison the next call's completion check.
+const NOISE_LINE = /^(AT.*|OK|ERROR|RING)$/i;
 
 export type FeedResult = {
   buffer: string;
@@ -27,11 +28,12 @@ export type FeedResult = {
 export const feed = (buffer: string, chunk: string): FeedResult => {
   const raw = buffer + chunk;
 
-  // Complete message = either a newline after the NMBR line or a second RING.
+  // Complete message = a newline or a RING after the NMBR line. Only RINGs
+  // *after* it count: earlier ones would fire on a chunk that splits mid-number.
+  const nmbrIdx = raw.indexOf('NMBR');
   const hasCompleteNmbr =
     /NMBR\s*=?\s*\+?\d+/.test(raw) &&
-    (raw.indexOf('NMBR') < raw.lastIndexOf('\n') ||
-      (raw.match(/RING/g)?.length ?? 0) >= 2);
+    (nmbrIdx < raw.lastIndexOf('\n') || raw.includes('RING', nmbrIdx + 1));
 
   if (hasCompleteNmbr) {
     const phoneNumber = raw.match(/(?<=NMBR\s*=?\s*)\+?\d+/im)?.[0];

@@ -73,10 +73,13 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     }
 
     // Write the canonical list and keep the legacy single-modem mirror for one
-    // release cycle, so a PS rollback doesn't wipe the venue's modem.
+    // release cycle, so a PS rollback doesn't wipe the venue's modem. Old
+    // builds read venueId off the modem itself, so the mirror must carry it.
     const newSettings = {
       ...parsed,
-      modem: modems[0] ?? undefined,
+      modem: modems[0]
+        ? { ...modems[0], venueId: modems[0].venueId ?? parsed.venueId ?? '' }
+        : undefined,
       modems,
     };
 
