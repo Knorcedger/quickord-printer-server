@@ -69,17 +69,18 @@ const detachPort = (inst: ModemInstance) => {
 const onPhoneNumber = async (inst: ModemInstance, phoneNumber: string) => {
   signale.info(`${tag(inst)} Phone call detected: ${phoneNumber}`);
 
-  if (!shouldEmit(phoneNumber)) {
-    signale.info(
-      `${tag(inst)} Duplicate call ${phoneNumber} within dedup window, skipping`
-    );
-    return;
-  }
-
   const venueId = getSettings().venueId || inst.settings.venueId;
 
   if (!venueId) {
     signale.error(`${tag(inst)} No venueId configured, dropping call`);
+    return;
+  }
+
+  // Only consume a dedup slot for a call we will actually emit.
+  if (!shouldEmit(phoneNumber)) {
+    signale.info(
+      `${tag(inst)} Duplicate call ${phoneNumber} within dedup window, skipping`
+    );
     return;
   }
 
@@ -198,6 +199,9 @@ function scheduleReconnect(inst: ModemInstance) {
   if (registry.get(inst.key) !== inst) return;
 
   if (inst.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
+    // Fully tear down the dead instance — otherwise its keepalive interval
+    // would keep no-op'ing forever.
+    clearTimers(inst);
     signale.error(
       `${tag(inst)} reconnection gave up after ${MAX_RECONNECT_ATTEMPTS} attempts. Restart the service or update settings to retry.`
     );
@@ -284,6 +288,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
   });
 
   for (const inst of Array.from(registry.values())) {
+    // eslint-disable-next-line no-await-in-loop
     if (!wanted.has(inst.key)) await closeInstance(inst);
   }
 
@@ -295,6 +300,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
       continue;
     }
 
+    // eslint-disable-next-line no-await-in-loop
     if (existing) await closeInstance(existing);
 
     // One modem that fails to open must not take the others down.

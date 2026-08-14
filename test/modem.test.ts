@@ -143,16 +143,19 @@ describe('modem registry', () => {
 
     await syncModems([modem('COM3'), modem('COM4')]);
 
+    const com3 = instanceFor('COM3')!;
     const com4 = instanceFor('COM4')!;
     // Make reopening COM3 impossible while COM4 stays open.
     dropAllFakePorts();
-    instanceFor('COM3')!.serial!.close();
+    com3.serial!.close();
 
     await jest.advanceTimersByTimeAsync(2_000_000);
 
     expect(
       errorSpy.mock.calls.some((c) => String(c[0]).includes('gave up'))
     ).toBe(true);
+    // Giving up fully tears down the dead instance's timers.
+    expect(com3.keepalive).toBe(null);
     expect(instanceFor('COM4')).toBe(com4);
     expect(com4.serial?.isOpen).toBe(true);
 
