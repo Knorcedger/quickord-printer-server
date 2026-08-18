@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   create:
-    runs-on: windows-latest
+    # Pinned: Node 24's vcbuild.bat can't detect VS 2026, which windows-latest now ships.
+    runs-on: windows-2025
 
     steps:
       # Checkout repo
