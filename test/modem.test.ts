@@ -1,7 +1,12 @@
 import signale from 'signale';
 
 import { apiCall } from '../src/modules/api';
-import { __setInitDelayMs, syncModems } from '../src/modules/modem';
+import {
+  __setInitDelayMs,
+  __setInitTimings,
+  matchInitReply,
+  syncModems,
+} from '../src/modules/modem';
 import { __resetDedup } from '../src/modules/modemDedup';
 import { Settings, updateSettings } from '../src/modules/settings';
 
@@ -11,6 +16,7 @@ import {
   instanceFor,
   recordingOf,
   ring,
+  settleInit,
   useFakePorts,
 } from './helpers/fakeModem';
 
@@ -54,12 +60,15 @@ describe('modem registry', () => {
     expect(instanceFor('COM4')?.serial?.isOpen).toBe(true);
   });
 
-  it('M2: sends the init string on each port', async () => {
+  it('M2: sends the init commands on each port', async () => {
     await syncModems([modem('COM3'), modem('COM4')]);
-    await settle();
+    await settleInit();
 
-    expect(recordingOf('COM3')).toContain('AT+GCI=B5\rATS24=0\rAT+VCID=1\r');
-    expect(recordingOf('COM4')).toContain('AT+GCI=B5\rATS24=0\rAT+VCID=1\r');
+    ['COM3', 'COM4'].forEach((port) => {
+      expect(recordingOf(port)).toBe(
+        'ATE1\rAT\rAT+GCI=B5\rATS24=0\rAT+VCID=1\r'
+      );
+    });
   });
 
   it('M3: reports a call from one port once', async () => {
@@ -164,7 +173,7 @@ describe('modem registry', () => {
 
   it('M10: keepalives every port', async () => {
     await syncModems([modem('COM3'), modem('COM4')]);
-    await settle();
+    await settleInit();
 
     const before3 = recordingOf('COM3').length;
     const before4 = recordingOf('COM4').length;
@@ -209,9 +218,9 @@ describe('modem registry', () => {
 
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
     expect(instanceFor('COM9')?.serial).toBeNull();
-    expect(
-      errorSpy.mock.calls.some((c) => String(c[0]).includes('COM9'))
-    ).toBe(true);
+    expect(errorSpy.mock.calls.some((c) => String(c[0]).includes('COM9'))).toBe(
+      true
+    );
 
     errorSpy.mockRestore();
   });
@@ -242,6 +251,110 @@ describe('modem registry', () => {
     errorSpy.mockRestore();
   });
 
+  it('M16: re-issues VCID when a RING arrives without a CID block', async () => {
+    const warnSpy = jest.spyOn(signale, 'warn').mockImplementation();
+    await syncModems([modem('COM3')]);
+    await settleInit();
+    const before = recordingOf('COM3').length;
+
+    emit('COM3', 'RING\r\n');
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(recordingOf('COM3').slice(before)).toBe('AT+VCID=1\r');
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes('without NMBR'))
+    ).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it('M17: a RING that carries its CID block does not re-issue VCID', async () => {
+    await syncModems([modem('COM3')]);
+    await settleInit();
+    const before = recordingOf('COM3').length;
+
+    ring('COM3', '6976641604');
+    await jest.advanceTimersByTimeAsync(5_000);
+    // Later RINGs of the same call carry no NMBR and must stay quiet too.
+    emit('COM3', 'RING\r\n');
+    await jest.advanceTimersByTimeAsync(5_000);
+
+    expect(recordingOf('COM3').slice(before)).toBe('');
+    expect(instanceFor('COM3')?.consecutiveVcidReissues).toBe(0);
+  });
+
+  it('M18: reconnects the port after three re-issues in a row', async () => {
+    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    jest.spyOn(signale, 'warn').mockImplementation();
+
+    await syncModems([modem('COM3')]);
+    await settleInit();
+    const inst = instanceFor('COM3')!;
+    const firstSerial = inst.serial;
+
+    for (let i = 0; i < 3; i++) {
+      emit('COM3', 'RING\r\n');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(35_000); // past RECENT_NMBR_WINDOW_MS
+    }
+
+    expect(
+      errorSpy.mock.calls.some((c) =>
+        String(c[0]).includes('forcing reconnect')
+      )
+    ).toBe(true);
+
+    await jest.advanceTimersByTimeAsync(2_000);
+    expect(inst.serial).not.toBe(firstSerial);
+    expect(inst.serial?.isOpen).toBe(true);
+
+    jest.restoreAllMocks();
+  });
+
+  it('M19: an old re-issue does not count towards the streak', async () => {
+    jest.spyOn(signale, 'warn').mockImplementation();
+    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+
+    await syncModems([modem('COM3')]);
+    await settleInit();
+
+    for (let i = 0; i < 4; i++) {
+      emit('COM3', 'RING\r\n');
+      // eslint-disable-next-line no-await-in-loop
+      await jest.advanceTimersByTimeAsync(11 * 60_000); // past the decay window
+    }
+
+    expect(
+      errorSpy.mock.calls.some((c) =>
+        String(c[0]).includes('forcing reconnect')
+      )
+    ).toBe(false);
+    expect(instanceFor('COM3')?.consecutiveVcidReissues).toBe(1);
+
+    jest.restoreAllMocks();
+  });
+
+  it('M20: init does not block the caller of syncModems', async () => {
+    // Production timings: a modem that never answers burns the whole budget.
+    __setInitTimings({
+      attempts: 2,
+      backoffMs: 500,
+      drainMs: 1500,
+      settleMs: 200,
+      timeoutMs: 3000,
+    });
+
+    await syncModems([modem('COM3')]);
+
+    // The port is usable the moment it opens; init is still in its drain phase.
+    expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
+    expect(recordingOf('COM3')).toBe('');
+
+    await jest.advanceTimersByTimeAsync(60_000);
+    await instanceFor('COM3')?.initPromise;
+    expect(recordingOf('COM3')).toContain('AT+VCID=1\r');
+  });
+
   it('M14: opens a duplicated port only once', async () => {
     const warnSpy = jest.spyOn(signale, 'warn').mockImplementation();
 
@@ -253,5 +366,35 @@ describe('modem registry', () => {
     ).toBe(true);
 
     warnSpy.mockRestore();
+  });
+});
+
+describe('matchInitReply', () => {
+  it('waits for the echo before accepting an OK', () => {
+    expect(matchInitReply('OK\r\n', 'AT+VCID=1', true)).toBe(null);
+    expect(matchInitReply('AT+VCID=1\r\r\nOK\r\n', 'AT+VCID=1', true)).toBe(
+      'ok'
+    );
+  });
+
+  it('ignores an OK that arrived before the echo', () => {
+    // Leftover boot-time output must not answer for the command.
+    expect(matchInitReply('OK\r\nAT\r', 'AT', true)).toBe(null);
+  });
+
+  it('does not let the echo of a longer command match a shorter one', () => {
+    expect(matchInitReply('AT+GCI=B5\r\r\nOK\r\n', 'AT', true)).toBe(null);
+  });
+
+  it('reports an ERROR reply', () => {
+    expect(matchInitReply('ATS24=0\r\r\nERROR\r\n', 'ATS24=0', true)).toBe(
+      'error'
+    );
+  });
+
+  it('matches without the echo anchor when echo is off', () => {
+    expect(matchInitReply('\r\nOK\r\n', 'AT+VCID=1', false)).toBe('ok');
+    expect(matchInitReply('\r\nERROR\r\n', 'AT+GCI=B5', false)).toBe('error');
+    expect(matchInitReply('\r\n', 'AT', false)).toBe(null);
   });
 });
