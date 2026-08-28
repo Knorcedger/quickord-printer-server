@@ -10,10 +10,12 @@ export default {
       en: {
         MUCH: 'much',
         LITTLE: 'little',
+        WITHOUT: 'without',
       },
       el: {
         MUCH: 'πολύ',
         LITTLE: 'λίγο',
+        WITHOUT: 'χωρίς',
       },
     },
     customerEmail: {
@@ -31,6 +33,10 @@ export default {
     analysisVat: {
       el: 'ΑΝΑΛΥΣΗ ΦΠΑ ΚΑΤΑ ΣΥΝΤΕΛΕΣΤΗ',
       en: 'ANALYSIS VAT BY RATE',
+    },
+    assignQrNotice: {
+      el: 'ΣΚΑΝΑΡΕΤΕ ΓΙΑ ΑΝΑΛΗΨΗ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'SCAN TO CLAIM THIS ORDER',
     },
     percentage: {
       el: 'ΠΟΣΟΣΤΟ',
@@ -79,6 +85,22 @@ export default {
     orderFormOrder: {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
+    },
+    reprintTitle: {
+      el: 'ΕΠΑΝΕΚΤΥΠΩΣΗ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER REPRINT',
+    },
+    otherCategory: {
+      el: 'ΛΟΙΠΑ',
+      en: 'OTHER',
+    },
+    fullOrderTitle: {
+      el: 'ΣΥΝΟΛΙΚΗ ΠΑΡΑΓΓΕΛΙΑ',
+      en: 'FULL ORDER',
+    },
+    orderCommentsTitle: {
+      el: 'ΣΧΟΛΙΑ ΠΑΡΑΓΓΕΛΙΑΣ',
+      en: 'ORDER COMMENTS',
     },
     orderForm: {
       el: 'ΔΕΛΤΙΟ ΠΑΡΑΓΓΕΛΙΑΣ',
@@ -156,6 +178,10 @@ export default {
       ON_THE_GO: {
         el: 'ΣΤΟ ΧΕΡΙ',
         en: 'ON THE GO',
+      },
+      SELF_SERVICE_DINE_IN: {
+        el: 'ΑΥΤΟΕΞΥΠΗΡΕΤΗΣΗ',
+        en: 'SELF SERVICE',
       },
     },
     orderWaiter: {
@@ -278,6 +304,10 @@ export default {
       el: 'ΣΕΡΒ',
       en: 'WTR',
     },
+    guests: {
+      el: 'ΑΤΟΜΑ',
+      en: 'GUESTS',
+    },
     productComments: {
       el: 'ΣΧΟΛΙΑ ΠΡΟΙΟΝΤΟΣ',
       en: 'PRODUCT COMMENTS',
@@ -355,12 +385,28 @@ export default {
       en: 'PRICE',
     },
     reciept: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ',
       en: 'RECEIPT',
     },
     invoice: {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ',
       en: 'INVOICE',
+    },
+    serviceReceipt: {
+      el: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ',
+      en: 'SERVICE RECEIPT',
+    },
+    serviceReceiptEnd: {
+      el: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ ΛΗΞΗ',
+      en: 'END OF SERVICE RECEIPT',
+    },
+    serviceInvoice: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ',
+      en: 'SERVICE INVOICE',
+    },
+    serviceInvoiceEnd: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ ΛΗΞΗ',
+      en: 'END OF SERVICE INVOICE',
     },
     invoiceCreditNote: {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ / ΠΙΣΤΩΤΙΚΟ ΣΤΟΙΧΕΙΟ',
@@ -375,12 +421,32 @@ export default {
       en: 'PAYMENT SLIP',
     },
     recieptEnd: {
-      el: 'ΦΟΡΟΛΟΓΙΚΗ ΑΠΟΔΕΙΞΗ ΛΗΞΗ',
+      el: 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF RECEIPT',
     },
     invoiceEnd: {
       el: 'ΤΙΜΟΛΟΓΙΟ ΠΩΛΗΣΗΣ ΛΗΞΗ',
       en: 'END OF INVOICE',
+    },
+    invoiceDeliveryNote: {
+      el: 'ΤΙΜΟΛΟΓΙΟ ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'INVOICE - DELIVERY NOTE',
+    },
+    deliveryNoteTitle: {
+      el: 'ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ',
+      en: 'DELIVERY NOTE',
+    },
+    movePurposeAbbr: {
+      el: 'ΣΚ. ΔΙΑΚ/ΣΗΣ',
+      en: 'DISP. PURP.',
+    },
+    issuedFromHeadquarters: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΕΔΡΑ',
+      en: 'ISSUED FROM HEADQUARTERS',
+    },
+    issuedFromBranch: {
+      el: 'ΕΚΔΟΘΗΚΕ ΑΠΟ ΥΠΟΚΑΤΑΣΤΗΜΑ',
+      en: 'ISSUED FROM BRANCH',
     },
     paymentSlipEnd: {
       el: 'ΕΥΧΑΡΙΣΤΟΥΜΕ ΓΙΑ ΤΗΝ ΠΛΗΡΩΜΗ ΣΑΣ',
@@ -401,6 +467,10 @@ export default {
     productChanged: {
       el: 'ΑΛΛΑΓΗ ΠΡΟΪΟΝΤΟΣ',
       en: 'PRODUCT CHANGED',
+    },
+    productMoved: {
+      el: 'ΜΕΤΑΦΟΡΑ ΠΡΟΪΟΝΤΟΣ',
+      en: 'PRODUCT MOVED',
     },
     new: {
       el: 'ΝΕΟ',

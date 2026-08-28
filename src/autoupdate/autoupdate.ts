@@ -14,6 +14,27 @@ import * as path from 'node:path';
 import JSZip from 'jszip';
 
 import nconf from 'nconf';
+import {
+  curlExec,
+  curlExecJson,
+  httpStatusError,
+  HttpResult,
+  tryFetchWithFallback,
+} from '../modules/http';
+import { reportFetchFailure } from '../modules/api';
+
+// The update path uses tryFetchWithFallback exactly like the runtime paths
+// (poll/apiCall/common) but never looked at viaFallback, so a fetch that failed
+// and only succeeded via the curl fallback went unreported here. Mirror the
+// runtime wiring: when the update download/version check falls back to curl,
+// report it so a fetch that is quietly broken on the update path is visible too.
+// Fire-and-forget, same as the runtime call sites; a report failure must never
+// hold up or break an update.
+function reportIfViaFallback<T>(result: HttpResult<T>): void {
+  if (result.viaFallback && result.fetchFailure) {
+    reportFetchFailure(result.fetchFailure).catch(() => {});
+  }
+}
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -188,16 +209,24 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   try {
     console.log('Fetching latest release info from:', versionUrl);
 
-    // Download via curl
-    const jsonData = await new Promise<string>((resolve, reject) => {
-      const cmd = `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`;
-      exec(cmd, (err, stdout, stderr) => {
-        if (err) return reject(err);
-        resolve(stdout);
-      });
+    const result = await tryFetchWithFallback<{ tag_name?: string }>({
+      url: versionUrl,
+      method: 'GET',
+      fetchFn: async () => {
+        const response = await fetch(versionUrl, {
+          redirect: 'follow',
+          headers: { 'User-Agent': 'quickord-printer-server' },
+        });
+        if (!response.ok) throw httpStatusError(response);
+        return { data: (await response.json()) as { tag_name?: string } };
+      },
+      curlFn: () =>
+        curlExecJson(
+          `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`
+        ),
     });
-
-    const releaseData = JSON.parse(jsonData) as { tag_name?: string };
+    reportIfViaFallback(result);
+    const releaseData = result.data;
     const tagName = releaseData.tag_name;
 
     if (!tagName) {
@@ -249,15 +278,20 @@ export async function downloadLatestCode(): Promise<string | null> {
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  // Download via curl
-  await new Promise<void>((resolvePromise, reject) => {
-    const cmd = `curl -L "${url}" -o "${zipPath}"`;
-    exec(cmd, (err, stdout, stderr) => {
-      if (err) return reject(err);
-      console.log(stdout || stderr);
-      resolvePromise();
-    });
+  const downloadResult = await tryFetchWithFallback<void>({
+    url,
+    method: 'GET',
+    fetchFn: async () => {
+      const response = await fetch(url, { redirect: 'follow' });
+      if (!response.ok || !response.body) throw httpStatusError(response);
+      await pipeline(response.body, createWriteStream(zipPath));
+      return { data: undefined as void };
+    },
+    curlFn: async () => {
+      await curlExec(`curl -L "${url}" -o "${zipPath}"`);
+    },
   });
+  reportIfViaFallback(downloadResult);
 
   // Extract zip
   const tempCodePath = path.resolve(srcDir, 'code');
@@ -342,6 +376,21 @@ export function copyWithCmd(
   });
 }
 
+function applyServiceConfig(): Promise<void> {
+  return new Promise((resolve) => {
+    const cmd =
+      'sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc';
+    exec(cmd, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Failed to apply service config:', stderr || error.message);
+      } else {
+        console.log('Service config applied:', stdout.trim());
+      }
+      resolve();
+    });
+  });
+}
+
 function copySettingsFile(settingsPath, destDir) {
   return new Promise((resolve, reject) => {
     const command = `xcopy "${settingsPath}" "${path.join(destDir, 'builds')}\\" /Y`;
@@ -394,6 +443,7 @@ export default async function autoUpdate(path: string[]) {
     console.log('paths: ', srcDir, destDir);
 
     await copyWithCmd(srcDir, destDir);
+    await applyServiceConfig();
     path[0] = '--remove';
     path2 = `${path[3]}${sep}builds${sep}printerServer.exe` || '';
     console.log(path2);

@@ -1,21 +1,20 @@
-import { exec } from 'child_process';
-import fs from 'fs';
 import nconf from 'nconf';
 import os from 'os';
-import path from 'path';
 
+import {
+  curlExecJson,
+  FetchFailureDetails,
+  httpStatusError,
+  tryFetchWithFallback,
+  withTempJsonPayload,
+} from './http';
 import logger from './logger';
+import { getVenueId } from './psIdentity';
 
 nconf.argv().env().file({ file: './config.json' });
 
-const execAsync = (cmd: string): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    exec(cmd, { encoding: 'utf-8' }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
-};
+const APIKEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+const APPID = 'desktop';
 
 export const getLocalIP = (): string => {
   const interfaces = os.networkInterfaces();
@@ -34,7 +33,6 @@ export const getLocalIP = (): string => {
       if (alias.family === 'IPv4' && !alias.internal) {
         if (virtualPatterns.test(name)) {
           console.log('hit virtualPatterns:', name);
-          // Keep as fallback in case no real interface is found
           if (!fallback) fallback = alias.address;
         } else {
           return alias.address;
@@ -45,37 +43,129 @@ export const getLocalIP = (): string => {
   return fallback || '127.0.0.1';
 };
 
-/**
- * Makes a GraphQL API call to the Quickord backend using curl.
- * Curl is used instead of fetch to bypass SSL certificate issues in the bundled executable (nexe).
- */
-export const apiCall = async (query: string): Promise<any> => {
-  let tempFilePath: string | null = null;
+const escapeGraphqlString = (s: string): string =>
+  s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+
+// Builds the `addError` mutation shared by every failure reporter. The BE logs
+// each addError with a "Problem:" prefix, surfacing it as a Slack incident.
+// Centralized so the fetch-failure and websocket-failure reporters can't drift
+// in escaping or envelope shape.
+const buildAddErrorMutation = (
+  message: string,
+  url: string,
+  details: Record<string, unknown>
+): string =>
+  `mutation { addError(message: "${escapeGraphqlString(message)}", url: "${escapeGraphqlString(url)}", query: "${escapeGraphqlString(JSON.stringify(details))}") { _id } }`;
+
+// Reports a printer-server fetch failure to the BE by calling the existing
+// `addError` GraphQL mutation. Uses curl directly to avoid recursion through
+// the fetch path that just failed. Skipped when the network is fully down.
+const reportFetchFailure = async (
+  failure: FetchFailureDetails
+): Promise<void> => {
+  if (failure.networkDown) return;
+
+  const apiUrl = nconf.get('QUICKORD_API_URL');
+  if (!apiUrl) return;
+
+  // Every venue reports the same method+url, so without the venueId an incident
+  // is unattributable — the ErrorModel has no venueId column and addError does
+  // not persist the caller's IP. Carried in both the message (what Slack shows)
+  // and the details.
+  const venueId = getVenueId() || 'unknown';
+
+  // The streak is the headline: it's what says fetch is broken here rather than
+  // blipping. socketReused=false alongside it rules out stale keep-alive.
+  const streak = failure.consecutiveFallbacks;
+  const message = `Problem: printer-server fetch failed for ${failure.method} ${failure.url} for venue ${venueId} — ${failure.fetchErrorName || 'Error'}: ${failure.fetchErrorMessage || 'unknown'} (fetch tried ${failure.fetchAttempts}×, curl ${failure.curlOk ? 'ok' : 'failed'}${streak ? `, ${streak} consecutive fallbacks` : ''})`;
+  const mutation = buildAddErrorMutation(message, failure.url, {
+    consecutiveFallbacks: failure.consecutiveFallbacks,
+    curlDurationMs: failure.curlDurationMs,
+    curlOk: failure.curlOk,
+    fetchAttempts: failure.fetchAttempts,
+    fetchDurationMs: failure.fetchDurationMs,
+    fetchErrorCause: failure.fetchErrorCause,
+    fetchErrorCode: failure.fetchErrorCode,
+    responseStatus: failure.responseStatus,
+    socketReused: failure.socketReused,
+    venueId,
+  });
 
   try {
-    const payload = { query };
-
-    // Write payload to temp file to avoid escaping issues on Windows
-    tempFilePath = path.join(os.tmpdir(), `api-payload-${Date.now()}.json`);
-    fs.writeFileSync(tempFilePath, JSON.stringify(payload));
-
-    const curlCmd = `curl -s -X POST "${nconf.get('QUICKORD_API_URL')}" -H "Content-Type: application/json" -H "apikey: desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs" -H "appId: desktop" --data-binary "@${tempFilePath}"`;
-
-    const response = await execAsync(curlCmd);
-    const responseJson = JSON.parse(response);
-
-    if (responseJson?.errors) {
-      logger.error('API call error:', JSON.stringify(responseJson.errors));
-    }
-
-    return responseJson;
-  } finally {
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      try {
-        fs.unlinkSync(tempFilePath);
-      } catch {
-        // Ignore cleanup errors
-      }
-    }
+    await withTempJsonPayload({ query: mutation }, (tempFilePath) =>
+      curlExecJson(
+        `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+      )
+    );
+    logger.info('Reported fetch failure to BE');
+  } catch (err) {
+    logger.error('Failed to report fetch failure to BE:', err);
   }
 };
+
+export const apiCall = async (query: string): Promise<any> => {
+  const apiUrl = nconf.get('QUICKORD_API_URL');
+
+  const result = await tryFetchWithFallback<{ data?: any; errors?: any }>({
+    url: apiUrl,
+    method: 'POST',
+    fetchFn: async () => {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: APIKEY,
+          appId: APPID,
+        },
+        body: JSON.stringify({ query }),
+      });
+      if (!response.ok) throw httpStatusError(response);
+      const data = (await response.json()) as { data?: any; errors?: any };
+      return { data };
+    },
+    curlFn: () =>
+      withTempJsonPayload({ query }, (tempFilePath) =>
+        curlExecJson(
+          `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+        )
+      ),
+  });
+
+  if (result.viaFallback && result.fetchFailure) {
+    reportFetchFailure(result.fetchFailure).catch(() => {});
+  }
+
+  if (result.data?.errors) {
+    logger.error('API call error:', JSON.stringify(result.data.errors));
+  }
+
+  return result.data;
+};
+
+export const registerPrinterServerIp = async (
+  venueId: string
+): Promise<void> => {
+  const localIp = getLocalIP();
+  logger.info(
+    `Registering printer server IP: ${localIp} for venue: ${venueId}`
+  );
+
+  try {
+    const res = await apiCall(
+      `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
+    );
+
+    if (res?.errors) {
+      logger.error(
+        'Failed to register printer server IP:',
+        JSON.stringify(res.errors)
+      );
+    } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
+      logger.info('Printer server IP registered successfully');
+    }
+  } catch (err) {
+    logger.error('Failed to register printer server IP:', err);
+  }
+};
+
+export { reportFetchFailure };

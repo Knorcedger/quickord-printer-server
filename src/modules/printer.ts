@@ -7,6 +7,7 @@ import {
   types as PrinterTypes,
 } from 'node-thermal-printer';
 import { z } from 'zod';
+import nconf from 'nconf';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
@@ -24,6 +25,7 @@ import {
   printProducts,
   printPayments,
   printDiscountAndTip,
+  printLogo,
   printVatBreakdown,
   venueData,
   receiptData,
@@ -31,11 +33,18 @@ import {
   printDeliveryNoteVatBreakdown,
   printOptionDetails,
   printProductDiscount,
+  getInvoiceTypeLabel,
+  isUSBPrinterOnline,
+  wrapWords,
 } from './common';
 import logger from './logger';
-import { IPrinterSettings, ISettings } from './settings';
+import { resolveCopies } from './copies';
+import {
+  IPrinterSettings,
+  ISettings,
+  shouldPrintOptionDetails,
+} from './settings';
 import { SupportedLanguages, translations } from './translations';
-import { exec } from 'child_process';
 import { PelatologioRecord, AadeInvoice } from './interfaces';
 
 // Custom error classes for better error handling
@@ -80,6 +89,39 @@ export class InvalidInputError extends Error {
   }
 }
 
+export type PrintResult = {
+  successes: string[];
+  errors: Array<{ printerIdentifier: string; error: unknown }>;
+  skipped: Array<{ printerIdentifier: string; reason: string }>;
+};
+
+export type PrintHttpResponse = {
+  status: string;
+  successfulPrinters: string[];
+  failedPrinters: Array<{ printer: string; error: string }>;
+  skippedPrinters: Array<{ printer: string; reason: string }>;
+};
+
+export const buildPrintResponse = (result: PrintResult): PrintHttpResponse => {
+  const { status } = determinePrintStatus(
+    result.successes,
+    result.errors,
+    result.skipped
+  );
+  return {
+    status,
+    successfulPrinters: result.successes,
+    failedPrinters: result.errors.map((e) => ({
+      printer: e.printerIdentifier,
+      error: e.error instanceof Error ? e.error.message : String(e.error),
+    })),
+    skippedPrinters: result.skipped.map((s) => ({
+      printer: s.printerIdentifier,
+      reason: s.reason,
+    })),
+  };
+};
+
 // Helper function to determine status and HTTP code based on print results
 export const determinePrintStatus = (
   successes: string[],
@@ -112,6 +154,186 @@ export const determinePrintStatus = (
 export const DEFAULT_CODE_PAGE = 7;
 const printers: [ThermalPrinter, IPrinterSettings][] = [];
 
+// How long a single TCP connect probe waits before timing out.
+// Raised from the library default of 3000ms because WiFi printers waking
+// from power-save can take several seconds to answer the first SYN.
+const PRINTER_CONNECT_TIMEOUT_MS = 6000;
+
+// Status-check retry policy: a waking printer often fails the first probe.
+// Give it a few attempts within a single GET /available before declaring offline.
+const PRINTER_CHECK_RETRIES = 3;
+const PRINTER_CHECK_RETRY_DELAY_MS = 600;
+
+// Last-known connection state per printer id, used to debounce a single
+// transient failure across checks so the UI doesn't flap to offline.
+const lastConnectedState = new Map<string, boolean>();
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// KIOSK printers only accept kiosk-app jobs, and kiosk jobs only go to KIOSK printers.
+const kioskSkipReason = (settings: IPrinterSettings, appId: string) => {
+  if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+    return 'Printer is configured as KIOSK printer only';
+  }
+  if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
+    return 'Kiosk request, printer is not a KIOSK printer';
+  }
+  return null;
+};
+
+// Retries the network connection probe a few times before giving up, so a
+// printer that is slow to wake from WiFi power-save gets a chance to respond
+// within a single status check.
+const isNetworkPrinterConnectedWithRetry = async (
+  printer: ThermalPrinter,
+  identifier: string
+): Promise<boolean> => {
+  for (let attempt = 1; attempt <= PRINTER_CHECK_RETRIES; attempt += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const connected = await printer.isPrinterConnected();
+    if (connected) {
+      return true;
+    }
+    if (attempt < PRINTER_CHECK_RETRIES) {
+      logger.info(
+        `Printer ${identifier} probe ${attempt}/${PRINTER_CHECK_RETRIES} failed, retrying…`
+      );
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(PRINTER_CHECK_RETRY_DELAY_MS);
+    }
+  }
+  return false;
+};
+
+// --- WiFi printer keep-alive ----------------------------------------------
+// Many WiFi thermal printers (the T80C-class units we ship) drop their WiFi
+// association after a short idle period and are slow to re-associate, so the
+// next status check or print finds them "offline" until they wake (see the
+// retry logic above). A lightweight periodic probe keeps the radio awake
+// between real jobs.
+//
+// The probe is the exact same zero-byte TCP connect that checkPrinters and the
+// library already perform, so it can never print garbage or beep. The only
+// real risk is colliding with a real job on printers that accept a single TCP
+// connection at a time, so keep-alive is idle-gated: it skips any printer that
+// is currently busy or had real activity within the cooldown window. USB
+// printers have no radio to keep awake and are ignored entirely.
+// Probe well under the printer's idle/sleep threshold so the radio stays
+// associated. Measured on a T80C the threshold was >6 min, but it varies per
+// venue AP, so 90s keeps a wide cross-venue margin at negligible cost. Tune
+// per-deployment via "PRINTER_KEEPALIVE_INTERVAL_MS".
+const PRINTER_KEEPALIVE_INTERVAL_MS = 90000;
+const PRINTER_KEEPALIVE_COOLDOWN_MS = 10000;
+
+// Per-printer-instance activity, used to keep keep-alive from colliding with
+// real print jobs / status checks on single-socket printers.
+const printerActivity = new WeakMap<
+  ThermalPrinter,
+  { busy: boolean; lastActivityAt: number }
+>();
+
+const markPrinterBusy = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: true, lastActivityAt: Date.now() });
+};
+
+const markPrinterIdle = (printer: ThermalPrinter) => {
+  printerActivity.set(printer, { busy: false, lastActivityAt: Date.now() });
+};
+
+// True when the printer is free for a keep-alive probe: not mid-operation and
+// not within the cooldown window after its last real activity.
+const isPrinterFreeForKeepalive = (printer: ThermalPrinter): boolean => {
+  const activity = printerActivity.get(printer);
+  if (!activity) return true;
+  if (activity.busy) return false;
+  return Date.now() - activity.lastActivityAt >= PRINTER_KEEPALIVE_COOLDOWN_MS;
+};
+
+let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+let keepaliveRunning = false;
+
+// Probes each idle network printer once to keep its WiFi radio associated.
+const runKeepaliveCycle = async () => {
+  for (let i = 0; i < printers.length; i += 1) {
+    const printer = printers[i]?.[0];
+    const settings = printers[i]?.[1];
+    // Only network printers have a radio to keep awake.
+    if (!printer || !settings || settings.ip === '') {
+      continue;
+    }
+    if (!isPrinterFreeForKeepalive(printer)) {
+      continue;
+    }
+
+    markPrinterBusy(printer);
+    try {
+      // Only refresh state on a successful probe. A single failed keep-alive
+      // attempt (no retries) is weak evidence; leave "offline" decisions to
+      // checkPrinters, which retries and applies the grace-cycle debounce.
+      const connected = await printer.isPrinterConnected();
+      if (connected) {
+        lastConnectedState.set(settings.id || '', true);
+      }
+    } catch (error) {
+      logger.warn(
+        `Keep-alive probe errored for ${settings.name || settings.ip}`,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    } finally {
+      markPrinterIdle(printer);
+    }
+  }
+};
+
+export const stopPrinterKeepalive = () => {
+  if (keepaliveInterval) {
+    clearInterval(keepaliveInterval);
+    keepaliveInterval = null;
+  }
+};
+
+// Starts the WiFi keep-alive loop. Idempotent: clears any existing loop first,
+// so it is safe to (re)call whenever printers are (re)configured. Disable by
+// setting "PRINTER_KEEPALIVE_ENABLED": false in config.json; override the
+// cadence with "PRINTER_KEEPALIVE_INTERVAL_MS".
+export const startPrinterKeepalive = () => {
+  stopPrinterKeepalive();
+
+  if (nconf.get('PRINTER_KEEPALIVE_ENABLED') === false) {
+    logger.info('Printer keep-alive disabled via config');
+    return;
+  }
+
+  const hasNetworkPrinter = printers.some(([, s]) => Boolean(s) && s.ip !== '');
+  if (!hasNetworkPrinter) {
+    return;
+  }
+
+  const intervalMs =
+    Number(nconf.get('PRINTER_KEEPALIVE_INTERVAL_MS')) ||
+    PRINTER_KEEPALIVE_INTERVAL_MS;
+
+  keepaliveInterval = setInterval(() => {
+    if (keepaliveRunning) {
+      // Previous cycle still in flight (e.g. several unreachable printers each
+      // hitting the connect timeout); skip rather than overlap probes.
+      return;
+    }
+    keepaliveRunning = true;
+    runKeepaliveCycle()
+      .catch((error) => {
+        logger.error('Printer keep-alive cycle failed:', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        keepaliveRunning = false;
+      });
+  }, intervalMs);
+
+  logger.info(`Printer keep-alive started (every ${intervalMs}ms)`);
+};
+
 export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
@@ -123,6 +345,9 @@ const executePrinter = async (
   operation: string,
   context?: Record<string, any>
 ): Promise<void> => {
+  // Mark busy so the keep-alive loop never opens a competing connection on a
+  // single-socket printer mid-job; markPrinterIdle also starts the cooldown.
+  markPrinterBusy(printer);
   try {
     await printer.execute({ waitForResponse: false });
     printer?.clear();
@@ -159,6 +384,8 @@ const executePrinter = async (
       });
       throw new PrinterExecutionError(operation, printerIdentifier, error);
     }
+  } finally {
+    markPrinterIdle(printer);
   }
 };
 
@@ -179,6 +406,7 @@ export const setupPrinters = async (settings: ISettings) => {
     const config: ConstructorParameters<typeof ThermalPrinter>[0] = {
       characterSet: printerSettings.characterSet,
       interface: interfaceString || '',
+      options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
       type: PrinterTypes.EPSON,
     };
 
@@ -187,15 +415,11 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([
-      new ThermalPrinter({
-        characterSet: printerSettings.characterSet,
-        interface: interfaceString || '',
-        type: PrinterTypes.EPSON,
-      }),
-      printerSettings,
-    ]);
+    printers.push([new ThermalPrinter(config), printerSettings]);
   });
+
+  // (Re)start the WiFi keep-alive loop for the freshly configured printers.
+  startPrinterKeepalive();
 };
 
 export const setupPrinter = (settings: IPrinterSettings) => {
@@ -213,6 +437,7 @@ export const setupPrinter = (settings: IPrinterSettings) => {
     characterSet:
       CharacterSet[settings.characterSet] || CharacterSet.PC869_GREEK,
     interface: interfaceString || '',
+    options: { timeout: PRINTER_CONNECT_TIMEOUT_MS },
     type: PrinterTypes.EPSON,
   };
 
@@ -223,83 +448,101 @@ export const setupPrinter = (settings: IPrinterSettings) => {
   return new ThermalPrinter(config);
 };
 
-const isUsbPrinterOnline = (shareName: string): Promise<boolean> => {
-  return new Promise((resolve, reject) => {
-    const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${shareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
-
-    exec(command, (error, stdout, stderr) => {
-      if (error || stderr) {
-        return reject(error || stderr);
-      }
-
-      const output = stdout.trim().toLowerCase();
-      const isOffline = output === 'true';
-      resolve(!isOffline); // true if online
-    });
-  });
-};
-
 export const checkPrinters = async () => {
-  const connectedPrinterIds: { id: string; connected: boolean }[] = [];
+  // Probe every printer in parallel. Each offline network printer costs up to
+  // PRINTER_CHECK_RETRIES × PRINTER_CONNECT_TIMEOUT_MS (~19s); probing them
+  // sequentially made a multi-printer venue blow past the backend's round-trip
+  // budget (and Heroku's 30s router cap), so checkPrintersStatus timed out and
+  // reported every printer offline. Distinct printers use distinct sockets, so
+  // parallel probing is safe and caps total time at a single printer's worst
+  // case.
+  const results = await Promise.all(
+    printers.map(async (entry, i) => {
+      const settings = entry?.[1];
+      const printer = entry?.[0];
 
-  for (let i = 0; i < printers.length; i += 1) {
-    const settings = printers[i]?.[1];
-    const printer = printers[i]?.[0];
-
-    if (!settings || !printer) {
-      logger.warn(
-        'Skipping printer check: missing settings or printer instance',
-        { index: i }
-      );
-      continue;
-    }
-
-    const printerIdentifier =
-      settings.name || settings.id || settings.ip || settings.port;
-    logger.info(`Checking printer connection: ${printerIdentifier}`);
-
-    try {
-      let connected = false;
-      if (settings.ip !== '') {
-        connected = await printer?.isPrinterConnected();
-        logger.info(
-          `Network printer ${printerIdentifier} connection status: ${connected}`
+      if (!settings || !printer) {
+        logger.warn(
+          'Skipping printer check: missing settings or printer instance',
+          { index: i }
         );
-      } else {
-        try {
-          const shareName = settings.port.split('\\').pop() || '';
-          connected = await isUsbPrinterOnline(shareName);
-          logger.info(
-            `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
-          );
-        } catch (error) {
-          logger.error(
-            `Error checking USB printer ${printerIdentifier} connection:`,
-            {
-              error: error instanceof Error ? error.message : String(error),
-              shareName: settings.port,
-            }
-          );
-          connected = false;
-        }
+        return null;
       }
 
-      if (connected) {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: true });
-        logger.info(`Printer ${printerIdentifier} is online`);
-      } else {
-        connectedPrinterIds.push({ id: settings?.id || '', connected: false });
+      const printerIdentifier =
+        settings.name || settings.id || settings.ip || settings.port;
+      logger.info(`Checking printer connection: ${printerIdentifier}`);
+
+      const printerId = settings?.id || '';
+
+      // Hold off keep-alive while this status check probes the same socket.
+      markPrinterBusy(printer);
+      try {
+        let connected = false;
+        if (settings.ip !== '') {
+          connected = await isNetworkPrinterConnectedWithRetry(
+            printer,
+            printerIdentifier
+          );
+          logger.info(
+            `Network printer ${printerIdentifier} connection status: ${connected}`
+          );
+        } else {
+          try {
+            const shareName = settings.port.split('\\').pop() || '';
+            connected = await isUSBPrinterOnline(shareName);
+            logger.info(
+              `USB printer ${printerIdentifier} (${shareName}) connection status: ${connected}`
+            );
+          } catch (error) {
+            logger.error(
+              `Error checking USB printer ${printerIdentifier} connection:`,
+              {
+                error: error instanceof Error ? error.message : String(error),
+                shareName: settings.port,
+              }
+            );
+            connected = false;
+          }
+        }
+
+        if (connected) {
+          lastConnectedState.set(printerId, true);
+          logger.info(`Printer ${printerIdentifier} is online`);
+          return { id: printerId, connected: true };
+        }
+        if (lastConnectedState.get(printerId) === true) {
+          // Debounce: it was online last check, so give it one grace cycle
+          // before flipping the UI to offline. Store false so the next failed
+          // check is reported as offline.
+          lastConnectedState.set(printerId, false);
+          logger.warn(
+            `Printer ${printerIdentifier} failed probe but was online last check, reporting online for one grace cycle`
+          );
+          return { id: printerId, connected: true };
+        }
+        lastConnectedState.set(printerId, false);
         printer?.clear();
         logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
+        return { id: printerId, connected: false };
+      } catch (error) {
+        logger.error(
+          `Error checking printer ${printerIdentifier} connection:`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          }
+        );
+        return { id: printerId, connected: false };
+      } finally {
+        markPrinterIdle(printer);
       }
-    } catch (error) {
-      logger.error(`Error checking printer ${printerIdentifier} connection:`, {
-        error: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : undefined,
-      });
-      connectedPrinterIds.push({ id: settings?.id || '', connected: false });
-    }
-  }
+    })
+  );
+
+  const connectedPrinterIds = results.filter(
+    (r): r is { id: string; connected: boolean } => r !== null
+  );
 
   logger.info('Printer connection check complete', {
     connectedPrinters: connectedPrinterIds,
@@ -335,7 +578,7 @@ export const printTestPage = async (
   } else {
     try {
       const shareName = interfaceString.split('\\').pop() || '';
-      connected = await isUsbPrinterOnline(shareName); // port = 'printerServer'
+      connected = await isUSBPrinterOnline(shareName);
     } catch (error) {
       console.error('Error checking printer connection:', error);
       connected = false;
@@ -436,7 +679,8 @@ const printTextFunc = async (
   text: string,
   alignment: 'left' | 'center' | 'right',
   copies: number = 1,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  requiredDocument: string = 'TEXT'
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -463,13 +707,13 @@ const printTextFunc = async (
       continue;
     }
 
-    if (!settings.documentsToPrint?.includes('TEXT')) {
+    if (!settings.documentsToPrint?.includes(requiredDocument)) {
       logger.warn(
-        `Skipping text print: TEXT not in documentsToPrint for ${printerIdentifier}`
+        `Skipping text print: ${requiredDocument} not in documentsToPrint for ${printerIdentifier}`
       );
       errors.push({
         printerIdentifier,
-        error: 'Printer not configured to print TEXT documents',
+        error: `Printer not configured to print ${requiredDocument} documents`,
       });
       continue;
     }
@@ -556,7 +800,8 @@ export const printText = async (
       req.body.text,
       req.body.alignment || 'left',
       req.body.copies || 1,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.documentType || 'TEXT'
     );
 
     // Format the response with detailed printer status
@@ -611,8 +856,10 @@ export const parkingTicket = async (
       req.body.phone,
       req.body.date,
       req.body.entryTime,
+      req.body.issuerText || '',
       //  req.body.operatingHours,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -648,8 +895,10 @@ const printParkingTicket = async (
   phone: string,
   date: string,
   entryTime: string,
+  issuerText: string = '',
   // operatingHours: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -683,18 +932,28 @@ const printParkingTicket = async (
       });
 
       printer.clear();
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      const copyCount = resolveCopies(settings, 'PARKING-TICKET');
+      for (let copies = 0; copies < copyCount; copies += 1) {
         printer.alignCenter();
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.bold(true);
         printer.println('PARKING TICKET');
         drawLine2(printer);
         printer.bold(false);
-        printer.bold(true);
-        printer.println(venueName);
-        printer.bold(false);
-        printer.println(address);
-        printer.println(phone);
+        // A configured issuerText replaces the whole venue header — and with it
+        // the logo, which that markdown may already carry itself.
+        if (issuerText) {
+          await readMarkdown(issuerText, printer, 'center', settings, true);
+        } else {
+          if (settings?.printVenueLogo) {
+            await printLogo(printer, venueLogoUrl);
+          }
+          printer.bold(true);
+          printer.println(venueName);
+          printer.bold(false);
+          printer.println(address);
+          printer.println(phone);
+        }
         drawLine2(printer);
         printer.alignLeft();
         printer.newLine();
@@ -936,7 +1195,9 @@ export const paymentSlip = async (
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.tip || 0,
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -1004,7 +1265,8 @@ export const paymentReceipt = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1080,7 +1342,8 @@ export const invoice = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1132,7 +1395,8 @@ export const invoiceMyPelates = async (
     const result = await printMyPelatesInvoice(
       req.body.aadeInvoice,
       req.body.issuerText || '',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1184,7 +1448,8 @@ export const paymentMyPelatesReceipt = async (
     const result = await printMyPelatesReceipt(
       req.body.aadeInvoice,
       req.body.issuerText || '',
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Determine the appropriate status and HTTP code
@@ -1245,7 +1510,8 @@ export const orderForm = async (
         ? req.headers.project[0]
         : req.headers.project) || 'centrix',
       req.body.order || null,
-      req.body.lang || 'el'
+      req.body.lang || 'el',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -1282,7 +1548,8 @@ const printOrderForm = async (
   issuerText: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1317,84 +1584,109 @@ const printOrderForm = async (
           continue;
         }
       }
-      console.log(aadeInvoice);
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(
-        tr(`${translations.printOrder.orderForm[lang]}`, settings.transliterate)
-      );
-      await venueData(printer, aadeInvoice, issuerText, settings, lang);
-      receiptData(
-        printer,
-        aadeInvoice,
-        settings,
-        orderNumber,
-        'DINE_IN',
-        lang,
-        project,
-        order
-      );
-      printer.println(`${tableNumber},${waiterName.toUpperCase()}`);
-      if (aadeInvoice.closed) {
-        printer.setTextSize(1, 0);
-        printer.bold(true);
+      const copyCount = resolveCopies(settings, 'ORDERFORM');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
+        console.log(aadeInvoice);
+        printer.alignCenter();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.println(
-          tr(`${translations.printOrder.closed[lang]}`, settings.transliterate)
+          tr(
+            `${translations.printOrder.orderForm[lang]}`,
+            settings.transliterate
+          )
         );
-        printer.setTextSize(0, 0);
-      }
-      const discounts = order?.discounts || [];
-      const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
-        printer,
-        aadeInvoice,
-        order,
-        settings,
-        lang,
-        discounts,
-        false
-      );
-      if (discounts.length > 0) {
-        printDiscountAndTip(
+        await venueData(
           printer,
-          discounts,
-          order?.tip || 0,
+          aadeInvoice,
+          issuerText,
+          settings,
           lang,
-          settings.transliterate
+          venueLogoUrl
         );
-      }
-      printMarks(printer, aadeInvoice, lang, settings.transliterate);
-      if (settings.poweredByQuickord) {
+        receiptData(
+          printer,
+          aadeInvoice,
+          settings,
+          orderNumber,
+          'DINE_IN',
+          lang,
+          project,
+          order
+        );
+        if (waiterName) {
+          printer.println(waiterName.toUpperCase());
+        }
+        if (aadeInvoice.closed) {
+          printer.setTextSize(1, 0);
+          printer.bold(true);
+          printer.println(
+            tr(
+              `${translations.printOrder.closed[lang]}`,
+              settings.transliterate
+            )
+          );
+          printer.setTextSize(0, 0);
+        }
+        const discounts = order?.discounts || [];
+        const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
+          printer,
+          aadeInvoice,
+          order,
+          settings,
+          lang,
+          discounts,
+          false
+        );
+        if (discounts.length > 0) {
+          printDiscountAndTip(
+            printer,
+            discounts,
+            order?.tip || 0,
+            lang,
+            settings.transliterate
+          );
+        }
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
         printer.println(
-          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
         );
-      }
-      printer.newLine();
-      printer.println(
-        tr(`ΤΟ ΠΑΡΟΝ ΕΙΝΑΙ ΠΛΗΡΟΦΟΡΙΑΚΟ ΣΤΟΙΧΕΙΟ ΚΑΙ`, settings.transliterate)
-      );
-      printer.println(
-        tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
-      );
-      printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
-      printer.newLine();
-      printer.println(
-        tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
-      );
-      printer.println(
-        tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
-      );
-      printer.println(
-        tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
-      );
-      printer.alignCenter();
-      printer.cut();
+        printer.println(
+          tr(`ΔΕΝ ΑΠΟΤΕΛΕΙ ΝΟΜΙΜΗ ΦΟΡΟΛΟΓΙΚΗ`, settings.transliterate)
+        );
+        printer.println(tr(`ΑΠΟΔΕΙΞΗ/ΤΙΜΟΛΟΓΙΟ.`, settings.transliterate));
+        printer.newLine();
+        printer.println(
+          tr(`THE PRESENT DOCUMENT IS ISSUED ONLY FOR`, settings.transliterate)
+        );
+        printer.println(
+          tr(`INFORMATION PURPOSES AND DOES NOT STAND`, settings.transliterate)
+        );
+        printer.println(
+          tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
+        );
+        printer.alignCenter();
+        printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'order form print', {
-        orderNumber,
-        tableNumber,
-      });
-      successCount++;
-      successes.push(printerIdentifier);
+        await executePrinter(printer, printerIdentifier, 'order form print', {
+          orderNumber,
+          tableNumber,
+        });
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1430,7 +1722,9 @@ const printPaymentSlip = async (
   orderNumber: number,
   discounts: any[] = [],
   project: string = 'centrix',
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  tip: number = 0,
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1466,171 +1760,185 @@ const printPaymentSlip = async (
         }
       }
 
-      printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(
-        tr(
-          `${translations.printOrder.paymentSlip[lang]}`,
-          settings.transliterate
-        )
-      );
-      printer.println(aadeInvoice?.issuer.name);
-      printer.println(aadeInvoice?.issuer.activity);
-      printer.println(
-        tr(
-          `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, τκ:${aadeInvoice?.issuer.address.postal_code}`,
-          settings.transliterate
-        )
-      );
-
-      printer.println(
-        tr(
-          `${translations.printOrder.taxNumber[lang]}: ${aadeInvoice?.issuer.vat_number} - ${translations.printOrder.taxOffice[lang]}: ${aadeInvoice?.issuer.tax_office}`,
-          settings.transliterate
-        )
-      );
-      printer.println(
-        tr(
-          `${translations.printOrder.deliveryPhone[lang]}: ${aadeInvoice?.issuer.phone}`,
-          settings.transliterate
-        )
-      );
-      if (issuerText) {
-        printer.println(issuerText);
-      }
-      printer.newLine();
-      printer.alignLeft();
-      const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
-      const day = rawDate.substring(8, 10);
-      const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
-      const year = rawDate.substring(0, 4);
-      const formattedDate = `${day}/${month}/${year}`;
-      printer.newLine();
-      printer.println(`#${orderNumber}`);
-      printer.println(
-        `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
-      );
-      printer.alignLeft();
-
-      printer.newLine();
-      printer.println(
-        `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
-      );
-      printer.newLine();
-      printer.alignLeft();
-
-      let sumAmount = 0;
-      let sumQuantity = 0;
-
-      aadeInvoice?.details.forEach((detail: any) => {
-        printer.bold(true);
-        sumQuantity += detail.quantity;
-
-        const name = detail.name;
-        const quantity = detail.quantity.toFixed(0);
-        const value = (detail.net_value * (1 + detail.tax.rate / 100)).toFixed(
-          2
-        );
-        const vat = `${detail.tax.rate}%`; // "24%"
-        sumAmount += parseFloat(value);
+      const copyCount = resolveCopies(settings, 'PAYMENT-SLIP');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
+        printer.alignCenter();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.println(
-          name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
-            quantity.padStart(7) +
-            value.padStart(7) +
-            vat.padStart(7)
+          tr(
+            `${translations.printOrder.paymentSlip[lang]}`,
+            settings.transliterate
+          )
+        );
+        // issuerText (when present) replaces the issuer details, like the ALP.
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
+        printer.newLine();
+        printer.alignLeft();
+        const rawDate = aadeInvoice?.issue_date; // e.g., "2025-04-23"
+        const day = rawDate.substring(8, 10);
+        const month = rawDate.substring(5, 7).replace(/^0/, ''); // remove leading zero
+        const year = rawDate.substring(0, 4);
+        const formattedDate = `${day}/${month}/${year}`;
+        printer.newLine();
+        printer.println(`#${orderNumber}`);
+        printer.println(
+          `${formattedDate},${aadeInvoice?.issue_date.substring(11, 16)}`
+        );
+        printer.alignLeft();
+
+        printer.newLine();
+        printer.println(
+          `${aadeInvoice?.header.series.code}${aadeInvoice?.header.serial_number}`
+        );
+        printer.newLine();
+        printer.alignLeft();
+
+        let sumAmount = 0;
+        let sumQuantity = 0;
+
+        aadeInvoice?.details.forEach((detail: any) => {
+          printer.bold(true);
+          sumQuantity += detail.quantity;
+
+          const name = detail.name;
+          const quantity = detail.quantity.toFixed(0);
+          const value = (
+            detail.net_value *
+            (1 + detail.tax.rate / 100)
+          ).toFixed(2);
+          const vat = `${detail.tax.rate}%`; // "24%"
+          sumAmount += parseFloat(value);
+          printer.println(
+            name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
+              quantity.padStart(7) +
+              value.padStart(7) +
+              vat.padStart(7)
+          );
+          printer.bold(false);
+        });
+        drawLine2(printer);
+        printer.newLine();
+        // Print only overall discounts (not product-specific)
+        const overallDiscounts = discounts.filter((d: any) => !d.productId);
+        overallDiscounts.forEach((discount: any) => {
+          if (discount.amount && discount.type) {
+            let discountAmount = '';
+            if (discount.type === 'FIXED') {
+              discountAmount = (discount.amount / 100).toFixed(2) + '€';
+            } else if (
+              discount.type === 'PERCENTAGE' ||
+              discount.type === 'PERCENT'
+            ) {
+              discountAmount = discount.amount.toString() + '%';
+            }
+            if (discountAmount !== '') {
+              printer.println(
+                `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
+              );
+            }
+          }
+        });
+        printer.alignRight();
+        const roundedSum = Number(sumAmount).toFixed(2);
+        printer.println(
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
         );
         printer.bold(false);
-      });
-      drawLine2(printer);
-      printer.newLine();
-      // Print only overall discounts (not product-specific)
-      const overallDiscounts = discounts.filter((d: any) => !d.productId);
-      overallDiscounts.forEach((discount: any) => {
-        if (discount.amount && discount.type) {
-          let discountAmount = '';
-          if (discount.type === 'FIXED') {
-            discountAmount = (discount.amount / 100).toString() + '€';
-          } else if (
-            discount.type === 'PERCENTAGE' ||
-            discount.type === 'PERCENT'
-          ) {
-            discountAmount = discount.amount.toString() + '%';
-          }
-          if (discountAmount !== '') {
-            printer.println(
-              `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
-            );
-          }
+        printer.alignCenter();
+        drawLine2(printer);
+        printer.println(
+          tr(
+            `${translations.printOrder.payments[lang]}:`,
+            settings.transliterate
+          )
+        );
+        const paymentMethods = aadeInvoice?.payment_methods ?? [];
+        // The tip is collected on top of the fiscal amount, so fold it into the
+        // primary (largest) payment so the printed amounts reflect money actually
+        // collected. `tip` is in cents.
+        let tipIdx = -1;
+        if (tip > 0) {
+          let max = 0;
+          paymentMethods.forEach((m: any, idx: number) => {
+            if (m.amount > max) {
+              max = m.amount;
+              tipIdx = idx;
+            }
+          });
         }
-      });
-      printer.alignRight();
-      const roundedSum = Number(sumAmount).toFixed(2);
-      printer.println(
-        `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
-      );
-      printer.bold(false);
-      printer.alignCenter();
-      drawLine2(printer);
-      printer.println(
-        tr(`${translations.printOrder.payments[lang]}:`, settings.transliterate)
-      );
-      aadeInvoice?.payment_methods.forEach((detail: any) => {
+        paymentMethods.forEach((detail: any, idx: number) => {
+          printer.newLine();
+          const amount = detail.amount + (idx === tipIdx ? tip / 100 : 0);
+          const methodDescription =
+            PaymentMethod[detail.code]?.description ||
+            translations.printOrder.unknown[lang];
+          printer.println(
+            `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${amount.toFixed(2)}€`
+          );
+        });
+        drawLine2(printer);
         printer.newLine();
-        const methodDescription =
-          PaymentMethod[detail.code]?.description ||
-          translations.printOrder.unknown[lang];
+        printer.alignLeft();
+        printer.println(`MARK ${aadeInvoice?.mark}`);
+        printer.println(`UID ${aadeInvoice?.uid}`);
+        printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
+        printer.alignCenter();
+        printer.printQR(aadeInvoice?.url, {
+          cellSize: 4,
+          model: 4,
+          correction: 'Q',
+        });
+        printer.newLine();
+        const url = aadeInvoice?.url;
+
+        let providerUrl = '';
+
+        if (url.includes('invoiceportal')) {
+          providerUrl = 'www.invoiceportal.gr';
+        } else if (url.includes('etimologiera')) {
+          providerUrl = 'www.etimologiera.gr';
+        }
+
         printer.println(
-          `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, settings.transliterate)}: ${detail.amount.toFixed(2)}€`
+          `${translations.printOrder.provider[lang]} ${providerUrl}`
         );
-      });
-      drawLine2(printer);
-      printer.newLine();
-      printer.alignLeft();
-      printer.println(`MARK ${aadeInvoice?.mark}`);
-      printer.println(`UID ${aadeInvoice?.uid}`);
-      printer.println(`AUTH ${aadeInvoice?.authentication_code}`);
-      printer.alignCenter();
-      printer.printQR(aadeInvoice?.url, {
-        cellSize: 4,
-        model: 4,
-        correction: 'Q',
-      });
-      printer.newLine();
-      const url = aadeInvoice?.url;
-
-      let providerUrl = '';
-
-      if (url.includes('invoiceportal')) {
-        providerUrl = 'www.invoiceportal.gr';
-      } else if (url.includes('etimologiera')) {
-        providerUrl = 'www.etimologiera.gr';
-      }
-
-      printer.println(
-        `${translations.printOrder.provider[lang]} ${providerUrl}`
-      );
-      printer.newLine();
-      if (settings.poweredByQuickord) {
+        printer.newLine();
+        if (settings.poweredByQuickord) {
+          printer.println(
+            tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          );
+        }
+        printer.newLine();
         printer.println(
-          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+          tr(
+            `${translations.printOrder.paymentSlipEnd[lang]}`,
+            settings.transliterate
+          )
         );
-      }
-      printer.newLine();
-      printer.println(
-        tr(
-          `${translations.printOrder.paymentSlipEnd[lang]}`,
-          settings.transliterate
-        )
-      );
-      printer.alignCenter();
-      printer.cut();
+        printer.alignCenter();
+        printer.cut();
 
-      await executePrinter(printer, printerIdentifier, 'payment slip print', {
-        orderNumber,
-        mark: aadeInvoice?.mark,
-      });
-      successCount++;
-      successes.push(printerIdentifier);
+        await executePrinter(printer, printerIdentifier, 'payment slip print', {
+          orderNumber,
+          mark: aadeInvoice?.mark,
+        });
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -1672,7 +1980,8 @@ const printPaymentReceipt = async (
   appId: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1708,23 +2017,30 @@ const printPaymentReceipt = async (
       }
     }
 
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
     console.log('Printing ALP');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    const copyCount = resolveCopies(settings, 'ALP');
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
         let invoiceTypeLabel: string;
         switch (aadeInvoice?.header?.code) {
+          case '11.2':
+            invoiceTypeLabel = translations.printOrder.serviceReceipt[lang];
+            break;
           case '11.4':
             invoiceTypeLabel = translations.printOrder.retailCreditNote[lang];
             break;
@@ -1733,7 +2049,14 @@ const printPaymentReceipt = async (
             break;
         }
         printer.println(tr(invoiceTypeLabel, settings.transliterate));
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         receiptData(
           printer,
           aadeInvoice,
@@ -1755,10 +2078,11 @@ const printPaymentReceipt = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -1772,7 +2096,8 @@ const printPaymentReceipt = async (
           settings.transliterate
         );
 
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
 
@@ -1782,7 +2107,10 @@ const printPaymentReceipt = async (
 
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
@@ -1798,7 +2126,9 @@ const printPaymentReceipt = async (
         printer.newLine();
         printer.println(
           tr(
-            `${translations.printOrder.recieptEnd[lang]}`,
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceiptEnd[lang]}`
+              : `${translations.printOrder.recieptEnd[lang]}`,
             settings.transliterate
           )
         );
@@ -1821,7 +2151,7 @@ const printPaymentReceipt = async (
             orderNumber,
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -1881,7 +2211,8 @@ const printInvoice = async (
   appId: string,
   project: string = 'centrix',
   order: any = null,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -1918,20 +2249,32 @@ const printInvoice = async (
         continue;
       }
     }
-    console.log(appId, settings.printerType);
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
-    console.log('printing invoice');
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+
+    console.log('Printing invoice');
+    const copyCount = resolveCopies(settings, 'ALP');
+    for (let copies = 0; copies < copyCount; copies += 1) {
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         printer.newLine();
         printer.println(
           tr(
@@ -1949,16 +2292,15 @@ const printInvoice = async (
         printer.newLine();
 
         // Determine invoice type label based on AADE code
-        let invoiceTypeLabel: string;
-        switch (aadeInvoice?.header?.code) {
-          case '5.1':
-            invoiceTypeLabel = translations.printOrder.invoiceCreditNote[lang];
-            break;
-          default:
-            invoiceTypeLabel = translations.printOrder.invoice[lang];
-            break;
-        }
+        const invoiceTypeLabel = getInvoiceTypeLabel(aadeInvoice, lang);
         printer.println(invoiceTypeLabel);
+
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
 
         receiptData(
           printer,
@@ -1981,10 +2323,11 @@ const printInvoice = async (
         );
         // Line 1: Left-aligned item quantity (small text)
         printer.setTextSize(0, 0);
+        // Print overall discounts only; the tip is printed below the total line.
         printDiscountAndTip(
           printer,
           discounts,
-          tip,
+          0,
           lang,
           settings.transliterate
         );
@@ -1995,7 +2338,8 @@ const printInvoice = async (
           `${translations.printOrder.items[lang]}: ${sumQuantity}`,
           settings.transliterate
         );
-        const roundedSum = Number(sumAmount + tip / 100).toFixed(2);
+        // Total covers products only (excludes tip).
+        const roundedSum = Number(sumAmount).toFixed(2);
 
         const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
         // Calculate spacing
@@ -2003,7 +2347,10 @@ const printInvoice = async (
         const spacing = ' '.repeat(Math.max(1, spaceCount));
         // Print both on one line
         printer.println(leftText + spacing + rightText);
-        printPayments(printer, aadeInvoice, lang, settings.transliterate);
+        // Tip line below the total (excluded from the total above).
+        printer.bold(false);
+        printDiscountAndTip(printer, [], tip, lang, settings.transliterate);
+        printPayments(printer, aadeInvoice, lang, settings.transliterate, tip);
         printVatBreakdown(
           printer,
           fixedBreakdown,
@@ -2032,7 +2379,7 @@ const printInvoice = async (
           orderNumber,
           mark: aadeInvoice?.mark,
           copy: copies + 1,
-          totalCopies: settings.copies,
+          totalCopies: copyCount,
         });
         successCount++;
         if (copies === 0) {
@@ -2081,7 +2428,8 @@ const printInvoice = async (
 const printMyPelatesReceipt = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2116,15 +2464,33 @@ const printMyPelatesReceipt = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    const copyCount = resolveCopies(settings, 'ALP');
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
-          tr(`${translations.printOrder.reciept[lang]}`, settings.transliterate)
+          tr(
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceipt[lang]}`
+              : `${translations.printOrder.reciept[lang]}`,
+            settings.transliterate
+          )
         );
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         receiptData(
           printer,
           aadeInvoice,
@@ -2199,7 +2565,9 @@ const printMyPelatesReceipt = async (
         printer.newLine();
         printer.println(
           tr(
-            `${translations.printOrder.recieptEnd[lang]}`,
+            aadeInvoice?.header?.code === '11.2'
+              ? `${translations.printOrder.serviceReceiptEnd[lang]}`
+              : `${translations.printOrder.recieptEnd[lang]}`,
             settings.transliterate
           )
         );
@@ -2221,7 +2589,7 @@ const printMyPelatesReceipt = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -2273,7 +2641,8 @@ const printMyPelatesReceipt = async (
 const printMyPelatesInvoice = async (
   aadeInvoice: AadeInvoice,
   issuerText: string,
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2308,12 +2677,25 @@ const printMyPelatesInvoice = async (
         continue;
       }
     }
-    for (let copies = 0; copies < settings.copies; copies += 1) {
+    const copyCount = resolveCopies(settings, 'ALP');
+    for (let copies = 0; copies < copyCount; copies += 1) {
       console.log('print copies: ', copies);
       try {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         printer.alignCenter();
-        await venueData(printer, aadeInvoice, issuerText, settings, lang);
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
         printer.newLine();
         printer.println(
           tr(
@@ -2330,8 +2712,14 @@ const printMyPelatesInvoice = async (
         printer.println(`${aadeInvoice?.counterpart.vat_number}`);
         printer.newLine();
         printer.println(
-          tr(`${translations.printOrder.invoice[lang]}`, settings.transliterate)
+          tr(getInvoiceTypeLabel(aadeInvoice, lang), settings.transliterate)
         );
+        const branch = aadeInvoice?.issuer?.branch;
+        const issuedFromText =
+          Number(branch) === 0 || branch == null
+            ? translations.printOrder.issuedFromHeadquarters[lang]
+            : `${translations.printOrder.issuedFromBranch[lang]} ${branch}`;
+        printer.println(tr(issuedFromText, settings.transliterate));
         receiptData(
           printer,
           aadeInvoice,
@@ -2414,7 +2802,7 @@ const printMyPelatesInvoice = async (
           {
             mark: aadeInvoice?.mark,
             copy: copies + 1,
-            totalCopies: settings.copies,
+            totalCopies: copyCount,
           }
         );
         successCount++;
@@ -2465,7 +2853,8 @@ export const deliveryNote = async (
       req.body.lang || 'el',
       (Array.isArray(req.headers.project)
         ? req.headers.project[0]
-        : req.headers.project) || 'centrix'
+        : req.headers.project) || 'centrix',
+      req.body.venueLogoUrl || ''
     );
 
     // Format the response with detailed printer status
@@ -2531,7 +2920,8 @@ const printDeliveryNote = async (
   aadeInvoice: any,
   issuerText: string,
   lang: SupportedLanguages = 'el',
-  project: string = 'centrix'
+  project: string = 'centrix',
+  venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -2555,88 +2945,133 @@ const printDeliveryNote = async (
         });
         continue;
       }
-      printer.alignCenter();
-      await venueData(printer, aadeInvoice, issuerText, settings, lang);
-      printer.newLine();
-      printer.println('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ');
-      printer.println(`${aadeInvoice?.counterpart.name}`);
-      printer.println(`${aadeInvoice?.counterpart.activity}`);
-      printer.println(
-        `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`
-      );
-      printer.println(
-        `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`
-      );
-      printer.newLine();
-      printer.println('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ');
-      const movePurposeCode = aadeInvoice.move_purpose?.code;
-      const movePurposeKey = movePurposeCode
-        ? PayvoMovePurposeMapping[movePurposeCode]
-        : undefined;
-      const movePurposeLabel = movePurposeKey
-        ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] || 'N/A'
-        : 'N/A';
-      printer.println(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`);
-      printer.println(
-        `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`
-      );
-      printer.println(
-        `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`
-      );
-      const shippingMethodCode = aadeInvoice.shipping_method;
+      // A delivery note is an ALP-family document; it follows the ALP copies.
+      const copyCount = resolveCopies(settings, 'ALP');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          // Let the printer finish the previous copy before pushing the next.
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+        // Reset buffer state and select the configured code page, exactly like
+        // every other print route. Without this the printer stays on whatever
+        // page it was left on and prints Greek as gibberish.
+        printer.clear();
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        printer.alignCenter();
+        await venueData(
+          printer,
+          aadeInvoice,
+          issuerText,
+          settings,
+          lang,
+          venueLogoUrl
+        );
+        printer.newLine();
+        printer.println(tr('ΔΕΛΤΙΟ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
+        printer.println(
+          tr(`${aadeInvoice?.counterpart.name}`, settings.transliterate)
+        );
+        printer.println(
+          tr(`${aadeInvoice?.counterpart.activity}`, settings.transliterate)
+        );
+        printer.println(
+          tr(
+            `${aadeInvoice?.loading_address.street} ${aadeInvoice?.loading_address.number}, ${aadeInvoice?.loading_address.city} ΤΚ: ${aadeInvoice?.loading_address.postal_code}`,
+            settings.transliterate
+          )
+        );
+        printer.println(
+          tr(
+            `A.Φ.Μ: ${aadeInvoice?.counterpart.vat_number} - Δ.Ο.Υ: ${aadeInvoice?.counterpart.tax_office}`,
+            settings.transliterate
+          )
+        );
+        printer.newLine();
+        printer.println(tr('ΣΤΟΙΧΕΙΑ ΑΠΟΣΤΟΛΗΣ', settings.transliterate));
+        const movePurposeCode = aadeInvoice.move_purpose?.code;
+        const movePurposeKey = movePurposeCode
+          ? PayvoMovePurposeMapping[movePurposeCode]
+          : undefined;
+        const movePurposeLabel = movePurposeKey
+          ? translations.deliveryNote.movePurpose[movePurposeKey]?.[lang] ||
+            'N/A'
+          : 'N/A';
+        printer.println(
+          tr(`ΣΚ.ΔΙΑΚΙΝΗΣΗΣ: ${movePurposeLabel}`, settings.transliterate)
+        );
+        printer.println(
+          tr(
+            `ΦΟΡΤΩΣΗ: ${aadeInvoice.loading_point}, ΩΡΑ: ${aadeInvoice.dispatch_time}`,
+            settings.transliterate
+          )
+        );
+        printer.println(
+          tr(
+            `${aadeInvoice?.delivery_address.street}, ${aadeInvoice?.delivery_address.number}, ${aadeInvoice?.delivery_address.city} ΤΚ: ${aadeInvoice?.delivery_address.postal_code}`,
+            settings.transliterate
+          )
+        );
+        const shippingMethodCode = aadeInvoice.shipping_method;
 
-      const shippingMethodLabel = shippingMethodCode
-        ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
-            shippingMethodCode
-          ]?.[lang] || 'N/A'
-        : 'N/A';
-      printer.println(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`);
-      printer.println(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`);
+        const shippingMethodLabel = shippingMethodCode
+          ? translations.deliveryNote.SHIPPING_METHOD_OPTIONS[
+              shippingMethodCode
+            ]?.[lang] || 'N/A'
+          : 'N/A';
+        printer.println(
+          tr(`ΤΡ ΑΠΟΣΤΟΛΗΣ: ${shippingMethodLabel}`, settings.transliterate)
+        );
+        printer.println(
+          tr(`ΠΙΝΑΚΙΔΑ: ${aadeInvoice?.vehicle_number}`, settings.transliterate)
+        );
 
-      // Use delivery note specific products and VAT breakdown functions
-      const [
-        sumAmount,
-        sumQuantity,
-        fixedBreakdown,
-        totalOriginalValue,
-        totalNetValue,
-        totalVatAmount,
-      ] = printDeliveryNoteProducts(
-        printer,
-        aadeInvoice,
-        lang,
-        settings.transliterate
-      );
+        // Use delivery note specific products and VAT breakdown functions
+        const [
+          sumAmount,
+          sumQuantity,
+          fixedBreakdown,
+          totalOriginalValue,
+          totalNetValue,
+          totalVatAmount,
+        ] = printDeliveryNoteProducts(
+          printer,
+          aadeInvoice,
+          lang,
+          settings.transliterate
+        );
 
-      // Line 1: Left-aligned item quantity (small text)
-      printer.setTextSize(0, 0);
+        // Line 1: Left-aligned item quantity (small text)
+        printer.setTextSize(0, 0);
 
-      // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
-      printDeliveryNoteVatBreakdown(
-        printer,
-        fixedBreakdown,
-        lang,
-        totalOriginalValue,
-        totalNetValue,
-        totalVatAmount,
-        sumAmount
-      );
+        // Use delivery note VAT breakdown with 24%, 13%, 6%, 0% columns
+        printDeliveryNoteVatBreakdown(
+          printer,
+          fixedBreakdown,
+          lang,
+          totalOriginalValue,
+          totalNetValue,
+          totalVatAmount,
+          sumAmount
+        );
 
-      printMarks(printer, aadeInvoice, lang, settings.transliterate);
+        printMarks(printer, aadeInvoice, lang, settings.transliterate);
 
-      printer.println(
-        tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
-      );
-      printer.cut();
+        printer.println(
+          tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
+        );
+        printer.cut();
 
-      await printer.execute({
-        waitForResponse: false,
-      });
+        await printer.execute({
+          waitForResponse: false,
+        });
 
-      printer?.clear();
-      logger.info(`Successfull delivery note to ${printerIdentifier}`);
-      successCount++;
-      successes.push(printerIdentifier);
+        printer?.clear();
+        logger.info(`Successfull delivery note to ${printerIdentifier}`);
+        successCount++;
+        if (copies === 0) {
+          successes.push(printerIdentifier);
+        }
+      }
     } catch (error) {
       errors.push({ printerIdentifier, error });
       if (error instanceof PrinterConnectionError) {
@@ -2666,19 +3101,57 @@ const printDeliveryNote = async (
   return { successes, errors };
 };
 
+// Effective edit status of a product. Prefer `lastEditStatus` and fall back to
+// `updateStatus` for orders predating the field — mirrors the FE pill logic.
+// `updateStatus` alone is unreliable: issuing an order slip (ΔΠ, AADE 8.6)
+// resets it to 'unchanged' to keep the next slip's delta correct, while
+// `lastEditStatus` survives until the next edit. Gating edit prints on
+// `updateStatus` therefore drops genuinely NEW/UPDATED products on AADE venues.
+const getEditStatus = (
+  product: z.infer<typeof Order>['products'][number]
+): string | undefined =>
+  [product.lastEditStatus, product.updateStatus].find(
+    (status) =>
+      status === 'NEW' || status === 'UPDATED' || status === 'TRANSFERRED'
+  );
+
 export const printOrder = async (
   order: z.infer<typeof Order>,
   appId: string = 'desktop',
   project: string = 'centrix',
-  lang: SupportedLanguages = 'el'
+  lang: SupportedLanguages = 'el',
+  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
 ) => {
   const successes: string[] = [];
   const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
+  // FULL-ORDER is an explicit, on-demand print of the whole order: prices+VAT
+  // always shown, no VAT-analysis table, customizations always included, and
+  // category/order-method filters bypassed. We force the relevant settings so
+  // the existing ORDER render path is reused as-is. optionDetails is forced on
+  // so customizations are always rendered, even if the printer was configured
+  // for FULL-ORDER without them. OPTION-DETAILS is kept in documentsToPrint too
+  // for backward compatibility with the legacy check.
+  const isFull = mode === 'FULL-ORDER';
+
   for (let i = 0; i < printers.length; i += 1) {
-    let dontPrint = false;
-    const settings = printers[i]?.[1];
+    const rawSettings = printers[i]?.[1];
+    const settings =
+      isFull && rawSettings
+        ? {
+            ...rawSettings,
+            priceOnOrder: true,
+            vatAnalysis: false,
+            optionDetails: true,
+            documentsToPrint: Array.from(
+              new Set([
+                ...(rawSettings.documentsToPrint ?? []),
+                'OPTION-DETAILS',
+              ])
+            ),
+          }
+        : rawSettings;
     const printer = printers[i]?.[0];
     const printerIdentifier =
       settings?.name ||
@@ -2697,7 +3170,7 @@ export const printOrder = async (
         });
         continue;
       }
-      if (settings.orderMethodsToPrint !== undefined) {
+      if (!isFull && settings.orderMethodsToPrint !== undefined) {
         if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
           console.log(
             `orderType ${order.orderType} is not in orderMethodsToPrint`
@@ -2710,12 +3183,21 @@ export const printOrder = async (
         }
       }
 
+      const kioskSkip = kioskSkipReason(settings, appId);
+      if (kioskSkip) {
+        skipped.push({ printerIdentifier, reason: kioskSkip });
+        continue;
+      }
+
       const isOrderFromPlatform =
         order.orderType === 'EFOOD' ||
         order.orderType === 'WOLT' ||
         order.orderType === 'BOX';
 
-      let productsToPrint = isOrderFromPlatform
+      // FULL-ORDER bypasses category filtering and prints every product.
+      const printAll = isOrderFromPlatform || isFull;
+
+      let productsToPrint = printAll
         ? order.products
         : order.products.filter((product) =>
             product.categories.some((category) =>
@@ -2756,23 +3238,24 @@ export const printOrder = async (
         });
         continue;
       }
+      const requiredDocument = isFull ? 'FULL-ORDER' : 'ORDER';
       if (settings.documentsToPrint !== undefined) {
-        if (!settings.documentsToPrint?.includes('ORDER')) {
-          console.log('ORDER is not in documentsToPrint');
+        if (!settings.documentsToPrint?.includes(requiredDocument)) {
+          console.log(`${requiredDocument} is not in documentsToPrint`);
           skipped.push({
             printerIdentifier,
-            reason: 'Printer not configured to print ORDER documents',
+            reason: `Printer not configured to print ${requiredDocument} documents`,
           });
           continue;
         }
       }
       const isEdit = order?.isEdit || false;
-      if (isEdit === true) {
-        productsToPrint = productsToPrint.filter(
-          (product) =>
-            product?.updateStatus?.includes('NEW') ||
-            product?.updateStatus?.includes('UPDATED')
-        );
+      const isReprint = order?.isReprint || false;
+      if (!isFull && isEdit === true) {
+        productsToPrint = productsToPrint.filter((product) => {
+          const editStatus = getEditStatus(product);
+          return editStatus === 'NEW' || editStatus === 'UPDATED';
+        });
         if (!productsToPrint?.length) {
           printer?.clear();
           skipped.push({
@@ -2794,14 +3277,26 @@ export const printOrder = async (
 
       printer.clear();
 
-      for (let copies = 0; copies < settings.copies; copies += 1) {
+      let copyExecError: unknown = null;
+      const copyCount = resolveCopies(settings, requiredDocument);
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
         changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();
         printer.println(
           tr(
-            `${translations.printOrder.orderFormOrder[lang]}`,
+            `${
+              isFull
+                ? translations.printOrder.fullOrderTitle[lang]
+                : isReprint
+                  ? translations.printOrder.reprintTitle[lang]
+                  : translations.printOrder.orderFormOrder[lang]
+            }`,
             settings.transliterate
           )
         );
@@ -2827,51 +3322,141 @@ export const printOrder = async (
             settings.transliterate
           ),
         ]);
+
+        const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
+        const boldPrices = settings.textOptions?.includes('BOLD_PRICES');
+
+        // Enlarges a money line when BOLD_PRICES is on, then restores the
+        // configured text size. Skipped while BOLD_PRODUCTS is active, since
+        // that already prints the whole product block enlarged.
+        const printBoldPrice = (print: () => void, alreadyEnlarged = false) => {
+          const enlarge = boldPrices && !alreadyEnlarged;
+          if (enlarge) {
+            printer.setTextSize(1, 0);
+          }
+          print();
+          if (enlarge) {
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+        };
+
         if (order?.orderType === 'DINE_IN') {
-          if (order?.tableNumber) {
-            printer.bold(true);
-            printer.table([
-              tr(
-                `${translations.printOrder.tableNumber[lang]}:${order.tableNumber}`,
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+
+          if (tablesLabel) {
+            if (boldOrderType) {
+              const labelText = tr(
+                `${translations.printOrder.tableNumber[lang]}: `,
                 settings.transliterate
-              ),
-              ...(order.waiterName
-                ? [
-                    tr(
-                      `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
-                      settings.transliterate
-                    ),
-                  ]
-                : []),
-            ]);
-            printer.bold(false);
+              );
+              const numberText = tr(`${tablesLabel}`, settings.transliterate);
+              const waiterText = order.waiterName
+                ? tr(
+                    `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
+                    settings.transliterate
+                  )
+                : '';
+              const lineWidth = 42;
+              const usedWidth = labelText.length + numberText.length * 2;
+              const padding = Math.max(
+                1,
+                lineWidth - usedWidth - waiterText.length
+              );
+
+              printer.bold(true);
+              printer.print(labelText);
+              printer.setTextSize(1, 0);
+              printer.print(numberText);
+              printer.setTextSize(0, 0);
+              changeTextSize(printer, settings?.textSize || 'NORMAL');
+              printer.bold(true);
+
+              if (waiterText) {
+                printer.print(' '.repeat(padding));
+                printer.print(waiterText);
+              }
+              printer.newLine();
+              printer.bold(false);
+            } else {
+              printer.bold(true);
+              printer.table([
+                tr(
+                  `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+                  settings.transliterate
+                ),
+                ...(order.waiterName
+                  ? [
+                      tr(
+                        `${translations.printOrder.waiter[lang]}:${normalizeGreek(order.waiterName)}`,
+                        settings.transliterate
+                      ),
+                    ]
+                  : []),
+              ]);
+              printer.bold(false);
+            }
           }
         }
-        printer.bold(true);
-        printer.print(
-          tr(
-            `${translations.printOrder.orderType[lang]}:`,
-            settings.transliterate
-          )
+
+        // Headcount, right-aligned on the order-type line below. Present only
+        // when the venue records it — the backend strips numberOfGuests
+        // otherwise.
+        const guests = Number(order.numberOfGuests);
+        const guestsText =
+          Number.isFinite(guests) && guests > 0
+            ? tr(
+                `${translations.printOrder.guests[lang]}: ${guests}`,
+                settings.transliterate
+              )
+            : '';
+
+        const orderTypeLabel = tr(
+          `${translations.printOrder.orderType[lang]}: `,
+          settings.transliterate
         );
+        const orderTypeText = tr(
+          `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+          settings.transliterate
+        );
+
+        printer.bold(true);
+        printer.print(orderTypeLabel);
         printer.bold(false);
-        if (
-          order.orderType === 'DINE_IN' ||
-          order.orderType === 'TAKE_AWAY_INSIDE' ||
-          order.orderType === 'TAKE_AWAY_PACKAGE'
-        ) {
+        if (boldOrderType) {
           printer.bold(true);
           printer.setTextSize(1, 0);
         }
-        printer.println(
-          tr(
-            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
-            settings.transliterate
-          )
-        );
+        printer.print(orderTypeText);
         printer.bold(false);
         printer.setTextSize(0, 0);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+        if (guestsText) {
+          // boldOrderType doubles the width of the type text, as on the table line.
+          const typeWidth = boldOrderType
+            ? orderTypeText.length * 2
+            : orderTypeText.length;
+          // Line up with the waiter above, which each branch positions
+          // differently: the bold path right-aligns it to the hardcoded 42,
+          // while the plain path uses printer.table(), whose cells are split on
+          // the printer's own configured width (48 by default).
+          const guestsStart = boldOrderType
+            ? 42 - guestsText.length
+            : Math.floor(printer.getWidth() / 2);
+          const padding = Math.max(
+            1,
+            guestsStart - orderTypeLabel.length - typeWidth
+          );
+          printer.bold(true);
+          printer.print(' '.repeat(padding));
+          printer.print(guestsText);
+          printer.bold(false);
+        }
+        printer.newLine();
 
         drawLine2(printer);
 
@@ -2949,9 +3534,7 @@ export const printOrder = async (
           settings.textOptions?.forEach((textOption) => {
             switch (textOption) {
               case 'BOLD_PRODUCTS':
-                printer.bold(true);
                 printer.setTextSize(1, 0);
-                printer.bold(false);
                 break;
               default:
                 break;
@@ -2973,29 +3556,49 @@ export const printOrder = async (
         }
         printer.alignLeft();
 
-        productsToPrint.forEach((product) => {
+        // Prints a category header line for grouped kitchen receipts. Always bold;
+        // additionally enlarged (double height) when BOLD_CATEGORIES is enabled,
+        // matching the other bold text options.
+        const printCategoryHeader = (title: string) => {
+          printer.alignLeft();
+          const boldCategories =
+            settings.textOptions.includes('BOLD_CATEGORIES');
+          printer.bold(true);
+          if (boldCategories) {
+            printer.setTextSize(1, 0);
+          }
+          printer.println(
+            tr(normalizeGreek(title.toUpperCase()), settings.transliterate)
+          );
+          printer.bold(false);
+          if (boldCategories) {
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+          }
+        };
+
+        const renderProduct = (product: (typeof productsToPrint)[number]) => {
           let total = product.total || 0;
           let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
-          console.log(order.appId, settings.printerType);
-          console.log(
-            'cond',
-            order.appId !== 'kiosk' && settings.printerType === 'KIOSK'
-          );
-          if (order.appId !== 'kiosk' && settings.printerType === 'KIOSK') {
-            dontPrint = true;
-            return;
-          }
+
           if (isEdit) {
-            if (product.updateStatus?.includes('NEW')) {
+            const editStatus = getEditStatus(product);
+            if (editStatus === 'TRANSFERRED') {
+              printer.println(
+                tr(
+                  `${translations.printOrder.productMoved[lang]}`,
+                  settings.transliterate
+                )
+              );
+            } else if (editStatus === 'NEW') {
               printer.println(
                 tr(
                   `${translations.printOrder.new[lang]}`,
                   settings.transliterate
                 )
               );
-            }
-            if (product.updateStatus?.includes('UPDATED')) {
+            } else if (editStatus === 'UPDATED') {
               const qc = product.quantityChanged;
               const qcIs = Number(qc?.is ?? 0);
               const qcWas = Number(qc?.was ?? 0);
@@ -3017,11 +3620,9 @@ export const printOrder = async (
               );
             }
           }
-          // Bold if enabled
-          if (settings.textOptions.includes('BOLD_PRODUCTS')) {
-            printer.bold(true);
+          const boldProducts = settings.textOptions.includes('BOLD_PRODUCTS');
+          if (boldProducts) {
             printer.setTextSize(1, 0);
-            printer.bold(false);
           } else {
             changeTextSize(printer, settings?.textSize || 'NORMAL');
           }
@@ -3033,7 +3634,7 @@ export const printOrder = async (
             product.quantityChanged &&
             Number(product.quantityChanged.is) !==
               Number(product.quantityChanged.was) &&
-            !product.updateStatus?.includes('NEW')
+            getEditStatus(product) !== 'NEW'
           ) {
             const diff =
               product.quantityChanged.is - product.quantityChanged.was;
@@ -3049,23 +3650,49 @@ export const printOrder = async (
               ? ` ${convertToDecimal(product.total).toFixed(2)} €`
               : '';
           }
-          const lineWidth = 42;
-          const paddedLine = productLine.padEnd(
-            lineWidth - priceStr.length,
+          // An enlarged price takes two cells per character, so reserve twice
+          // the room for it when padding the title.
+          const enlargePrice = boldPrices && !boldProducts && !!priceStr;
+          const lineWidth = boldProducts ? 21 : 42;
+          const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
+          // Transliterate before wrapping — it rewrites Greek to Latin and
+          // trims, so measuring or padding the raw text would misalign the
+          // price column.
+          const titleLines = wrapWords(
+            tr(productLine, settings.transliterate),
+            lineWidth,
+            '   ',
+            priceCells
+          );
+          const lastLine = titleLines[titleLines.length - 1]!;
+          titleLines.slice(0, -1).forEach((line) => printer.println(line));
+          const paddedLine = lastLine.padEnd(
+            Math.max(0, lineWidth - priceCells),
             ' '
           );
 
-          printer.println(
-            `${tr(paddedLine, settings.transliterate)}${priceStr}`
-          );
+          if (enlargePrice) {
+            printer.print(paddedLine);
+            printer.setTextSize(1, 0);
+            printer.print(priceStr);
+            printer.setTextSize(0, 0);
+            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.newLine();
+          } else {
+            printer.println(`${paddedLine}${priceStr}`);
+          }
 
           // Handle product option details
-          if (
-            settings.documentsToPrint?.includes('OPTION-DETAILS') &&
-            product.options
-          ) {
+          if (shouldPrintOptionDetails(settings) && product.options) {
             console.log('Printing details:', JSON.stringify(product.options));
-            printOptionDetails(printer, product.options, lang, settings);
+            // BOLD_PRODUCTS leaves the text enlarged for the option lines too.
+            printOptionDetails(
+              printer,
+              product.options,
+              lang,
+              settings,
+              boldProducts
+            );
           }
           // Comments (if any)
           if (product.comments) {
@@ -3087,11 +3714,15 @@ export const printOrder = async (
               (d) => d.productId === product._id
             );
             if (productDiscount) {
-              printProductDiscount(
-                printer,
-                productDiscount,
-                lang,
-                settings.transliterate
+              printBoldPrice(
+                () =>
+                  printProductDiscount(
+                    printer,
+                    productDiscount,
+                    lang,
+                    settings.transliterate
+                  ),
+                boldProducts
               );
             }
           }
@@ -3110,12 +3741,17 @@ export const printOrder = async (
             (product.vat && settings.priceOnOrder === undefined) ||
             settings.priceOnOrder === true
           ) {
-            printer.println(
-              tr(
-                `${translations.printOrder.vat[lang]}: ${product.vat}%`,
-                settings.transliterate
-              )
-            );
+            if (
+              settings.vatAnalysis === true ||
+              settings.vatAnalysis === undefined
+            ) {
+              printer.println(
+                tr(
+                  `${translations.printOrder.vat[lang]}: ${product.vat}%`,
+                  settings.transliterate
+                )
+              );
+            }
 
             const vatRate = product.vat;
 
@@ -3147,8 +3783,12 @@ export const printOrder = async (
             settings.priceOnOrder === true
           ) {
             printer.alignRight();
-            printer.println(
-              `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
+            printBoldPrice(
+              () =>
+                printer.println(
+                  `${convertToDecimal((total + choicesTotal) * Math.abs(printQuantity)).toFixed(2)} €`
+                ),
+              boldProducts
             );
           }
           printer.alignLeft();
@@ -3158,7 +3798,57 @@ export const printOrder = async (
 
           // Draw separator
           drawLine2(printer);
-        });
+        };
+
+        // Group products under category headers when enabled. Skipped for platform
+        // orders (no menu categories) and when nothing maps to a category, so those
+        // print as the original flat list.
+        const groupByCategory =
+          settings.groupByCategory === true &&
+          !isOrderFromPlatform &&
+          !!order.categoriesOrder?.length &&
+          productsToPrint.some((product) => product.categories?.length);
+
+        if (groupByCategory && order.categoriesOrder) {
+          const renderedIds = new Set<string>();
+          // Only group under categories this printer is configured to print.
+          // Without this, a multi-category product (e.g. [DRINKS, PROMO]) could
+          // print under a header this station isn't set up for when that header
+          // appears first in categoriesOrder. printAll (platform/full orders)
+          // and an unset categoriesToPrint impose no restriction.
+          const isCategoryAllowed = (categoryId: string) =>
+            printAll ||
+            settings.categoriesToPrint === undefined ||
+            settings.categoriesToPrint.includes(categoryId);
+          order.categoriesOrder.forEach((category) => {
+            if (!isCategoryAllowed(category._id)) {
+              return;
+            }
+            const inCategory = productsToPrint.filter(
+              (product) =>
+                !renderedIds.has(product._id) &&
+                product.categories.includes(category._id)
+            );
+            if (!inCategory.length) {
+              return;
+            }
+            inCategory.forEach((product) => renderedIds.add(product._id));
+            printCategoryHeader(category.title);
+            inCategory.forEach(renderProduct);
+          });
+
+          // Trailing group for products whose category isn't in the menu order
+          // (e.g. removed from the menu) or that have no category at all.
+          const rest = productsToPrint.filter(
+            (product) => !renderedIds.has(product._id)
+          );
+          if (rest.length) {
+            printCategoryHeader(translations.printOrder.otherCategory[lang]);
+            rest.forEach(renderProduct);
+          }
+        } else {
+          productsToPrint.forEach(renderProduct);
+        }
         if (
           vatBreakdown.length > 0 &&
           (settings.vatAnalysis === true || settings.vatAnalysis === undefined)
@@ -3193,31 +3883,39 @@ export const printOrder = async (
           printer.println('');
         }
 
+        const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
         if (order.waiterComment) {
           printer.newLine();
+          if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.waiterComments[lang]}:${order.waiterComment.toUpperCase()}`,
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
               settings.transliterate
             )
           );
+          if (boldComments) printer.setTextSize(0, 0);
         }
         if (order.customerComment) {
           printer.newLine();
+          if (boldComments) printer.setTextSize(1, 0);
           printer.println(
             tr(
-              `${translations.printOrder.customerComments[lang]}:${order.customerComment}`,
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
               settings.transliterate
             )
           );
+          if (boldComments) printer.setTextSize(0, 0);
         }
 
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         if (order.tip && settings.priceOnOrder) {
+          const tip = order.tip;
           printer.newLine();
-          printer.println(
-            `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(order.tip).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.tip[lang]}`, settings.transliterate)}:${convertToDecimal(tip).toFixed(2)} €`
+            )
           );
         }
 
@@ -3227,7 +3925,9 @@ export const printOrder = async (
           (settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true)
         ) {
-          printDiscountAndTip(printer, order.discounts, 0, lang);
+          printBoldPrice(() =>
+            printDiscountAndTip(printer, order.discounts, 0, lang)
+          );
         }
 
         if (
@@ -3235,9 +3935,12 @@ export const printOrder = async (
           (settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true)
         ) {
+          const deliveryFee = order.deliveryInfo.deliveryFee;
           printer.newLine();
-          printer.println(
-            `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(order.deliveryInfo.deliveryFee).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.deliveryFee[lang]}`, settings.transliterate)}:${convertToDecimal(deliveryFee).toFixed(2)} €`
+            )
           );
         }
         printer.alignRight();
@@ -3275,13 +3978,46 @@ export const printOrder = async (
           settings.priceOnOrder === true
         ) {
           const totalAfterDiscounts = order.total - totalDiscountAmount;
-          printer.println(
-            `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
+          printBoldPrice(() =>
+            printer.println(
+              `${tr(`${translations.printOrder.total[lang]}`, settings.transliterate)}:${convertToDecimal(totalAfterDiscounts).toFixed(2)} €`
+            )
           );
+        }
+
+        // Delivery-assignment QR: a delivery person scans it to open the order
+        // and claim it. Present only for delivery orders when the venue setting
+        // is on (gated by the frontend before the order reaches here).
+        if (order.assignmentQrUrl) {
+          printer.newLine();
+          printer.alignCenter();
+          printer.println(
+            tr(
+              translations.printOrder.assignQrNotice[lang],
+              settings.transliterate
+            )
+          );
+          try {
+            printer.printQR(order.assignmentQrUrl, {
+              cellSize: 4,
+              correction: 'Q',
+              model: 4,
+            });
+          } catch (qrError) {
+            logger.error(
+              `Failed to print order-assignment QR for ${order.assignmentQrUrl}:`,
+              {
+                error:
+                  qrError instanceof Error ? qrError.message : String(qrError),
+              }
+            );
+          }
+          printer.alignLeft();
         }
 
         printer.newLine();
         if (settings.poweredByQuickord) {
+          printer.alignCenter();
           printer.println(
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
@@ -3303,36 +4039,49 @@ export const printOrder = async (
             )
           );
         }
-        printer.cut();
-      }
 
-      if (!dontPrint) {
+        printer.cut();
+
         try {
-          await executePrinter(printer, printerIdentifier, 'order print', {
-            orderId: order._id,
-            orderNumber: order.number,
-            orderType: order.orderType,
-          });
-          successes.push(printerIdentifier);
-        } catch (execError) {
-          if (execError instanceof PrinterConnectionError) {
-            logger.error(
-              `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
-            );
-            errors.push({ printerIdentifier, error: execError });
-          } else {
-            logger.error(`Failed to print order to ${printerIdentifier}:`, {
-              error:
-                execError instanceof Error
-                  ? execError.message
-                  : String(execError),
+          await executePrinter(
+            printer,
+            printerIdentifier,
+            `order print copy ${copies + 1}/${copyCount}`,
+            {
               orderId: order._id,
               orderNumber: order.number,
-              stack: execError instanceof Error ? execError.stack : undefined,
-            });
-            errors.push({ printerIdentifier, error: execError });
-          }
+              orderType: order.orderType,
+              copy: copies + 1,
+              totalCopies: copyCount,
+            }
+          );
+        } catch (execError) {
+          copyExecError = execError;
+          break;
         }
+      }
+
+      if (copyExecError) {
+        if (copyExecError instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
+          );
+          errors.push({ printerIdentifier, error: copyExecError });
+        } else {
+          logger.error(`Failed to print order to ${printerIdentifier}:`, {
+            error:
+              copyExecError instanceof Error
+                ? copyExecError.message
+                : String(copyExecError),
+            orderId: order._id,
+            orderNumber: order.number,
+            stack:
+              copyExecError instanceof Error ? copyExecError.stack : undefined,
+          });
+          errors.push({ printerIdentifier, error: copyExecError });
+        }
+      } else {
+        successes.push(printerIdentifier);
       }
     } catch (error) {
       logger.error(`Error preparing order print for ${printerIdentifier}:`, {
@@ -3350,7 +4099,8 @@ export const printOrder = async (
 
 export const printOrders = async (
   orders: z.infer<typeof Order>[],
-  project: string = 'centrix'
+  project: string = 'centrix',
+  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
 ) => {
   const allSuccesses: string[] = [];
   const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
@@ -3361,8 +4111,259 @@ export const printOrders = async (
       order,
       order.appId || 'desktop',
       project,
-      'el'
+      'el',
+      mode
     );
+    allSuccesses.push(...result.successes);
+    allErrors.push(...result.errors);
+    allSkipped.push(...result.skipped);
+  }
+
+  return { successes: allSuccesses, errors: allErrors, skipped: allSkipped };
+};
+
+export type OrderCommentsInput = Pick<
+  z.infer<typeof Order>,
+  | '_id'
+  | 'createdAt'
+  | 'number'
+  | 'orderType'
+  | 'tableNumber'
+  | 'tableNumbers'
+  | 'venue'
+  | 'waiterComment'
+  | 'customerComment'
+>;
+
+export const printOrderComments = async (
+  order: OrderCommentsInput,
+  lang: SupportedLanguages = 'el'
+) => {
+  const successes: string[] = [];
+  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
+  if (!order.waiterComment && !order.customerComment) {
+    return {
+      successes,
+      errors,
+      skipped: [
+        {
+          printerIdentifier: 'all',
+          reason: 'Order has no waiter or customer comments to print',
+        },
+      ],
+    };
+  }
+
+  for (let i = 0; i < printers.length; i += 1) {
+    const settings = printers[i]?.[1];
+    const printer = printers[i]?.[0];
+    const printerIdentifier =
+      settings?.name ||
+      settings?.id ||
+      settings?.ip ||
+      settings?.port ||
+      `printer-${i}`;
+
+    try {
+      printer?.clear();
+      if (!settings || !printer) {
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured or missing settings',
+        });
+        continue;
+      }
+
+      if (settings.orderMethodsToPrint !== undefined) {
+        if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
+          skipped.push({
+            printerIdentifier,
+            reason: `Order method ${order.orderType} not in printer's orderMethodsToPrint configuration`,
+          });
+          continue;
+        }
+      }
+
+      if (!settings.documentsToPrint?.includes('COMMENTS')) {
+        skipped.push({
+          printerIdentifier,
+          reason: 'Printer not configured to print COMMENTS documents',
+        });
+        continue;
+      }
+
+      const orderCreationDate = new Date(order.createdAt);
+      const date =
+        orderCreationDate.toISOString().split('T')[0]?.replace(/-/g, '/') || '';
+      const time = orderCreationDate.toLocaleTimeString('el-GR', {
+        hour: '2-digit',
+        hour12: false,
+        minute: '2-digit',
+      });
+
+      const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
+      const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
+
+      let copyExecError: unknown = null;
+      const copyCount = resolveCopies(settings, 'COMMENTS');
+      for (let copies = 0; copies < copyCount; copies += 1) {
+        if (copies > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          printer.clear();
+        }
+        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+
+        printer.newLine();
+        printer.alignCenter();
+        printer.println(
+          tr(
+            `${translations.printOrder.orderCommentsTitle[lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.alignLeft();
+        printer.newLine();
+        printer.table([
+          `${date}`,
+          `${time}`,
+          tr(
+            `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+            settings.transliterate
+          ),
+        ]);
+        if (order?.orderType === 'DINE_IN') {
+          const tablesLabel =
+            Array.isArray(order?.tableNumbers) && order.tableNumbers.length > 0
+              ? order.tableNumbers.join(', ')
+              : order?.tableNumber;
+          if (tablesLabel) {
+            printer.bold(true);
+            printer.println(
+              tr(
+                `${translations.printOrder.tableNumber[lang]}: ${tablesLabel}`,
+                settings.transliterate
+              )
+            );
+            printer.bold(false);
+          }
+        }
+        printer.bold(true);
+        printer.print(
+          tr(
+            `${translations.printOrder.orderType[lang]}: `,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        if (boldOrderType) {
+          printer.bold(true);
+          printer.setTextSize(1, 0);
+        }
+        printer.println(
+          tr(
+            `${translations.printOrder.orderTypes[order.orderType][lang]}`,
+            settings.transliterate
+          )
+        );
+        printer.bold(false);
+        printer.setTextSize(0, 0);
+        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        drawLine2(printer);
+
+        if (order.waiterComment) {
+          if (boldComments) printer.setTextSize(1, 0);
+          printer.println(
+            tr(
+              `${translations.printOrder.waiterComments[lang]}: ${order.waiterComment.toUpperCase()}`,
+              settings.transliterate
+            )
+          );
+          if (boldComments) printer.setTextSize(0, 0);
+        }
+        if (order.customerComment) {
+          if (order.waiterComment) {
+            printer.newLine();
+            drawLine2(printer);
+          }
+          if (boldComments) printer.setTextSize(1, 0);
+          printer.println(
+            tr(
+              `${translations.printOrder.customerComments[lang]}: ${order.customerComment}`,
+              settings.transliterate
+            )
+          );
+          if (boldComments) printer.setTextSize(0, 0);
+        }
+
+        printer.cut();
+
+        try {
+          await executePrinter(
+            printer,
+            printerIdentifier,
+            `order comments print copy ${copies + 1}/${copyCount}`,
+            {
+              orderId: order._id,
+              orderNumber: order.number,
+              orderType: order.orderType,
+              copy: copies + 1,
+              totalCopies: copyCount,
+            }
+          );
+        } catch (execError) {
+          copyExecError = execError;
+          break;
+        }
+      }
+
+      if (copyExecError) {
+        if (copyExecError instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print order comments - printer ${printerIdentifier} is not connected or unreachable`
+          );
+        } else {
+          logger.error(
+            `Failed to print order comments to ${printerIdentifier}:`,
+            {
+              error:
+                copyExecError instanceof Error
+                  ? copyExecError.message
+                  : String(copyExecError),
+              orderId: order._id,
+              orderNumber: order.number,
+            }
+          );
+        }
+        errors.push({ printerIdentifier, error: copyExecError });
+      } else {
+        successes.push(printerIdentifier);
+      }
+    } catch (error) {
+      logger.error(
+        `Error preparing order comments print for ${printerIdentifier}:`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+          orderId: order._id,
+          orderNumber: order.number,
+        }
+      );
+      errors.push({ printerIdentifier, error });
+    }
+  }
+
+  return { successes, errors, skipped };
+};
+
+export const printOrdersComments = async (orders: OrderCommentsInput[]) => {
+  const allSuccesses: string[] = [];
+  const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
+
+  for (const order of orders) {
+    const result = await printOrderComments(order, 'el');
     allSuccesses.push(...result.successes);
     allErrors.push(...result.errors);
     allSkipped.push(...result.skipped);

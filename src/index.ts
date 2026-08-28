@@ -18,13 +18,16 @@ import {
 } from './modules/printer';
 import { printText } from './modules/printer';
 import {
+  getModems,
+  getPublicSettings,
   getSettings,
   loadSettings,
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings';
 import { dedup } from './modules/dedup';
-import printOrders from './resolvers/printOrders';
+import printOrderComments from './resolvers/printOrderComments';
+import printOrders, { printFullOrders } from './resolvers/printOrders';
 import { paymentSlip } from './modules/printer';
 import { deliveryNote } from './modules/printer';
 import { parkingTicket } from './modules/printer';
@@ -34,9 +37,15 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
-import { apiCall, getLocalIP } from './modules/api';
+import { getLocalIP, registerPrinterServerIp } from './modules/api';
+import {
+  curlExecJson,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { execSync } from 'child_process';
+import { initPullClient } from './modules/pullClient';
+import { setRestartHandler } from './modules/psIdentity';
 
 const main = async () => {
   const SERVER_PORT =
@@ -54,6 +63,14 @@ const main = async () => {
     }
 
     console.log('Update path:', process.argv);
+    // autoUpdate's normal-boot download reports fetch failures via
+    // reportFetchFailure(), which attributes the incident to a venueId resolved
+    // from the in-memory settings. Load them now on the normal-boot branch only (empty args);
+    // the --update/--remove branches chdir and relaunch and must not read/create
+    // settings here, and they never hit the reporting path anyway.
+    if (args.length === 0) {
+      await loadSettings();
+    }
     try {
       await autoUpdate(args); // Ensure updatePath is a string
     } catch (err) {
@@ -102,7 +119,7 @@ const main = async () => {
     .route('/settings')
     .post(settings)
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      res.status(200).send(getSettings());
+      res.status(200).send(getPublicSettings());
     });
 
   function getPrinterVersion(): string {
@@ -119,13 +136,30 @@ const main = async () => {
   // Simple HTTPS request (works inside exe)
 
   async function fetchLatestVersion() {
+    const url =
+      'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
     try {
-      const cmd = `curl -s -L https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest`;
-      const output = execSync(cmd, { encoding: 'utf-8' });
-      const json = JSON.parse(output);
-      return json.name || json.tag_name || 'unknown';
+      const result = await tryFetchWithFallback<{
+        name?: string;
+        tag_name?: string;
+      }>({
+        url,
+        method: 'GET',
+        fetchFn: async () => {
+          const response = await fetch(url);
+          if (!response.ok) throw httpStatusError(response);
+          return {
+            data: (await response.json()) as {
+              name?: string;
+              tag_name?: string;
+            },
+          };
+        },
+        curlFn: () => curlExecJson(`curl -s -L "${url}"`),
+      });
+      return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
-      console.error('curl failed:', err);
+      console.error('fetch failed:', err);
       return 'unknown';
     }
   }
@@ -156,8 +190,10 @@ const main = async () => {
       res.status(200).send({ status: 'ok' });
     });
 
-  app.post('/restart', (req: Request, res: Response) => {
-    res.status(200).send({ status: 'restarting' });
+  // Restart this process. Triggered by the HTTP route (legacy/local) and by a
+  // backend restartRequest over the WebSocket (remote). A short delay lets the
+  // HTTP response flush before the process exits.
+  function restartServer(): void {
     setTimeout(() => {
       const isDev = process.argv[1]?.endsWith('.ts');
       if (isDev) {
@@ -181,6 +217,14 @@ const main = async () => {
         process.exit(0);
       });
     }, 500);
+  }
+
+  // Let a backend restartRequest trigger the same restart path as the HTTP route.
+  setRestartHandler(restartServer);
+
+  app.post('/restart', (req: Request, res: Response) => {
+    res.status(200).send({ status: 'restarting' });
+    restartServer();
   });
 
   app
@@ -212,6 +256,8 @@ const main = async () => {
     });
 
   app.route('/print-orders').post(dedup, printOrders);
+  app.route('/print-full-order').post(dedup, printFullOrders);
+  app.route('/print-order-comments').post(dedup, printOrderComments);
 
   app.route('/test-print').post(testPrint);
   app.route('/print-alp').post(dedup, paymentReceipt);
@@ -248,6 +294,23 @@ const main = async () => {
       });
     });
 
+  // 404 catch-all — must come AFTER all route handlers but BEFORE the error
+  // handler. Without this, Express's default 404 returns an HTML page
+  // ("Cannot POST /xxx") which breaks JSON-expecting clients (FE does
+  // response.json() → "Unexpected token '<'"). Returning JSON keeps client
+  // error reporting clean and signals "endpoint not present in this PS
+  // version" unambiguously.
+  app.use((req: Request<{}, any, any>, res: Response<{}, any>) => {
+    res.status(404).json({
+      errors: [
+        {
+          code: 'ROUTE_NOT_FOUND',
+          message: `Route ${req.method} ${req.url} not found on this printer-server version`,
+        },
+      ],
+    });
+  });
+
   // eslint-disable-next-line no-unused-vars
   app.use(
     (
@@ -279,34 +342,20 @@ const main = async () => {
     );
 
     // Self-register printer server IP with the backend
-    const venueId = getSettings().venueId || getSettings().modem?.venueId;
+    const venueId = getSettings().venueId || getModems()[0]?.venueId;
 
     if (venueId) {
-      const localIp = getLocalIP();
-      logger.info(
-        `Registering printer server IP: ${localIp} for venue: ${venueId}`
-      );
-      apiCall(
-        `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
-      )
-        .then((res) => {
-          if (res?.errors) {
-            logger.error(
-              'Failed to register printer server IP:',
-              JSON.stringify(res.errors)
-            );
-          } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
-            logger.info('Printer server IP registered successfully');
-          }
-        })
-        .catch((err) => {
-          logger.error('Failed to register printer server IP:', err);
-        });
+      registerPrinterServerIp(venueId);
     } else {
       logger.info(
         'No venueId configured, skipping printer server IP registration'
       );
     }
+
+    // Sole backend channel: long-poll the backend and pull jobs to print. Also
+    // carries liveness, control ops (check/scan/restart/update), test prints, and
+    // version reporting.
+    initPullClient();
   });
 };
 

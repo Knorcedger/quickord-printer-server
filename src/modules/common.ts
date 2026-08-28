@@ -1,14 +1,39 @@
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
-import { PrinterTextSize } from './settings';
+import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
 import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
-import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { curlExecBuffer, httpStatusError, tryFetchWithFallback } from './http';
+import { reportFetchFailure } from './api';
+
+const execAsync = promisify(exec);
+
+// Canonical Windows shared-printer online check, shared by the legacy
+// /available status path (printer.ts) and the pull print path (printJob.ts) so
+// the WMI query and its quoting live in one place and the two can't diverge.
+// Escapes single quotes (the WQL/PowerShell escape is doubling).
+// Verified on a venue Windows machine: WorkOffline flips False->True within
+// ~10s of powering a shared USB printer off, so it tracks real connectivity.
+export const isUSBPrinterOnline = async (
+  shareName: string
+): Promise<boolean> => {
+  const safeShareName = shareName.replace(/'/g, "''");
+  const command = `powershell -NoProfile -Command "Get-WmiObject -Query \\"SELECT * FROM Win32_Printer WHERE ShareName = '${safeShareName}'\\" | Select-Object -ExpandProperty WorkOffline"`;
+  try {
+    const { stdout } = await execAsync(command);
+    return stdout.trim().toLowerCase() === 'false';
+  } catch {
+    return false;
+  }
+};
+
 export const leftPad = (str: string, length: number, char = ' ') => {
   return str.padStart(length, char);
 };
@@ -85,13 +110,15 @@ const getCachedImage = (url: string): Buffer | null => {
         (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60 * 24);
 
       if (ageInDays < CACHE_EXPIRY_DAYS) {
-        console.log(`Using cached image for: ${url}`);
-        return fs.readFileSync(cachePath);
-      } else {
-        // Cache expired, delete it
-        console.log(`Cache expired for: ${url}`);
-        fs.unlinkSync(cachePath);
+        const cached = fs.readFileSync(cachePath);
+        // A truncated entry (process died mid-write) would throw deep inside the
+        // PNG decoder and silently drop the image for the whole TTL — drop it here.
+        if (cached.length) {
+          console.log(`Using cached image for: ${url}`);
+          return cached;
+        }
       }
+      fs.unlinkSync(cachePath);
     }
   } catch (err) {
     console.error('Error reading cache:', err);
@@ -105,39 +132,119 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
     ensureCacheDir();
     const cacheKey = getCacheKey(url);
     const cachePath = path.join(CACHE_DIR, `${cacheKey}.png`);
-    fs.writeFileSync(cachePath, buffer);
+    // Write to a temp file and rename so a crash mid-write can never leave a
+    // partial entry behind (which would poison the cache for its whole TTL).
+    const tmpPath = `${cachePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, cachePath);
     console.log(`Cached image for: ${url}`);
   } catch (err) {
     console.error('Error saving cache:', err);
   }
 };
 
-const downloadAndProcessImage = async (url: string): Promise<Buffer> => {
-  // Check cache first
-  const cachedImage = getCachedImage(url);
+const downloadAndProcessImage = async (
+  url: string,
+  trimTransparent = false
+): Promise<Buffer> => {
+  // Cache key includes the trim flag: the same URL processed both ways yields
+  // different rasters, so they must not share an entry.
+  const cacheKey = trimTransparent ? `${url}#trim` : url;
+  const cachedImage = getCachedImage(cacheKey);
   if (cachedImage) {
     return cachedImage;
   }
 
   try {
-    // Use curl with flags:
-    // -s = silent
-    // -L = follow redirects
-    // -A = custom User-Agent
-    // --fail = exit non-zero if HTTP error
-    const cmd = `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`;
-    const imageBuffer = execSync(cmd);
+    const result = await tryFetchWithFallback<Buffer>({
+      url,
+      method: 'GET',
+      fetchFn: async () => {
+        const response = await fetch(url, {
+          redirect: 'follow',
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+          },
+        });
+        if (!response.ok) throw httpStatusError(response);
+        return { data: Buffer.from(await response.arrayBuffer()) };
+      },
+      curlFn: () =>
+        // Use curl with flags:
+        // -s = silent
+        // -L = follow redirects
+        // -A = custom User-Agent
+        // --fail = exit non-zero if HTTP error
+        curlExecBuffer(
+          `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`
+        ),
+    });
 
-    // Process the image with sharp
-    const processedImage = await sharp(imageBuffer)
-      .resize(384)
+    if (result.viaFallback && result.fetchFailure) {
+      reportFetchFailure(result.fetchFailure).catch(() => {});
+    }
+
+    // Bayer 8x8 ordered-dither matrix, normalized to 0-255
+    const BAYER_8 = [
+      [0, 32, 8, 40, 2, 34, 10, 42],
+      [48, 16, 56, 24, 50, 18, 58, 26],
+      [12, 44, 4, 36, 14, 46, 6, 38],
+      [60, 28, 52, 20, 62, 30, 54, 22],
+      [3, 35, 11, 43, 1, 33, 9, 41],
+      [51, 19, 59, 27, 49, 17, 57, 25],
+      [15, 47, 7, 39, 13, 45, 5, 37],
+      [63, 31, 55, 23, 61, 29, 53, 21],
+    ].map((row) => row.map((v) => (v + 0.5) * (256 / 64)));
+
+    // Trim only for logos, and only when the canvas is actually transparent
+    // padding. Never for generic markdown images: a QR/barcode with a
+    // transparent quiet zone would lose the margin it needs to stay scannable.
+    // Sharp runs trim before resize, so the logo is cropped at full resolution
+    // and then scaled up to the target width.
+    let shouldTrim = false;
+    if (trimTransparent) {
+      const cornerAlpha = (
+        await sharp(result.data)
+          .ensureAlpha()
+          .extract({ height: 1, left: 0, top: 0, width: 1 })
+          .raw()
+          .toBuffer()
+      )[3]!;
+      shouldTrim = cornerAlpha < 10;
+    }
+
+    let pipeline = sharp(result.data)
+      .resize(300)
+      .ensureAlpha()
+      .flatten({ background: '#ffffff' }); // transparent → white
+    if (shouldTrim) {
+      pipeline = pipeline.trim({ threshold: 10 });
+    }
+
+    const { data, info } = await pipeline
       .grayscale()
-      .threshold(128)
+      .normalise()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const { width, height, channels } = info;
+    const out = Buffer.alloc(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const gray = data[(y * width + x) * channels]!; // 0=black, 255=white
+        const t = BAYER_8[y & 7]![x & 7]!;
+        out[y * width + x] = gray > t ? 255 : 0;
+      }
+    }
+
+    const processedImage = await sharp(out, {
+      raw: { width, height, channels: 1 },
+    })
       .png()
       .toBuffer();
 
     // Save to cache
-    saveCachedImage(url, processedImage);
+    saveCachedImage(cacheKey, processedImage);
 
     return processedImage;
   } catch (err: any) {
@@ -163,7 +270,13 @@ export const PaymentMethod = Object.freeze({
   WEB_BANK: { description: 'Web-banking', value: '6' },
 });
 
-export const readMarkdown = async (text, printer, alignment, settings) => {
+export const readMarkdown = async (
+  text,
+  printer,
+  alignment,
+  settings,
+  uppercase = false
+) => {
   if (alignment === 'left') {
     printer.alignLeft();
   } else if (alignment === 'center') {
@@ -186,7 +299,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -194,7 +312,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
         try {
           console.log(`Downloading and processing image from: ${imageUrl}`);
           const processedImageBuffer = await downloadAndProcessImage(imageUrl);
-          printer.printImageBuffer(processedImageBuffer);
+          // printImageBuffer is async — without the await the raster bytes race
+          // the rest of the receipt and can be dropped from the buffer.
+          await printer.printImageBuffer(processedImageBuffer);
         } catch (error) {
           console.error(
             `Failed to download/process image from ${imageUrl}:`,
@@ -214,7 +334,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -242,7 +367,12 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
           changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-          printer.print(tr(buffer, settings?.transliterate));
+          printer.print(
+            tr(
+              uppercase ? buffer.toUpperCase() : buffer,
+              settings?.transliterate
+            )
+          );
           buffer = '';
         }
 
@@ -279,7 +409,9 @@ export const readMarkdown = async (text, printer, alignment, settings) => {
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
       changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
-      printer.println(tr(buffer, settings?.transliterate));
+      printer.println(
+        tr(uppercase ? buffer.toUpperCase() : buffer, settings?.transliterate)
+      );
       buffer = '';
       index++;
       continue;
@@ -417,6 +549,11 @@ export const SERVICES: Record<string, ServiceType> = {
     label_en: 'ON THE GO',
     label_el: 'ΣΤΟ ΧΕΡΙ',
   },
+  self_service_dine_in: {
+    value: 'self_service_dine_in',
+    label_en: 'SELF SERVICE',
+    label_el: 'ΑΥΤΟΕΞΥΠΗΡΕΤΗΣΗ',
+  },
 };
 
 export const DISCOUNTTYPES: Record<string, ServiceType> = {
@@ -476,7 +613,8 @@ export const printPayments = (
   printer,
   aadeInvoice,
   lang,
-  transliterate: boolean = false
+  transliterate: boolean = false,
+  tip: number = 0
 ) => {
   printer.bold(false);
   printer.alignCenter();
@@ -484,14 +622,29 @@ export const printPayments = (
   printer.println(
     tr(`${translations.printOrder.payments[lang]}:`, transliterate)
   );
-  aadeInvoice?.payment_methods.forEach((detail: any) => {
-    if (detail.amount > 0) {
+  const methods = aadeInvoice?.payment_methods ?? [];
+  // The tip is collected on top of the fiscal amount, so it isn't part of any
+  // payment_method amount. Fold it into the primary (largest) payment so the
+  // printed payments reflect the money actually collected. `tip` is in cents.
+  let tipIdx = -1;
+  if (tip > 0) {
+    let max = 0;
+    methods.forEach((m: any, i: number) => {
+      if (m.amount > max) {
+        max = m.amount;
+        tipIdx = i;
+      }
+    });
+  }
+  methods.forEach((detail: any, i: number) => {
+    const amount = detail.amount + (i === tipIdx ? tip / 100 : 0);
+    if (amount > 0) {
       const method = PaymentMethod[detail.code];
       const methodDescription =
         method?.description || translations.printOrder.unknown[lang];
       console.log('Printing payment method:', methodDescription, method);
       printer.println(
-        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${detail.amount.toFixed(2)}€`
+        `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${amount.toFixed(2)}€`
       );
     }
     drawLine2(printer);
@@ -507,27 +660,124 @@ export const getTitle = (content: any[], lang: string): string => {
 };
 
 interface OptionChoice {
-  content: { language: string; title: string; description?: string }[];
+  content: { language: string; title?: string | null; description?: string }[];
   amountLevel?: string | null;
   quantity?: number;
   price?: number;
 }
 
 interface ProductOption {
-  content: { language: string; title: string; description?: string }[];
+  content: { language: string; title?: string | null; description?: string }[];
   choices?: OptionChoice[];
 }
 
+// Lays out the choices of one option as a comma-separated run. A choice that
+// doesn't fit starts a new line; one longer than a whole line wraps on word
+// boundaries, and only a single over-long word is broken mid-word.
+const wrapChoices = (
+  choices: string[],
+  width: number,
+  firstPrefix: string,
+  continuationIndent: string,
+  lastLineReserved: number
+): string[] => {
+  if (choices.length === 0) return [firstPrefix];
+
+  const lines: string[] = [];
+  let current = firstPrefix;
+
+  const pushCurrent = () => {
+    lines.push(current);
+    current = continuationIndent;
+  };
+
+  const appendWord = (word: string) => {
+    const sep = current.length > 0 && !current.endsWith(' ') ? ' ' : '';
+    if (current.length + sep.length + word.length <= width) {
+      current += sep + word;
+      return;
+    }
+    if (current.trim().length > 0) pushCurrent();
+    if (current.length + word.length <= width) {
+      current += word;
+      return;
+    }
+    let rem = word;
+    while (rem.length > 0) {
+      const avail = width - current.length;
+      if (avail <= 0) {
+        pushCurrent();
+        continue;
+      }
+      current += rem.slice(0, avail);
+      rem = rem.slice(avail);
+      if (rem.length > 0) pushCurrent();
+    }
+  };
+
+  choices.forEach((choice, i) => {
+    const sep = i === 0 ? '' : ', ';
+    if (current.length + sep.length + choice.length <= width) {
+      current += sep + choice;
+      return;
+    }
+    if (i > 0) {
+      if (current.length + 1 <= width) current += ',';
+      pushCurrent();
+    }
+    if (current.length + choice.length <= width) {
+      current += choice;
+    } else {
+      choice
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((word) => appendWord(word));
+    }
+  });
+
+  if (current.trim().length > 0) lines.push(current);
+
+  // Keep the price off a line that is already full.
+  if (
+    lastLineReserved > 0 &&
+    lines.length > 0 &&
+    lines[lines.length - 1]!.length + lastLineReserved > width
+  ) {
+    lines.push(continuationIndent);
+  }
+
+  return lines;
+};
+
+// Word-wraps a single run of text to `width` cells. `lastLineReserved` keeps
+// room on the final line for something printed after it, e.g. a price column.
+export const wrapWords = (
+  text: string,
+  width: number,
+  continuationIndent = '',
+  lastLineReserved = 0
+): string[] =>
+  wrapChoices([text], width, '', continuationIndent, lastLineReserved);
+
+// `enlarged` tells us the caller left the text at double width (BOLD_PRODUCTS),
+// where every character costs two cells and only half the line is usable.
 export const printOptionDetails = (
   printer,
   options: ProductOption[],
   lang: string,
-  settings: any
+  settings: any,
+  enlarged = false
 ) => {
+  const width = enlarged ? 21 : 42;
+
   options?.forEach((option) => {
-    let optionLabel = normalizeGreek(getTitle(option.content, lang))
-      .toUpperCase()
-      .trim();
+    // Transliterate before measuring: it rewrites Greek to Latin (Θ → TH), so
+    // wrapping the raw text would size the lines against characters we never
+    // print. It also trims, hence the indent is applied after.
+    let optionLabel = tr(
+      normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
+      settings.transliterate
+    );
     if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
       optionLabel = `${optionLabel}: `;
     } else if (optionLabel.length > 0) {
@@ -544,13 +794,18 @@ export const printOptionDetails = (
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
       choiceValues.push(
-        `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim()
+        tr(
+          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+          settings.transliterate
+        )
       );
       if (choice.price && choice.price > 0)
         totalPrice += choice.price * (Number(choice.quantity) || 1);
     });
 
-    const indent = '     ';
+    // A narrow (enlarged) line can't afford the wide indent — the marker alone
+    // would eat a third of it.
+    const indent = width < 30 ? ' ' : '     ';
     let priceStr = '';
     if (
       totalPrice > 0 &&
@@ -558,8 +813,25 @@ export const printOptionDetails = (
     ) {
       priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
     }
-    const line = `${indent}- ${optionLabel}${choiceValues.join(', ')}`;
-    printer.println(`${tr(line, settings.transliterate)}${priceStr}`);
+    const continuationIndent = `${indent}  `;
+    const lines = wrapChoices(
+      choiceValues,
+      width,
+      `${indent}- ${optionLabel}`,
+      continuationIndent,
+      priceStr.length
+    );
+    lines.forEach((wrapped, idx) => {
+      const isLast = idx === lines.length - 1;
+      let out = wrapped;
+      if (isLast && priceStr.length > 0) {
+        out =
+          out.length + priceStr.length <= width
+            ? out.padEnd(width - priceStr.length) + priceStr
+            : out + priceStr;
+      }
+      printer.println(out);
+    });
   });
 };
 
@@ -708,7 +980,7 @@ export const printProducts = (
     }
     if (
       showOptions &&
-      settings.documentsToPrint?.includes('OPTION-DETAILS') &&
+      shouldPrintOptionDetails(settings) &&
       matchedProduct?.options
     ) {
       console.log('Printing details:', JSON.stringify(matchedProduct.options));
@@ -772,7 +1044,7 @@ export const printDiscountAndTip = (
     if (discount.amount && discount.type) {
       let discountAmount = '';
       if (discount.type === 'FIXED') {
-        discountAmount = (discount.amount / 100).toString() + '€';
+        discountAmount = (discount.amount / 100).toFixed(2) + '€';
       } else if (
         discount.type === 'PERCENTAGE' ||
         discount.type === 'PERCENT'
@@ -821,22 +1093,92 @@ export const printVatBreakdown = (
 
   drawLine2(printer);
 };
+/**
+ * Resolves the document title for an AADE invoice. Mirrors the FE rule
+ * (InvoiceTemplate.tsx): code 1.1/9.3 + move_purpose means the document also
+ * acts as a delivery note, so the title changes accordingly.
+ *
+ * TODO: the real source of truth should be an `isDeliveryNote` flag on the
+ * invoice header, but it is not being stored correctly yet, so for now we
+ * infer it from header.code + move_purpose like the FE does.
+ */
+export const getInvoiceTypeLabel = (
+  aadeInvoice: AadeInvoice,
+  lang: SupportedLanguages
+): string => {
+  const code = aadeInvoice?.header?.code;
+  const hasMovePurpose = !!aadeInvoice?.move_purpose?.code;
+
+  if (code === '5.1') {
+    return translations.printOrder.invoiceCreditNote[lang];
+  }
+  if (code === '9.3' && hasMovePurpose) {
+    return translations.printOrder.deliveryNoteTitle[lang];
+  }
+  if (code === '1.1' && hasMovePurpose) {
+    return translations.printOrder.invoiceDeliveryNote[lang];
+  }
+  if (['2.1', '2.2', '2.3'].includes(code)) {
+    return translations.printOrder.serviceInvoice[lang];
+  }
+  return translations.printOrder.invoice[lang];
+};
+
+/**
+ * Print the venue logo (dithered raster) centred.
+ * Best-effort: a failed download must never block the receipt, so errors are
+ * logged and swallowed.
+ */
+export const printLogo = async (printer, logoUrl: string) => {
+  if (!logoUrl) return;
+  try {
+    const imageBuffer = await downloadAndProcessImage(logoUrl, true);
+    printer.newLine();
+    // printImageBuffer is async — without the await the raster bytes race the
+    // rest of the receipt and can be dropped from the buffer entirely.
+    await printer.printImageBuffer(imageBuffer);
+    printer.alignCenter(); // raster print resets justification to left
+    printer.newLine();
+  } catch (error) {
+    console.error(`Failed to print venue logo from ${logoUrl}:`, error);
+  }
+};
+
 export const venueData = async (
   printer,
   aadeInvoice: AadeInvoice,
   issuerText: string,
   settings,
-  lang: SupportedLanguages
+  lang: SupportedLanguages,
+  venueLogoUrl = ''
 ) => {
   printer.alignCenter();
   if (issuerText) {
-    await readMarkdown(issuerText.toUpperCase(), printer, 'center', settings);
+    await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
-    printer.println(aadeInvoice?.issuer.name);
-    printer.println(aadeInvoice?.issuer.activity);
+    // The logo sits between the document title and the issuer details. It is
+    // deliberately skipped when issuerText is set: that markdown replaces the
+    // whole header and may already carry its own <img>, so printing both would
+    // duplicate the logo.
+    if (settings?.printVenueLogo) {
+      await printLogo(printer, venueLogoUrl);
+    }
+    printer.println(tr(aadeInvoice?.issuer.name, settings.transliterate));
+    printer.println(tr(aadeInvoice?.issuer.activity, settings.transliterate));
+    const issuerAddress = aadeInvoice?.issuer.address;
+    const issuerStreetAddress = [issuerAddress?.street, issuerAddress?.number]
+      .filter(Boolean)
+      .join(' ');
+    const issuerCityPostalCode = [
+      issuerAddress?.city,
+      issuerAddress?.postal_code ? `ΤΚ:${issuerAddress.postal_code}` : '',
+    ]
+      .filter(Boolean)
+      .join(', ');
+
     printer.println(
       tr(
-        `${aadeInvoice?.issuer.address.street} ${aadeInvoice?.issuer.address.city}, ΤΚ:${aadeInvoice?.issuer.address.postal_code}`,
+        [issuerStreetAddress, issuerCityPostalCode].filter(Boolean).join(' '),
         settings.transliterate
       )
     );
@@ -890,6 +1232,17 @@ export const receiptData = (
       settings.transliterate
     )
   );
+
+  // For invoice-delivery-notes (1.1/9.3 + move_purpose) also show the
+  // dispatch purpose code, e.g. "ΣΚ. ΔΙΑΚ/ΣΗΣ: 1"
+  if (aadeInvoice?.move_purpose?.code) {
+    printer.println(
+      tr(
+        `${translations.printOrder.movePurposeAbbr[lang]}: ${aadeInvoice.move_purpose.code}`,
+        settings.transliterate
+      )
+    );
+  }
 
   printer.alignLeft();
   if (orderType !== 'MYPELATES') {

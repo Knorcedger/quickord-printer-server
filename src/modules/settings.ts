@@ -17,7 +17,14 @@ export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
 });
 
 export const PrinterTextOptions = z.enum(
-  ['BOLD_PRODUCTS', 'BOLD_ORDER_NUMBER', 'BOLD_ORDER_TYPE'],
+  [
+    'BOLD_PRODUCTS',
+    'BOLD_ORDER_NUMBER',
+    'BOLD_ORDER_TYPE',
+    'BOLD_COMMENTS',
+    'BOLD_CATEGORIES',
+    'BOLD_PRICES',
+  ],
   {
     description: 'The text options to use for the printer.',
     invalid_type_error: 'textOptions must be a valid PrinterTextOptions.',
@@ -57,6 +64,22 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(true),
+  printVenueLogo: z
+    .boolean({
+      description:
+        'Whether to print the venue logo above the issuer details. Ignored when issuerText is set, since that replaces the whole header.',
+      invalid_type_error: 'printVenueLogo must be a boolean.',
+    })
+    .optional()
+    .default(false),
+  groupByCategory: z
+    .boolean({
+      description:
+        'Whether to group products by their menu category on kitchen receipts.',
+      invalid_type_error: 'groupByCategory must be a boolean.',
+    })
+    .optional()
+    .default(false),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',
@@ -79,7 +102,13 @@ export const PrinterSettings = z.object({
       required_error: 'documentsToPrint is required.',
     })
     .optional()
-    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'RATEUS', 'TEXT']),
+    .default(['ORDER', 'ALP', 'ORDERFORM', 'PAYMENT-SLIP', 'TEXT']),
+  optionDetails: z
+    .boolean({
+      description: 'Whether to print per-product option/customization details.',
+      invalid_type_error: 'optionDetails must be a boolean.',
+    })
+    .optional(),
   printerType: z
     .enum(['KIOSK', 'DESKTOP'], {
       description: 'The type of the printer.',
@@ -107,6 +136,7 @@ export const PrinterSettings = z.object({
       'WOLT',
       'FAGI',
       'BOX',
+      'SELF_SERVICE_DINE_IN',
     ]),
   categoriesToNotPrint: z
     .array(z.string(), {
@@ -130,6 +160,20 @@ export const PrinterSettings = z.object({
       message: 'copies must be an integer.',
     })
     .default(1),
+  documentCopies: z
+    .array(
+      z.object({
+        copies: z.number().int().min(1).max(10).default(1),
+        document: z.string(),
+      }),
+      {
+        description:
+          'Number of copies to print per document type. A missing entry means 1.',
+        invalid_type_error: 'documentCopies must be an array.',
+      }
+    )
+    .optional()
+    .default([]),
   ip: z
     .string({
       description: 'The IP address of the printer.',
@@ -169,24 +213,52 @@ export const PrinterSettings = z.object({
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
 
+// Option details moved from the legacy 'OPTION-DETAILS' pseudo-document to a
+// dedicated boolean. Fall back to the array for settings not yet migrated.
+export const shouldPrintOptionDetails = (
+  settings: Pick<IPrinterSettings, 'optionDetails' | 'documentsToPrint'>
+): boolean =>
+  settings.optionDetails ??
+  settings.documentsToPrint?.includes('OPTION-DETAILS') ??
+  false;
+
 export const ModemSettings = z.object({
+  label: z.string().optional(),
+  modemId: z.string().optional(),
   port: z.string({ required_error: 'the modem port is required' }),
-  venueId: z.string({ required_error: 'the modem venueId is required' }),
+  // Legacy: venueId lives top-level now, kept only so old settings.json still
+  // resolves an identity. Never read except through getModems() fallbacks.
+  venueId: z.string().optional(),
 });
 
 export type IModemSettings = z.infer<typeof ModemSettings>;
 
 export const Settings = z.object({
+  // Legacy single modem. Still accepted (and mirrored on save) for one release
+  // cycle so a PS downgrade doesn't wipe the venue's modem.
   modem: ModemSettings.optional(),
+  modems: z.array(ModemSettings).optional().default([]),
   printers: z.array(PrinterSettings),
   venueId: z.string().optional(),
+  // Per-venue secret for authenticating the WS registration with the backend.
+  // Synced DB -> local via the frontend's settings push, same path as venueId.
+  wsSecret: z.string().optional(),
 });
 
 export type ISettings = z.infer<typeof Settings>;
 
 let settings: ISettings = {
   modem: { port: '', venueId: '' },
+  modems: [],
   printers: [],
+};
+
+// Single source of truth for "which modems are active". Prefers the canonical
+// modems[] and falls back to the legacy single modem so existing installs keep
+// working before the first save from a new frontend.
+export const getModems = (s: ISettings = settings): IModemSettings[] => {
+  const list = s.modems?.length ? s.modems : s.modem?.port ? [s.modem] : [];
+  return list.filter((m) => !!m.port);
 };
 
 export const loadSettings = async () => {
@@ -199,7 +271,7 @@ export const loadSettings = async () => {
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
 
-    logger.info('Settings loaded:', settings);
+    logger.info('Settings loaded:', stripSecrets(settings));
 
     settings.printers = settings.printers?.map((printer) => {
       return {
@@ -224,6 +296,22 @@ export const saveSettings = async () => {
 export const getSettings = () => {
   return { ...settings };
 };
+
+// Single source of truth for which fields are credentials that must never be
+// logged or returned over HTTP. Route every log line / HTTP response that may
+// carry settings through this, so adding a second secret (or renaming wsSecret)
+// is a one-line change that can't be missed at one site and re-leak the value.
+export const stripSecrets = <T extends { wsSecret?: string }>(
+  obj: T
+): Omit<T, 'wsSecret'> => {
+  const { wsSecret: _wsSecret, ...rest } = obj;
+  return rest;
+};
+
+// Settings for the unauthenticated HTTP GET /settings response. Strips
+// wsSecret: the FE only ever pushes it (via POST), never reads it back, and
+// the credential must not be exposed to anything that can reach port 7810.
+export const getPublicSettings = () => stripSecrets(settings);
 
 export const updateSettings = (newSettings: ISettings) => {
   settings = { ...newSettings };

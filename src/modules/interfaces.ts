@@ -67,9 +67,11 @@ export interface AadeInvoice {
     activity: string;
     address: {
       street: string;
+      number?: string;
       city: string;
       postal_code: string;
     };
+    branch?: number;
     vat_number: string;
     tax_office: string;
     phone: string;
@@ -131,6 +133,12 @@ export interface AadeInvoice {
     };
     serial_number: string;
     code: string;
+  };
+  move_purpose?: {
+    code: {
+      description: 'Movement code is the reason why goods are transported (1-8).';
+      type: String;
+    };
   };
   details: {
     name: string;
