@@ -17,6 +17,16 @@
 
 - Modem commands need to end in `\r` (carriage return), after which the modem will respond with `OK` or `ERROR`.
 
+On every open the server drains the boot-time output, forces echo on (`ATE1`)
+and then sends `AT`, `AT+GCI=B5`, `ATS24=0`, `AT+VCID=1` one at a time, waiting
+for each reply and retrying once. A command that keeps failing is logged and
+skipped — the port stays usable.
+
+A USB power-cycle (Windows sleep, unplug) makes the modem forget `AT+VCID=1`
+while the COM handle stays valid, so calls arrive as a bare `RING` and are lost
+silently. When a `RING` is not followed by an `NMBR` block within 4s the server
+re-issues `AT+VCID=1`; three times in a row and it reopens the port.
+
 ## Setup
 
 1. Connect the phone line to the splitter, one of the splitter outputs to the modem and the other to the phone.

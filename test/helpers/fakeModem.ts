@@ -1,6 +1,11 @@
 import { SerialPortMock } from 'serialport';
 
-import { __getRegistry, __setInitDelayMs, __setSerialPortImpl } from '../../src/modules/modem';
+import {
+  __getRegistry,
+  __setInitDelayMs,
+  __setInitTimings,
+  __setSerialPortImpl,
+} from '../../src/modules/modem';
 
 export const useFakePorts = (...paths: string[]) => {
   paths.forEach((p) =>
@@ -8,6 +13,22 @@ export const useFakePorts = (...paths: string[]) => {
   );
   __setSerialPortImpl(SerialPortMock as never);
   __setInitDelayMs(0);
+  // The mock never answers OK, so every init command runs to its timeout.
+  __setInitTimings({
+    attempts: 1,
+    backoffMs: 0,
+    drainMs: 0,
+    settleMs: 0,
+    timeoutMs: 5,
+  });
+};
+
+// Init is detached from the open, so tests asserting on writes wait for it.
+export const settleInit = async () => {
+  await jest.advanceTimersByTimeAsync(50);
+  await Promise.all(
+    Array.from(__getRegistry().values()).map((i) => i.initPromise)
+  );
 };
 
 export const dropAllFakePorts = () => SerialPortMock.binding.reset();
