@@ -591,7 +591,7 @@ export const printTestPage = async (
   }
   printer.clear();
 
-  changeCodePage(printer, codePage || DEFAULT_CODE_PAGE);
+  changeCodePage(printer, codePage ?? DEFAULT_CODE_PAGE);
 
   printer.alignCenter();
   printer.println(`charset: ${charset || CharacterSet.PC869_GREEK}`);
@@ -725,7 +725,7 @@ const printTextFunc = async (
 
       try {
         printer.clear();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
 
         await readMarkdown(text, printer, alignment, settings);
         printer.cut();
@@ -935,7 +935,7 @@ const printParkingTicket = async (
       const copyCount = resolveCopies(settings, 'PARKING-TICKET');
       for (let copies = 0; copies < copyCount; copies += 1) {
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.bold(true);
         printer.println('PARKING TICKET');
         drawLine2(printer);
@@ -1056,7 +1056,7 @@ const printPelatologioRecord = async (
       });
 
       printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
       printer.bold(true);
       printer.println('PELATOLOGIO RECORD');
       printer.newLine();
@@ -1593,7 +1593,7 @@ const printOrderForm = async (
         }
         console.log(aadeInvoice);
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.println(
           tr(
             `${translations.printOrder.orderForm[lang]}`,
@@ -1768,7 +1768,7 @@ const printPaymentSlip = async (
           printer.clear();
         }
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.println(
           tr(
             `${translations.printOrder.paymentSlip[lang]}`,
@@ -2032,7 +2032,7 @@ const printPaymentReceipt = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
@@ -2266,7 +2266,7 @@ const printInvoice = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         await venueData(
           printer,
           aadeInvoice,
@@ -2473,7 +2473,7 @@ const printMyPelatesReceipt = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
           tr(
@@ -2686,7 +2686,7 @@ const printMyPelatesInvoice = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         await venueData(
           printer,
@@ -2956,7 +2956,7 @@ const printDeliveryNote = async (
         // every other print route. Without this the printer stays on whatever
         // page it was left on and prints Greek as gibberish.
         printer.clear();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         await venueData(
           printer,
@@ -3284,7 +3284,7 @@ export const printOrder = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();
@@ -4213,7 +4213,7 @@ export const printOrderComments = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         printer.newLine();

@@ -298,7 +298,7 @@ export const readMarkdown = async (
         if (buffer) {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
           printer.print(
             tr(
               uppercase ? buffer.toUpperCase() : buffer,
@@ -333,7 +333,7 @@ export const readMarkdown = async (
         if (buffer) {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
           printer.print(
             tr(
               uppercase ? buffer.toUpperCase() : buffer,
@@ -366,7 +366,7 @@ export const readMarkdown = async (
         if (buffer) {
           printer.bold(formatting.bold);
           printer.underline(formatting.underline);
-          changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+          changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
           printer.print(
             tr(
               uppercase ? buffer.toUpperCase() : buffer,
@@ -408,7 +408,7 @@ export const readMarkdown = async (
     if (text[index] === '\n') {
       printer.bold(formatting.bold);
       printer.underline(formatting.underline);
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
       printer.println(
         tr(uppercase ? buffer.toUpperCase() : buffer, settings?.transliterate)
       );
@@ -426,7 +426,7 @@ export const readMarkdown = async (
   if (buffer) {
     printer.bold(formatting.bold);
     printer.underline(formatting.underline);
-    changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+    changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
     printer.print(tr(buffer, settings?.transliterate));
   }
 };
