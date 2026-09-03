@@ -15,6 +15,7 @@
  */
 import { reportFetchFailure } from './api';
 import { getBackendBaseUrl } from './backendUrl';
+import { FailureEpisode } from './failureEpisode';
 import {
   curlExecJson,
   httpStatusError,
@@ -114,43 +115,9 @@ const pollErrorBackoffMs = (): number =>
       (1 + POLL_ERROR_BACKOFF_JITTER * (Math.random() * 2 - 1))
   );
 
-// While the channel stays down every poll would otherwise write two structured
-// fetch-failure objects plus a stack trace. Log the first failure of an episode
-// in full, then one summary line at this cadence, then one line on recovery.
-const POLL_FAILURE_LOG_INTERVAL_MS = 5 * 60 * 1000;
-let pollFailureStreak = 0;
-let pollFailureEpisodeStartedAt = 0;
-let lastPollFailureLogAt = 0;
-
-const minutesSince = (t: number): number =>
-  Math.round((Date.now() - t) / 60_000);
-
-function notePollFailure(err: unknown): void {
-  pollFailureStreak += 1;
-  const now = Date.now();
-
-  if (pollFailureStreak === 1) {
-    pollFailureEpisodeStartedAt = now;
-    lastPollFailureLogAt = now;
-    logger.error('Print-job poll failed:', err);
-    return;
-  }
-
-  if (now - lastPollFailureLogAt < POLL_FAILURE_LOG_INTERVAL_MS) return;
-  lastPollFailureLogAt = now;
-  logger.error(
-    `Print-job poll still failing — ${pollFailureStreak} consecutive failures over ${minutesSince(pollFailureEpisodeStartedAt)}m. Last error: ${err instanceof Error ? err.message : String(err)}`
-  );
-}
-
-function notePollSuccess(): void {
-  if (pollFailureStreak > 0) {
-    logger.info(
-      `Print-job poll recovered after ${pollFailureStreak} failures over ${minutesSince(pollFailureEpisodeStartedAt)}m`
-    );
-  }
-  pollFailureStreak = 0;
-}
+// A dead uplink otherwise wrote two structured fetch-failure dumps plus a
+// stack trace per poll — 18MB across one 13h outage.
+const pollFailures = new FailureEpisode('Print-job poll');
 
 function alreadySeen(jobId: string): boolean {
   const now = Date.now();
@@ -323,8 +290,8 @@ async function pollOnce(): Promise<void> {
     POLL_TIMEOUT_MS,
     POLL_FETCH_RETRIES,
     true,
-    // Already inside a failing episode: notePollFailure carries the summary.
-    pollFailureStreak > 0
+    // Already inside a failing episode: the summary line carries it.
+    pollFailures.active
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
@@ -436,12 +403,12 @@ async function loop(): Promise<void> {
     try {
       await pollOnce();
       authFailureLogged = false;
-      notePollSuccess();
+      pollFailures.succeed();
     } catch (err) {
       if (err instanceof PollRejectedError) {
         // Its own episode with its own log line — don't let it inflate the
         // consecutive-failure count of the next transport outage.
-        pollFailureStreak = 0;
+        pollFailures.reset();
         if (!authFailureLogged) {
           authFailureLogged = true;
           logger.error(
@@ -451,7 +418,7 @@ async function loop(): Promise<void> {
         await sleep(AUTH_RETRY_MS);
         continue;
       }
-      notePollFailure(err);
+      pollFailures.fail(err);
       await sleep(pollErrorBackoffMs());
     }
   }
