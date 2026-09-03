@@ -321,12 +321,12 @@ const main = async () => {
   // Explicit version check on demand, without a restart: when there is nothing
   // newer the server keeps serving, and the caller gets told so. When there is,
   // downloadLatestCode hands over to the update chain and this process exits —
-  // the delay gives the result report time to reach the backend first.
-  setUpdateHandler(async () => {
+  // beforeHandoff is the caller's last chance to be heard before that.
+  setUpdateHandler(async (beforeHandoff) => {
     if (process.platform !== 'win32') {
       return { error: 'Auto-update is only supported on Windows', state: 'failed' as const };
     }
-    return downloadLatestCode(3000);
+    return downloadLatestCode(3000, beforeHandoff);
   });
 
   app.post('/restart', (req: Request, res: Response) => {
