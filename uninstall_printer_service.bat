@@ -21,10 +21,15 @@ if %errorlevel% neq 0 (
     exit /b
 )
 
-:: Check if port is in use and try to stop service
+:: Check if port is in use and try to stop service. netstat's state column is
+:: localized, so a listener is matched by its wildcard foreign address.
 echo Checking if port %PORT% is in use...
-netstat -ano | findstr ":%PORT%" | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 (
+set "PORT_IN_USE="
+for /f "tokens=2,3" %%a in ('netstat -ano -p TCP ^| findstr /R /C:":%PORT% "') do (
+    if "%%b"=="0.0.0.0:0" set "PORT_IN_USE=1"
+    if "%%b"=="[::]:0" set "PORT_IN_USE=1"
+)
+if defined PORT_IN_USE (
     echo Port %PORT% is in use. Stopping service...
     sc stop "%SERVICE_NAME%" >nul 2>&1
     timeout /t 3 >nul
