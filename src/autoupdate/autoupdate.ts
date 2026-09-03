@@ -578,8 +578,16 @@ export interface UpdateCheckResult {
   state: 'already-latest' | 'updating' | 'failed';
 }
 
+/**
+ * Work that must reach the backend before the updater child is spawned. The
+ * child's first act is `sc stop printerServer` — this process — so anything
+ * reported after the handoff is racing its own executioner.
+ */
+export type BeforeHandoff = (result: UpdateCheckResult) => Promise<unknown>;
+
 export async function downloadLatestCode(
-  relaunchDelayMs = 500
+  relaunchDelayMs = 500,
+  beforeHandoff?: BeforeHandoff
 ): Promise<UpdateCheckResult> {
   // Read current version
   let currentVersion = '';
@@ -651,16 +659,39 @@ export async function downloadLatestCode(
   args[2] = '--parent';
   args[3] = parentDir;
   path2 = tempCodePath + '/builds/printerServer.exe';
+
+  const result: UpdateCheckResult = {
+    currentVersion,
+    latestVersion,
+    state: 'updating',
+  };
+
+  // The spawn below is the point of no return: the child stops the service —
+  // us — before it copies anything, and no exit delay or pre-exit task on this
+  // side can outrun it. So the result is reported here, while nothing is yet
+  // trying to kill us. Capped, because a backend that never answers must not
+  // block the update itself.
+  if (beforeHandoff) {
+    await Promise.race([
+      beforeHandoff(result).catch(() => {}),
+      sleep(PRE_EXIT_CAP_MS),
+    ]);
+  }
+
   relaunchExe(path2, args, relaunchDelayMs);
-  return { currentVersion, latestVersion, state: 'updating' };
+  return result;
 }
 
 // Update trigger registered by index.ts, mirroring setRestartHandler. Lets the
 // WS/pull control channels ask for an explicit version check without going
 // through a restart — when there is nothing new, the server keeps running.
-let updateHandler: (() => Promise<UpdateCheckResult>) | null = null;
+type UpdateHandler = (
+  beforeHandoff?: BeforeHandoff
+) => Promise<UpdateCheckResult>;
 
-export function setUpdateHandler(fn: () => Promise<UpdateCheckResult>): void {
+let updateHandler: UpdateHandler | null = null;
+
+export function setUpdateHandler(fn: UpdateHandler): void {
   updateHandler = fn;
 }
 
@@ -668,10 +699,13 @@ export function setUpdateHandler(fn: () => Promise<UpdateCheckResult>): void {
 // retry, or a user may click twice). Without a guard each one spawns its own
 // updater against the same install directory — two processes deleting and
 // copying the same tree. The in-flight run is shared instead, so the second
-// caller gets the first one's answer.
+// caller gets the first one's answer — including its pre-handoff report, so a
+// duplicate command's own report stays fire-and-forget.
 let updateInFlight: Promise<UpdateCheckResult> | null = null;
 
-export async function triggerUpdate(): Promise<UpdateCheckResult> {
+export async function triggerUpdate(
+  beforeHandoff?: BeforeHandoff
+): Promise<UpdateCheckResult> {
   if (!updateHandler) {
     return { error: 'No update handler registered', state: 'failed' };
   }
@@ -681,7 +715,7 @@ export async function triggerUpdate(): Promise<UpdateCheckResult> {
   }
   updateInFlight = (async () => {
     try {
-      return await updateHandler!();
+      return await updateHandler!(beforeHandoff);
     } catch (err: any) {
       return { error: err?.message || String(err), state: 'failed' as const };
     }

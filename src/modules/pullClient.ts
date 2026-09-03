@@ -351,24 +351,34 @@ function dispatchJob(job: {
       return;
     case 'update':
       // Unlike restart, this one is awaited by the backend: reporting the
-      // outcome is the point of the command. triggerUpdate resolves before the
-      // update chain takes the process down (see setUpdateHandler in index.ts),
-      // but the process then exits on a fixed delay, so on a slow link the
-      // report is registered as a pre-exit task and the exit waits for it.
+      // outcome is the point of the command. When an update actually starts,
+      // the updater child stops this service as its first step — so the report
+      // goes out from inside the beforeHandoff callback, which triggerUpdate
+      // awaits *before* spawning that child. Registering it as a pre-exit task
+      // too covers the capped-out case, where the handoff went ahead anyway.
       runCommand(job.jobId, async () => {
-        const result = await triggerUpdate();
-        // A version check that could not reach the API, or a non-Windows host,
-        // resolves with state 'failed' rather than throwing — report that as a
-        // failure instead of a success carrying the error in its payload.
+        const pending: { report?: Promise<void> } = {};
+        const result = await triggerUpdate((started) => {
+          const report = reportResult(job.jobId, 'success', undefined, started);
+          pending.report = report;
+          registerPreExitTask(report);
+          return report;
+        });
+        if (pending.report) {
+          await pending.report;
+          return;
+        }
+        // No handoff happened: already-latest, or a version check that could
+        // not reach the API / a non-Windows host. Those resolve with state
+        // 'failed' rather than throwing, so report the error as a failure
+        // instead of a success carrying the error in its payload.
         const failed = result.state === 'failed';
-        const report = reportResult(
+        await reportResult(
           job.jobId,
           failed ? 'failed' : 'success',
           failed ? result.error : undefined,
           result
         );
-        if (result.state === 'updating') registerPreExitTask(report);
-        await report;
       });
       return;
     case 'restart':
