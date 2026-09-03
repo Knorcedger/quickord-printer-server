@@ -23,6 +23,7 @@ import {
 jest.mock('../src/modules/api', () => ({
   apiCall: jest.fn().mockResolvedValue({ data: {} }),
   registerPrinterServerIp: jest.fn(),
+  startPrinterServerIpRegistration: jest.fn(),
 }));
 
 const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>;
