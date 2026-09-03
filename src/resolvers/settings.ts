@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import signale from 'signale';
 
-import { registerPrinterServerIp } from '../modules/api';
+import { startPrinterServerIpRegistration } from '../modules/api';
 import logger from '../modules/logger';
 import { syncModems } from '../modules/modem';
 import { setupPrinters } from '../modules/printer';
@@ -106,7 +106,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
     res.status(200).send({ newSettings: safeSettings, status: 'updated' });
 
     if (isFirstClaim && newSettings.venueId) {
-      await registerPrinterServerIp(newSettings.venueId);
+      startPrinterServerIpRegistration(newSettings.venueId);
     }
 
     // No explicit reconnect needed: the pull loop re-reads creds every iteration

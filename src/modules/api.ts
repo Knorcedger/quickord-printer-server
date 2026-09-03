@@ -16,7 +16,10 @@ nconf.argv().env().file({ file: './config.json' });
 const APIKEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 const APPID = 'desktop';
 
-export const getLocalIP = (): string => {
+// Null when no LAN IPv4 is up yet (DHCP not settled at boot). Never falls back
+// to loopback: a 127.0.0.1 published to the backend kills LAN printing for the
+// whole venue, and nothing re-registers it until the process restarts.
+export const getLocalIP = (): string | null => {
   const interfaces = os.networkInterfaces();
 
   // Skip virtual/container interfaces that may shadow the real LAN IP
@@ -40,7 +43,7 @@ export const getLocalIP = (): string => {
       }
     }
   }
-  return fallback || '127.0.0.1';
+  return fallback;
 };
 
 const escapeGraphqlString = (s: string): string =>
@@ -142,10 +145,14 @@ export const apiCall = async (query: string): Promise<any> => {
   return result.data;
 };
 
+// One registration attempt. Resolves true only on a confirmed 'ok' — anything
+// else is retried by the caller.
 export const registerPrinterServerIp = async (
   venueId: string
-): Promise<void> => {
+): Promise<boolean> => {
   const localIp = getLocalIP();
+  if (!localIp) return false;
+
   logger.info(
     `Registering printer server IP: ${localIp} for venue: ${venueId}`
   );
@@ -160,12 +167,48 @@ export const registerPrinterServerIp = async (
         'Failed to register printer server IP:',
         JSON.stringify(res.errors)
       );
-    } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
-      logger.info('Printer server IP registered successfully');
+      return false;
     }
+    if (res?.data?.updatePrinterServerIp?.status === 'ok') {
+      logger.info('Printer server IP registered successfully');
+      return true;
+    }
+    return false;
   } catch (err) {
     logger.error('Failed to register printer server IP:', err);
+    return false;
   }
+};
+
+const IP_REGISTRATION_RETRY_MS = 15_000;
+let ipRegistrationVenueId: string | null = null;
+
+// Retries until the backend confirms once, then stops. The PS must not block on
+// this: it only enables the FE's direct-LAN fast path, while the pull channel —
+// which does the printing — needs no IP at all. At boot the service starts
+// before DHCP has a lease, so the first attempts legitimately have nothing to
+// publish.
+export const startPrinterServerIpRegistration = (venueId: string): void => {
+  if (ipRegistrationVenueId === venueId) return;
+  ipRegistrationVenueId = venueId;
+
+  void (async () => {
+    let waitingLogged = false;
+    while (ipRegistrationVenueId === venueId) {
+      if (!getLocalIP()) {
+        if (!waitingLogged) {
+          waitingLogged = true;
+          logger.warn(
+            `No LAN IPv4 yet — deferring printer server IP registration, retrying every ${IP_REGISTRATION_RETRY_MS}ms`
+          );
+        }
+      } else {
+        waitingLogged = false;
+        if (await registerPrinterServerIp(venueId)) return;
+      }
+      await new Promise((r) => setTimeout(r, IP_REGISTRATION_RETRY_MS));
+    }
+  })();
 };
 
 export { reportFetchFailure };

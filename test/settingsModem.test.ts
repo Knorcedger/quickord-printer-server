@@ -19,6 +19,7 @@ import { dropAllFakePorts, instanceFor, useFakePorts } from './helpers/fakeModem
 jest.mock('../src/modules/api', () => ({
   apiCall: jest.fn().mockResolvedValue({ data: {} }),
   registerPrinterServerIp: jest.fn(),
+  startPrinterServerIpRegistration: jest.fn(),
 }));
 
 jest.mock('../src/modules/printer', () => ({
