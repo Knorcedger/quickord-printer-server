@@ -10,7 +10,13 @@ set SERVICE_EXE=printerServerService.exe
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    if errorlevel 1 (
+        echo.
+        echo Administrator privileges were declined - the service cannot be installed.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+    )
     exit /b
 )
 
@@ -30,16 +36,20 @@ goto :install
 :registered
 :: A registration can outlive its binary (an update that lost the exe). Then
 :: install says "already installed" and uninstall cannot run - a dead end.
-:: Read where the SCM points and drop the entry if that file is gone.
+:: Read where the SCM points and drop the entry if that file is gone. Read it
+:: from the registry: sc qc's BINARY_PATH_NAME label is localized, ImagePath is
+:: not.
 set BINPATH=
-for /f "tokens=1,* delims=:" %%a in ('sc qc "%SERVICE_NAME%" ^| findstr /i "BINARY_PATH_NAME"') do set BINPATH=%%b
+for /f "tokens=2,*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Services\%SERVICE_NAME%" /v ImagePath 2^>nul ^| findstr /i "ImagePath"') do set BINPATH=%%b
 for /f "tokens=*" %%x in ("!BINPATH!") do set BINPATH=%%x
 set BINPATH=!BINPATH:"=!
 
+:: An unreadable path is not a reason to fail: the service is installed, which
+:: is all this script had to guarantee before.
 if not defined BINPATH (
-    echo Service is already installed but its binary path could not be read.
+    echo Service is already installed.
     pause
-    exit /b 1
+    exit /b 0
 )
 
 if exist "!BINPATH!" (

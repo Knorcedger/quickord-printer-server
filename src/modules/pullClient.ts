@@ -357,7 +357,16 @@ function dispatchJob(job: {
       // report is registered as a pre-exit task and the exit waits for it.
       runCommand(job.jobId, async () => {
         const result = await triggerUpdate();
-        const report = reportResult(job.jobId, 'success', undefined, result);
+        // A version check that could not reach the API, or a non-Windows host,
+        // resolves with state 'failed' rather than throwing — report that as a
+        // failure instead of a success carrying the error in its payload.
+        const failed = result.state === 'failed';
+        const report = reportResult(
+          job.jobId,
+          failed ? 'failed' : 'success',
+          failed ? result.error : undefined,
+          result
+        );
         if (result.state === 'updating') registerPreExitTask(report);
         await report;
       });

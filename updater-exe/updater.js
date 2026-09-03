@@ -59,15 +59,93 @@ function rollbackOrCritical(rollback, what) {
   }
 }
 
-function killPort(port) {
+// netstat's state column is localized, so `find "LISTENING"` matches nothing on
+// a non-English Windows. A listener is recognised by its wildcard foreign
+// address instead, and the output is parsed here rather than piped through find.
+function findPortHolders(port) {
+  let output = "";
   try {
-    console.log(`Killing process on port ${port}...`);
-    execSync(
-      `for /f "tokens=5" %a in ('netstat -ano ^| findstr /R /C:":${port} " ^| find "LISTENING"') do taskkill /PID %a /F`,
-      { stdio: "ignore" }
-    );
+    output = execSync("netstat -ano -p TCP", { encoding: "utf-8" });
   } catch {
-    console.warn(`No process found on port ${port}`);
+    return [];
+  }
+  const pids = new Set();
+  for (const line of output.split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5) continue;
+    if (!(parts[1] || "").endsWith(`:${port}`)) continue;
+    if (parts[2] !== "0.0.0.0:0" && parts[2] !== "[::]:0") continue;
+    const pid = parseInt(parts[parts.length - 1], 10);
+    if (!Number.isFinite(pid) || pid === 0 || pid === process.pid) continue;
+    pids.add(pid);
+  }
+  return [...pids];
+}
+
+function killPort(port) {
+  const holders = findPortHolders(port);
+  if (!holders.length) {
+    console.log(`Nothing listening on port ${port}`);
+    return;
+  }
+  for (const pid of holders) {
+    console.log(`Killing PID ${pid} on port ${port}...`);
+    try {
+      execSync(`taskkill /PID ${pid} /F /T`, { stdio: "ignore" });
+    } catch {
+      console.warn(`Could not kill PID ${pid}`);
+    }
+  }
+}
+
+// Get-Service returns an invariant .NET enum name; sc.exe's state words are
+// localized and must not be parsed.
+const SERVICE_STATUS_CMD =
+  'powershell -NoProfile -NonInteractive -Command "$s = Get-Service -Name \'printerServer\' -ErrorAction SilentlyContinue; if ($s) { $s.Status.ToString() } else { \'Absent\' }"';
+
+function getServiceStatus() {
+  try {
+    return execSync(SERVICE_STATUS_CMD, { encoding: "utf-8" }).trim();
+  } catch {
+    return "Unknown";
+  }
+}
+
+function sleepSync(seconds) {
+  try {
+    execSync(`ping -n ${seconds + 1} 127.0.0.1 >nul`, { stdio: "ignore" });
+  } catch {}
+}
+
+/**
+ * Mirror of the --update path's stopServiceAndFreePort: WinSW and its roll-mode
+ * log files live in builds\ too, so renaming that folder while the service is
+ * still shutting down fails with EPERM. The .bat's fixed 2 s wait is not enough
+ * on a slow disk; poll until the SCM actually reports Stopped.
+ */
+function stopServiceAndWait(timeoutMs = 45000) {
+  const initial = getServiceStatus();
+  console.log(`Service state before stop: ${initial}`);
+  if (initial === "Absent" || initial === "Stopped") return true;
+
+  try {
+    execSync("sc.exe stop printerServer", { stdio: "ignore" });
+  } catch {
+    // 1062 = not started; 5 = access denied. The poll below is what decides.
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = getServiceStatus();
+    if (state === "Stopped" || state === "Absent") {
+      console.log("✅ Service stopped");
+      return true;
+    }
+    if (Date.now() > deadline) {
+      console.error(`⚠️ Service did not stop (state: ${state}).`);
+      return false;
+    }
+    sleepSync(1);
   }
 }
 
@@ -276,13 +354,11 @@ function restartService() {
     // 1056 already running (ends up RUNNING below); 1060 not installed (falls through).
   }
   for (let i = 0; i < 6; i++) {
-    try {
-      execSync('sc query printerServer | find "RUNNING"', { stdio: "ignore" });
+    if (getServiceStatus() === "Running") {
       console.log("✅ Service started");
       return;
-    } catch {
-      execSync("ping -n 3 127.0.0.1 >nul", { stdio: "ignore" });
     }
+    sleepSync(2);
   }
   console.warn("⚠️ Service did not start, launching the exe directly");
   spawn(path.join(BUILD_DIR, "printerServer.exe"), [], {
@@ -293,7 +369,7 @@ function restartService() {
 }
 
 function main() {
-  let swapped = false;
+  let restarted = false;
   try {
     fs.rmSync(STAGING_DIR, { recursive: true, force: true });
     fs.mkdirSync(EXTRACT_DIR, { recursive: true });
@@ -304,12 +380,20 @@ function main() {
     validateStaged();
 
     // Everything below touches the live install; above this a failure leaves it intact.
+    // The service still holds builds\printerServerService.exe and its logs, so a
+    // swap before it is really Stopped fails on the rename. Aborting here leaves
+    // the install intact and the catch below brings it back up.
+    if (!stopServiceAndWait()) {
+      throw new Error(
+        "The service did not stop, so the install was left untouched. Reboot and run this again."
+      );
+    }
     killPort(PORT);
     swapInstall();
-    swapped = true;
     stageNewUpdater();
 
     restartService();
+    restarted = true;
     console.log("🎉 Update complete!");
   } catch (err) {
     console.error("❌ Updater failed:", err);
@@ -321,17 +405,16 @@ function main() {
         `CRITICAL: the install is inconsistent and was NOT started (exit ${CRITICAL_EXIT}). Restore it manually.`
       );
       process.exitCode = CRITICAL_EXIT;
-    } else if (!swapped) {
-      // Never reached the swap, or the swap fully rolled back → install intact;
-      // bring it back up.
+    } else if (!restarted) {
+      // The install is coherent (never swapped, fully rolled back, or swapped
+      // and verified) but nothing has been started yet — including the case
+      // where the throw came out of restartService() itself. Bring it back up.
       try {
         restartService();
       } catch (e) {
         console.error("Also failed to restart the service:", e.message || e);
       }
     }
-    // swapped === true with a non-critical error: the new install is in place
-    // and coherent; restartService() (or its fallback) already ran.
   } finally {
     try {
       restoreSettings();
