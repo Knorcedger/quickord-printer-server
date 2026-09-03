@@ -13,6 +13,7 @@
  * A job lost between claim and print ages out of the queue rather than reprinting
  * late; staff reprint manually if needed.
  */
+import { registerPreExitTask, triggerUpdate } from '../autoupdate/autoupdate';
 import { reportFetchFailure } from './api';
 import { getBackendBaseUrl } from './backendUrl';
 import { FailureEpisode } from './failureEpisode';
@@ -234,13 +235,16 @@ async function postJson(
 // the report is worth several attempts. Detached from the pull loop — it must
 // never block or crash it — and creds are re-read per attempt so a secret
 // rotated mid-retry is picked up.
+// Returns the retry chain so a caller that must not race the process exiting
+// (the update command) can await the report landing; every other caller
+// ignores it and stays fire-and-forget.
 function reportResult(
   jobId: string,
   status: 'failed' | 'success',
   error?: string,
   result?: unknown
-): void {
-  void (async () => {
+): Promise<void> {
+  return (async () => {
     for (let attempt = 0; ; attempt++) {
       try {
         const data = await postJson(
@@ -353,6 +357,38 @@ function dispatchJob(job: {
           await scanNetworkForConnections()
         )
       );
+      return;
+    case 'update':
+      // Unlike restart, this one is awaited by the backend: reporting the
+      // outcome is the point of the command. When an update actually starts,
+      // the updater child stops this service as its first step — so the report
+      // goes out from inside the beforeHandoff callback, which triggerUpdate
+      // awaits *before* spawning that child. Registering it as a pre-exit task
+      // too covers the capped-out case, where the handoff went ahead anyway.
+      runCommand(job.jobId, async () => {
+        const pending: { report?: Promise<void> } = {};
+        const result = await triggerUpdate((started) => {
+          const report = reportResult(job.jobId, 'success', undefined, started);
+          pending.report = report;
+          registerPreExitTask(report);
+          return report;
+        });
+        if (pending.report) {
+          await pending.report;
+          return;
+        }
+        // No handoff happened: already-latest, or a version check that could
+        // not reach the API / a non-Windows host. Those resolve with state
+        // 'failed' rather than throwing, so report the error as a failure
+        // instead of a success carrying the error in its payload.
+        const failed = result.state === 'failed';
+        await reportResult(
+          job.jobId,
+          failed ? 'failed' : 'success',
+          failed ? result.error : undefined,
+          result
+        );
+      });
       return;
     case 'restart':
       // Ack before exiting so the backend row settles; the process may die
