@@ -37,7 +37,7 @@ import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate from './autoupdate/autoupdate';
-import { getLocalIP, registerPrinterServerIp } from './modules/api';
+import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
 import {
   curlExecJson,
   httpStatusError,
@@ -230,7 +230,9 @@ const main = async () => {
   app
     .route('/local-ip')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      const localIP = getLocalIP();
+      // The FE asks long after boot, so a virtual adapter here is the machine's
+      // real address rather than a DHCP race.
+      const localIP = getLocalIP({ allowVirtual: true });
       res.status(200).send({ localIP });
     });
   app.route('/available').get(async (req: Request, res: Response) => {
@@ -345,7 +347,7 @@ const main = async () => {
     const venueId = getSettings().venueId || getModems()[0]?.venueId;
 
     if (venueId) {
-      registerPrinterServerIp(venueId);
+      startPrinterServerIpRegistration(venueId);
     } else {
       logger.info(
         'No venueId configured, skipping printer server IP registration'

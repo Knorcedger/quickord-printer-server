@@ -15,6 +15,7 @@
  */
 import { reportFetchFailure } from './api';
 import { getBackendBaseUrl } from './backendUrl';
+import { FailureEpisode } from './failureEpisode';
 import {
   curlExecJson,
   httpStatusError,
@@ -114,6 +115,10 @@ const pollErrorBackoffMs = (): number =>
       (1 + POLL_ERROR_BACKOFF_JITTER * (Math.random() * 2 - 1))
   );
 
+// A dead uplink otherwise wrote two structured fetch-failure dumps plus a
+// stack trace per poll — 18MB across one 13h outage.
+const pollFailures = new FailureEpisode('Print-job poll');
+
 function alreadySeen(jobId: string): boolean {
   const now = Date.now();
   for (const [id, expiry] of seenJobs) {
@@ -135,12 +140,14 @@ async function postJson(
   body: Record<string, unknown>,
   timeoutMs: number,
   fetchRetries = 0,
-  trackFallbackStreak = false
+  trackFallbackStreak = false,
+  suppressFailureLogs = false
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
   const result = await tryFetchWithFallback<any>({
     fetchRetries,
     retryDelayMs: FETCH_RETRY_DELAY_MS,
+    suppressFailureLogs,
     shouldRetry: isCheapRetryableFetchError,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
@@ -282,7 +289,9 @@ async function pollOnce(): Promise<void> {
     },
     POLL_TIMEOUT_MS,
     POLL_FETCH_RETRIES,
-    true
+    true,
+    // Already inside a failing episode: the summary line carries it.
+    pollFailures.active
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
@@ -394,8 +403,12 @@ async function loop(): Promise<void> {
     try {
       await pollOnce();
       authFailureLogged = false;
+      pollFailures.succeed();
     } catch (err) {
       if (err instanceof PollRejectedError) {
+        // Its own episode with its own log line — don't let it inflate the
+        // consecutive-failure count of the next transport outage.
+        pollFailures.reset();
         if (!authFailureLogged) {
           authFailureLogged = true;
           logger.error(
@@ -405,7 +418,7 @@ async function loop(): Promise<void> {
         await sleep(AUTH_RETRY_MS);
         continue;
       }
-      logger.error('Print-job poll failed:', err);
+      pollFailures.fail(err);
       await sleep(pollErrorBackoffMs());
     }
   }
