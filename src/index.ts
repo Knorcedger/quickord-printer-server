@@ -3,6 +3,7 @@ import cors from 'cors';
 import nconf from 'nconf';
 import { CharacterSet } from 'node-thermal-printer';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import express from 'express';
 import { Request, Response } from 'express';
@@ -38,6 +39,7 @@ import testPrint from './resolvers/testPrint';
 import autoUpdate, {
   downloadLatestCode,
   isServiceManaged,
+  killPortHolders,
   scheduleServiceStartWatchdog,
   setUpdateHandler,
   sweepTempUpdateDirs,
@@ -51,6 +53,74 @@ import {
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { initPullClient } from './modules/pullClient';
 import { setRestartHandler } from './modules/psIdentity';
+
+// A bind failure repeats on every restart until whatever holds the port is
+// gone, so the recovery has to converge: clear the port, and stop scheduling
+// watchdogs after a few attempts instead of spawning one every ~15s forever.
+// The counter outlives the process, so it lives in a temp file.
+const BIND_FAILURE_STATE = path.join(os.tmpdir(), 'quickord-bind-failures.json');
+const BIND_FAILURE_WINDOW_MS = 15 * 60_000;
+const BIND_FAILURE_MAX = 5;
+
+function recordBindFailure(): number {
+  const now = Date.now();
+  let first = now;
+  let count = 0;
+  try {
+    const prev = JSON.parse(fs.readFileSync(BIND_FAILURE_STATE, 'utf-8'));
+    if (
+      typeof prev.first === 'number' &&
+      now - prev.first < BIND_FAILURE_WINDOW_MS
+    ) {
+      first = prev.first;
+      count = typeof prev.count === 'number' ? prev.count : 0;
+    }
+  } catch {
+    // no usable history: this is the first failure of the window
+  }
+  count += 1;
+  try {
+    fs.writeFileSync(BIND_FAILURE_STATE, JSON.stringify({ count, first }));
+  } catch {
+    // best effort — a lost counter only costs one more retry
+  }
+  return count;
+}
+
+async function handleBindFailure(
+  err: NodeJS.ErrnoException,
+  port: number
+): Promise<void> {
+  const attempt = recordBindFailure();
+  logger.error(
+    `Problem: failed to bind port ${port} (${err.code}), attempt ${attempt}. Exiting so the service manager retries.`
+  );
+
+  // Exiting alone never frees the port, so the orphan holding it would outlive
+  // every restart. Kill it here and the next boot binds cleanly.
+  if (err.code === 'EADDRINUSE') {
+    try {
+      const killed = await killPortHolders(port);
+      if (killed.length) {
+        logger.info(`Killed PID(s) ${killed.join(', ')} holding port ${port}.`);
+      }
+    } catch (e) {
+      logger.error('Failed to clear the port:', e);
+    }
+  }
+
+  // The exit code only restarts us where the failure actions are configured, so
+  // schedule the watchdog too: it covers venues still on the old service config
+  // and orphaned instances, which have nobody watching them.
+  if (attempt < BIND_FAILURE_MAX) {
+    scheduleServiceStartWatchdog();
+  } else {
+    logger.error(
+      `Problem: port ${port} still unusable after ${attempt} attempts; leaving the restart to the service manager.`
+    );
+  }
+  process.exit(1);
+}
 
 const main = async () => {
   const SERVER_PORT =
@@ -396,17 +466,16 @@ const main = async () => {
 
   // Without this, a failed bind is swallowed and the service reports itself as
   // started while nothing is listening — exactly what happens when an orphaned
-  // instance is still holding the port. Exiting non-zero makes WinSW retry
-  // (onfailure restart), which recovers as soon as the port frees up.
+  // instance is still holding the port. Only a bind failure is worth exiting
+  // for; any other server error is logged and the process stays up.
   server.on('error', (err: NodeJS.ErrnoException) => {
-    logger.error(
-      `Problem: failed to bind port ${SERVER_PORT} (${err.code || err.message}). Exiting so the service manager retries.`
-    );
-    // The exit code only restarts us where the failure actions are configured,
-    // so schedule the watchdog too: it covers venues still on the old service
-    // config and orphaned instances, which have nobody watching them.
-    scheduleServiceStartWatchdog();
-    process.exit(1);
+    if (err.code !== 'EADDRINUSE' && err.code !== 'EACCES') {
+      logger.error(
+        `Problem: http server error on port ${SERVER_PORT} (${err.code || err.message})`
+      );
+      return;
+    }
+    void handleBindFailure(err, SERVER_PORT);
   });
 };
 

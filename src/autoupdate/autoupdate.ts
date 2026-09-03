@@ -22,6 +22,12 @@ import {
   tryFetchWithFallback,
 } from '../modules/http';
 import { reportFetchFailure } from '../modules/api';
+import {
+  parseListeningPids,
+  parseScQueryState,
+  parseServiceStatusName,
+  type ServiceState,
+} from './serviceState';
 
 // The update path uses tryFetchWithFallback exactly like the runtime paths
 // (poll/apiCall/common) but never looked at viaFallback, so a fetch that failed
@@ -243,12 +249,7 @@ export async function relaunchExe(
 
 export const SERVICE_NAME = 'printerServer';
 
-export type ServiceState =
-  | 'RUNNING'
-  | 'STOPPED'
-  | 'PENDING'
-  | 'ABSENT'
-  | 'UNKNOWN';
+export type { ServiceState };
 
 function runCmd(
   cmd: string,
@@ -270,14 +271,20 @@ function runCmd(
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
+// sc.exe prints localized field labels and state words, so nothing may key off
+// them: on a Greek install `STATE : 4  RUNNING` simply is not there. Get-Service
+// returns a .NET enum name, which is invariant in every locale; sc.exe's
+// (unlocalized) numeric state is the fallback when PowerShell is unavailable.
+const SERVICE_STATUS_PS = `powershell -NoProfile -NonInteractive -Command "$s = Get-Service -Name '${SERVICE_NAME}' -ErrorAction SilentlyContinue; if ($s) { $s.Status.ToString() } else { 'Absent' }"`;
+
 export async function getServiceState(): Promise<ServiceState> {
-  const { code, output } = await runCmd(`sc.exe query ${SERVICE_NAME}`, 15_000);
-  if (/1060/.test(output)) return 'ABSENT'; // service does not exist
-  if (code !== 0) return 'UNKNOWN';
-  if (/STATE\s*:\s*\d+\s+RUNNING/i.test(output)) return 'RUNNING';
-  if (/STATE\s*:\s*\d+\s+STOPPED/i.test(output)) return 'STOPPED';
-  if (/STATE\s*:\s*\d+\s+\w+_PENDING/i.test(output)) return 'PENDING';
-  return 'UNKNOWN';
+  const ps = await runCmd(SERVICE_STATUS_PS, 20_000);
+  if (ps.code === 0) {
+    const state = parseServiceStatusName(ps.output);
+    if (state) return state;
+  }
+  const sc = await runCmd(`sc.exe query ${SERVICE_NAME}`, 15_000);
+  return parseScQueryState(sc.output, sc.code);
 }
 
 async function waitForState(
@@ -294,20 +301,21 @@ async function waitForState(
 }
 
 // PIDs listening on `port`, excluding our own. netstat is parsed in JS rather
-// than piped through findstr so a missing match isn't an error exit code.
-async function findPortHolders(port: number): Promise<number[]> {
+// than piped through findstr so a missing match isn't an error exit code. The
+// state column is localized, so a listener is recognised by its wildcard
+// foreign address instead of the word LISTENING.
+export async function findPortHolders(port: number): Promise<number[]> {
   const { output } = await runCmd('netstat -ano -p TCP', 20_000);
-  const pids = new Set<number>();
-  for (const line of output.split(/\r?\n/)) {
-    if (!/LISTENING/i.test(line)) continue;
-    const parts = line.trim().split(/\s+/);
-    const local = parts[1] ?? '';
-    if (!local.endsWith(`:${port}`)) continue;
-    const pid = parseInt(parts[parts.length - 1] ?? '', 10);
-    if (!Number.isFinite(pid) || pid === 0 || pid === process.pid) continue;
-    pids.add(pid);
+  return parseListeningPids(output, port, process.pid);
+}
+
+/** Kill everything listening on `port` (never ourselves); returns the PIDs. */
+export async function killPortHolders(port: number): Promise<number[]> {
+  const holders = await findPortHolders(port);
+  for (const pid of holders) {
+    await runCmd(`taskkill /PID ${pid} /F /T`, 15_000);
   }
-  return [...pids];
+  return holders;
 }
 
 /**
@@ -409,7 +417,8 @@ export async function startServiceOrFallback(
  * service `sc start` fails with 1056 and changes nothing.
  *
  * Written as a batch file rather than an inline `cmd /c` string because the
- * `find "RUNNING"` quoting does not survive Node's argument escaping.
+ * quoting of the nested PowerShell check does not survive Node's argument
+ * escaping.
  */
 export function scheduleServiceStartWatchdog(): void {
   if (process.platform !== 'win32') return;
@@ -423,7 +432,9 @@ export function scheduleServiceStartWatchdog(): void {
         'ping -n 9 127.0.0.1 >nul',
         `sc start ${SERVICE_NAME} >nul 2>&1`,
         'ping -n 6 127.0.0.1 >nul',
-        `sc query ${SERVICE_NAME} | find "RUNNING" >nul`,
+        // `sc query | find "RUNNING"` never matches on a localized Windows,
+        // which would launch a second server on every restart.
+        `powershell -NoProfile -NonInteractive -Command "if ((Get-Service -Name '${SERVICE_NAME}' -ErrorAction SilentlyContinue).Status -eq 'Running') { exit 0 } else { exit 1 }"`,
         `if errorlevel 1 start "" "${exe}"`,
         '',
       ].join('\r\n'),
@@ -653,11 +664,11 @@ export function setUpdateHandler(fn: () => Promise<UpdateCheckResult>): void {
   updateHandler = fn;
 }
 
-// WS and the pull channel can both carry an update command for the same venue
-// (the backend may retry, or a user may click twice). Without a guard each one
-// spawns its own updater against the same install directory — two processes
-// deleting and copying the same tree. The in-flight run is shared instead, so
-// the second caller gets the first one's answer.
+// The pull channel can deliver the same update command twice (the backend may
+// retry, or a user may click twice). Without a guard each one spawns its own
+// updater against the same install directory — two processes deleting and
+// copying the same tree. The in-flight run is shared instead, so the second
+// caller gets the first one's answer.
 let updateInFlight: Promise<UpdateCheckResult> | null = null;
 
 export async function triggerUpdate(): Promise<UpdateCheckResult> {
@@ -699,13 +710,37 @@ export async function sweepTempUpdateDirs(): Promise<void> {
   const base = tmpdir();
   const entries = await fsp.readdir(base).catch(() => [] as string[]);
   const cwd = path.resolve(process.cwd()).toLowerCase();
+  const self = path.resolve(process.execPath).toLowerCase();
 
   for (const name of entries) {
     if (!name.startsWith('quickord-cashier-server-update')) continue;
     const full = path.join(base, name);
-    // Never delete the tree we are currently running from.
-    if (cwd.startsWith(full.toLowerCase())) continue;
+    const lower = full.toLowerCase();
+    const prefix = lower + path.sep;
+    // Never delete the tree we are running from — by cwd or by exe, since the
+    // updater chdir's into it but a fallback launch may not.
+    if (cwd === lower || cwd.startsWith(prefix)) continue;
+    if (self.startsWith(prefix)) continue;
+    // We are the *new* server, started by an updater that is still waiting for
+    // us to reach Running from its own temp tree. Its exe is locked while it
+    // lives, so leave that tree to the next boot.
+    if (isUpdaterStillRunningIn(full)) {
+      console.log(`Leaving ${full} alone: its updater is still running.`);
+      continue;
+    }
     await safeCleanup(full);
+  }
+}
+
+// A running .exe cannot be opened for writing on Windows, which is the only
+// signal the new server has that an updater is still live in that tree.
+function isUpdaterStillRunningIn(dir: string): boolean {
+  const exe = path.join(dir, 'code', 'builds', 'printerServer.exe');
+  try {
+    fs.closeSync(fs.openSync(exe, 'r+'));
+    return false;
+  } catch (err: any) {
+    return ['EBUSY', 'EPERM', 'EACCES'].includes(err?.code);
   }
 }
 

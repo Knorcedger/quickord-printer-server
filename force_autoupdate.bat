@@ -9,7 +9,13 @@ REM half-copy the install. Re-launch ourselves elevated instead.
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    if errorlevel 1 (
+        echo.
+        echo Administrator privileges were declined - the update cannot run.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+    )
     exit /b
 )
 
@@ -28,9 +34,11 @@ REM Kill printerServer.exe by name
 echo Killing printerServer.exe...
 taskkill /IM printerServer.exe /F >nul 2>&1
 
-REM Kill any process on the port
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
-    taskkill /pid %%a /f >nul 2>&1
+REM Kill any process on the port. netstat's state column is localized, so a
+REM listener is matched by its wildcard foreign address, not by "LISTENING".
+for /f "tokens=2,3,5" %%a in ('netstat -ano -p TCP ^| findstr /R /C:":%PORT% "') do (
+    if "%%b"=="0.0.0.0:0" taskkill /pid %%c /f >nul 2>&1
+    if "%%b"=="[::]:0" taskkill /pid %%c /f >nul 2>&1
 )
 
 timeout /t 2 >nul
@@ -76,10 +84,17 @@ if "%UPDATER_RC%"=="3" (
 )
 
 REM An older updater.exe ends by spawning printerServer.exe detached, which
-REM leaves the service stopped and an orphan on the port. Clear it and start
-REM the service so the machine is left under SCM supervision either way.
-taskkill /IM printerServer.exe /F >nul 2>&1
-timeout /t 2 >nul
+REM leaves the service stopped and an orphan on the port. Only then is there an
+REM orphan to clear: a current updater leaves the service Running, and killing
+REM WinSW's child there makes WinSW stop the service while `sc start` below is
+REM still a no-op (1056) - ending a successful update with nothing on the port.
+REM Get-Service is used because sc.exe prints a localized state word.
+powershell -NoProfile -NonInteractive -Command "if ((Get-Service -Name '%SERVICE_NAME%' -ErrorAction SilentlyContinue).Status -eq 'Running') { exit 0 } else { exit 1 }"
+if errorlevel 1 (
+    echo Clearing orphaned printerServer.exe...
+    taskkill /IM printerServer.exe /F >nul 2>&1
+    timeout /t 2 >nul
+)
 
 REM Same registry-side service settings applyServiceConfig() applies on the
 REM --update path. updater.exe is a prebuilt binary that is already old on

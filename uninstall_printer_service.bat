@@ -11,7 +11,13 @@ set PORT=7810
 net session >nul 2>&1
 if %errorlevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    if errorlevel 1 (
+        echo.
+        echo Administrator privileges were declined - the service cannot be removed.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+    )
     exit /b
 )
 
