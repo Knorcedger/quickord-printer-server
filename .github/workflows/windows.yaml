@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   create:
-    runs-on: windows-latest
+    # Node 24.8's vcbuild.bat needs VS 2022; windows-2025/latest now ship only VS 2026.
+    runs-on: windows-2022
 
     steps:
       # Checkout repo

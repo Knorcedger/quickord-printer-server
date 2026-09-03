@@ -170,6 +170,17 @@ const lastConnectedState = new Map<string, boolean>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// KIOSK printers only accept kiosk-app jobs, and kiosk jobs only go to KIOSK printers.
+const kioskSkipReason = (settings: IPrinterSettings, appId: string) => {
+  if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
+    return 'Printer is configured as KIOSK printer only';
+  }
+  if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
+    return 'Kiosk request, printer is not a KIOSK printer';
+  }
+  return null;
+};
+
 // Retries the network connection probe a few times before giving up, so a
 // printer that is slow to wake from WiFi power-save gets a chance to respond
 // within a single status check.
@@ -580,7 +591,7 @@ export const printTestPage = async (
   }
   printer.clear();
 
-  changeCodePage(printer, codePage || DEFAULT_CODE_PAGE);
+  changeCodePage(printer, codePage ?? DEFAULT_CODE_PAGE);
 
   printer.alignCenter();
   printer.println(`charset: ${charset || CharacterSet.PC869_GREEK}`);
@@ -714,7 +725,7 @@ const printTextFunc = async (
 
       try {
         printer.clear();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
 
         await readMarkdown(text, printer, alignment, settings);
         printer.cut();
@@ -924,7 +935,7 @@ const printParkingTicket = async (
       const copyCount = resolveCopies(settings, 'PARKING-TICKET');
       for (let copies = 0; copies < copyCount; copies += 1) {
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.bold(true);
         printer.println('PARKING TICKET');
         drawLine2(printer);
@@ -1045,7 +1056,7 @@ const printPelatologioRecord = async (
       });
 
       printer.alignCenter();
-      changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+      changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
       printer.bold(true);
       printer.println('PELATOLOGIO RECORD');
       printer.newLine();
@@ -1582,7 +1593,7 @@ const printOrderForm = async (
         }
         console.log(aadeInvoice);
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.println(
           tr(
             `${translations.printOrder.orderForm[lang]}`,
@@ -1757,7 +1768,7 @@ const printPaymentSlip = async (
           printer.clear();
         }
         printer.alignCenter();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.println(
           tr(
             `${translations.printOrder.paymentSlip[lang]}`,
@@ -2006,12 +2017,10 @@ const printPaymentReceipt = async (
       }
     }
 
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
     console.log('Printing ALP');
@@ -2023,7 +2032,7 @@ const printPaymentReceipt = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
@@ -2240,16 +2249,15 @@ const printInvoice = async (
         continue;
       }
     }
-    console.log(appId, settings.printerType);
-    if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
-      console.log('skipping because its kiosk printer from desktop');
-      skipped.push({
-        printerIdentifier,
-        reason: 'Printer is configured as KIOSK printer only',
-      });
+
+    const kioskSkip = kioskSkipReason(settings, appId);
+    if (kioskSkip) {
+      console.log(kioskSkip);
+      skipped.push({ printerIdentifier, reason: kioskSkip });
       continue;
     }
-    console.log('printing invoice');
+
+    console.log('Printing invoice');
     const copyCount = resolveCopies(settings, 'ALP');
     for (let copies = 0; copies < copyCount; copies += 1) {
       try {
@@ -2258,7 +2266,7 @@ const printInvoice = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         await venueData(
           printer,
           aadeInvoice,
@@ -2465,7 +2473,7 @@ const printMyPelatesReceipt = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         printer.println(
           tr(
@@ -2678,7 +2686,7 @@ const printMyPelatesInvoice = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         await venueData(
           printer,
@@ -2948,7 +2956,7 @@ const printDeliveryNote = async (
         // every other print route. Without this the printer stays on whatever
         // page it was left on and prints Greek as gibberish.
         printer.clear();
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         printer.alignCenter();
         await venueData(
           printer,
@@ -3128,7 +3136,6 @@ export const printOrder = async (
   const isFull = mode === 'FULL-ORDER';
 
   for (let i = 0; i < printers.length; i += 1) {
-    let dontPrint = false;
     const rawSettings = printers[i]?.[1];
     const settings =
       isFull && rawSettings
@@ -3174,6 +3181,12 @@ export const printOrder = async (
           });
           continue;
         }
+      }
+
+      const kioskSkip = kioskSkipReason(settings, appId);
+      if (kioskSkip) {
+        skipped.push({ printerIdentifier, reason: kioskSkip });
+        continue;
       }
 
       const isOrderFromPlatform =
@@ -3271,7 +3284,7 @@ export const printOrder = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();
@@ -3387,7 +3400,6 @@ export const printOrder = async (
               printer.bold(false);
             }
           }
-
         }
 
         // Headcount, right-aligned on the order-type line below. Present only
@@ -3569,15 +3581,7 @@ export const printOrder = async (
           let total = product.total || 0;
           let printQuantity = product.quantity;
           const leftAmount = `${product.quantity}x `.length;
-          console.log(order.appId, settings.printerType);
-          console.log(
-            'cond',
-            order.appId !== 'kiosk' && settings.printerType === 'KIOSK'
-          );
-          if (order.appId !== 'kiosk' && settings.printerType === 'KIOSK') {
-            dontPrint = true;
-            return;
-          }
+
           if (isEdit) {
             const editStatus = getEditStatus(product);
             if (editStatus === 'TRANSFERRED') {
@@ -4038,52 +4042,46 @@ export const printOrder = async (
 
         printer.cut();
 
-        if (!dontPrint) {
-          try {
-            await executePrinter(
-              printer,
-              printerIdentifier,
-              `order print copy ${copies + 1}/${copyCount}`,
-              {
-                orderId: order._id,
-                orderNumber: order.number,
-                orderType: order.orderType,
-                copy: copies + 1,
-                totalCopies: copyCount,
-              }
-            );
-          } catch (execError) {
-            copyExecError = execError;
-            break;
-          }
+        try {
+          await executePrinter(
+            printer,
+            printerIdentifier,
+            `order print copy ${copies + 1}/${copyCount}`,
+            {
+              orderId: order._id,
+              orderNumber: order.number,
+              orderType: order.orderType,
+              copy: copies + 1,
+              totalCopies: copyCount,
+            }
+          );
+        } catch (execError) {
+          copyExecError = execError;
+          break;
         }
       }
 
-      if (!dontPrint) {
-        if (copyExecError) {
-          if (copyExecError instanceof PrinterConnectionError) {
-            logger.error(
-              `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
-            );
-            errors.push({ printerIdentifier, error: copyExecError });
-          } else {
-            logger.error(`Failed to print order to ${printerIdentifier}:`, {
-              error:
-                copyExecError instanceof Error
-                  ? copyExecError.message
-                  : String(copyExecError),
-              orderId: order._id,
-              orderNumber: order.number,
-              stack:
-                copyExecError instanceof Error
-                  ? copyExecError.stack
-                  : undefined,
-            });
-            errors.push({ printerIdentifier, error: copyExecError });
-          }
+      if (copyExecError) {
+        if (copyExecError instanceof PrinterConnectionError) {
+          logger.error(
+            `Cannot print order - printer ${printerIdentifier} is not connected or unreachable`
+          );
+          errors.push({ printerIdentifier, error: copyExecError });
         } else {
-          successes.push(printerIdentifier);
+          logger.error(`Failed to print order to ${printerIdentifier}:`, {
+            error:
+              copyExecError instanceof Error
+                ? copyExecError.message
+                : String(copyExecError),
+            orderId: order._id,
+            orderNumber: order.number,
+            stack:
+              copyExecError instanceof Error ? copyExecError.stack : undefined,
+          });
+          errors.push({ printerIdentifier, error: copyExecError });
         }
+      } else {
+        successes.push(printerIdentifier);
       }
     } catch (error) {
       logger.error(`Error preparing order print for ${printerIdentifier}:`, {
@@ -4215,7 +4213,7 @@ export const printOrderComments = async (
           await new Promise((resolve) => setTimeout(resolve, 400));
           printer.clear();
         }
-        changeCodePage(printer, settings?.codePage || DEFAULT_CODE_PAGE);
+        changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         printer.newLine();

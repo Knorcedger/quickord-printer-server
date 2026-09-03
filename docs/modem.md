@@ -4,6 +4,7 @@
   - [Drivers](#drivers)
   - [Modem AT Commands](#modem-at-commands)
   - [Setup](#setup)
+  - [Multiple modems (one per phone line)](#multiple-modems-one-per-phone-line)
 
 ## Drivers
 
@@ -15,6 +16,16 @@
 [PDF Reference](./IML56_modem_AT_commands.pdf)
 
 - Modem commands need to end in `\r` (carriage return), after which the modem will respond with `OK` or `ERROR`.
+
+On every open the server drains the boot-time output, forces echo on (`ATE1`)
+and then sends `AT`, `AT+GCI=B5`, `ATS24=0`, `AT+VCID=1` one at a time, waiting
+for each reply and retrying once. A command that keeps failing is logged and
+skipped — the port stays usable.
+
+A USB power-cycle (Windows sleep, unplug) makes the modem forget `AT+VCID=1`
+while the COM handle stays valid, so calls arrive as a bare `RING` and are lost
+silently. When a `RING` is not followed by an `NMBR` block within 4s the server
+re-issues `AT+VCID=1`; three times in a row and it reopens the port.
 
 ## Setup
 
@@ -33,3 +44,36 @@
 9. Setup the modem in the printer server settings.
 10. Launch the printer server by running the `Quickord Printer Server` shortcut.
 11. If correct, any calls should be forwarded to the quickoed BE server.
+
+## Multiple modems (one per phone line)
+
+A venue with two phone numbers can run one modem per number, so a second call
+that arrives while the first is ringing is still shown.
+
+Wiring — **one number per router port**:
+
+```
+                    ┌── Tel1 ──> SPLITTER ──┬──> PHONE #1  (main number)
+ROUTER (VDSL/VoIP) ─┤                       └──> MODEM #1  (COM3)
+                    └── Tel2 ──> SPLITTER ──┬──> PHONE #2  (secondary number)
+                                            └──> MODEM #2  (COM4)
+```
+
+⚠️ Never join Tel1 and Tel2 into a single splitter: they are independent FXS
+ports, each with its own feed.
+
+Steps:
+
+1. Check first, with an analog phone that shows caller id, that **each** router
+   port displays the number of an incoming call. If it doesn't, the problem is
+   the line/provider (CLIP), not the printer server.
+2. Give every modem its own COM number (step 8 above) — the second one usually
+   lands on COM10 or higher.
+3. Add both modems in the printer settings page, one entry per COM port, and
+   give each a label (e.g. "Main line" / "Delivery") — the label is what shows
+   up in the logs.
+4. Note which number rings which router port; the label should match it.
+
+Routers often ring **both** FXS ports for every incoming call. In that case both
+modems see the same call; the server drops the duplicate within a 5 second
+window, so the venue still gets a single popup.

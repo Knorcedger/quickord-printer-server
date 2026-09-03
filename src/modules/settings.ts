@@ -223,14 +223,21 @@ export const shouldPrintOptionDetails = (
   false;
 
 export const ModemSettings = z.object({
+  label: z.string().optional(),
+  modemId: z.string().optional(),
   port: z.string({ required_error: 'the modem port is required' }),
-  venueId: z.string({ required_error: 'the modem venueId is required' }),
+  // Legacy: venueId lives top-level now, kept only so old settings.json still
+  // resolves an identity. Never read except through getModems() fallbacks.
+  venueId: z.string().optional(),
 });
 
 export type IModemSettings = z.infer<typeof ModemSettings>;
 
 export const Settings = z.object({
+  // Legacy single modem. Still accepted (and mirrored on save) for one release
+  // cycle so a PS downgrade doesn't wipe the venue's modem.
   modem: ModemSettings.optional(),
+  modems: z.array(ModemSettings).optional().default([]),
   printers: z.array(PrinterSettings),
   venueId: z.string().optional(),
   // Per-venue secret for authenticating the WS registration with the backend.
@@ -242,7 +249,16 @@ export type ISettings = z.infer<typeof Settings>;
 
 let settings: ISettings = {
   modem: { port: '', venueId: '' },
+  modems: [],
   printers: [],
+};
+
+// Single source of truth for "which modems are active". Prefers the canonical
+// modems[] and falls back to the legacy single modem so existing installs keep
+// working before the first save from a new frontend.
+export const getModems = (s: ISettings = settings): IModemSettings[] => {
+  const list = s.modems?.length ? s.modems : s.modem?.port ? [s.modem] : [];
+  return list.filter((m) => !!m.port);
 };
 
 export const loadSettings = async () => {

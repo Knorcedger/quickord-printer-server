@@ -35,10 +35,11 @@ export function getPrinterVersion(): string {
 // Get registered venueId from in-memory settings object.
 export function getVenueId(): string {
   try {
-    const { getSettings } = require('./settings');
+    const { getModems, getSettings } = require('./settings');
     const settings = getSettings();
     if (settings?.venueId) return settings.venueId;
-    if (settings?.modem?.venueId) return settings.modem.venueId;
+    const legacyVenueId = getModems(settings)[0]?.venueId;
+    if (legacyVenueId) return legacyVenueId;
   } catch {}
   return nconf.get('VENUE_ID') || '';
 }
