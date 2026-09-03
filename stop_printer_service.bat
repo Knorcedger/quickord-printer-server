@@ -19,11 +19,18 @@ timeout /t 2 >nul
 set "killed=0"
 set "found_process=0"
 
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
-    set "found_process=1"
-    echo Killing process using port %PORT% with PID %%a
-    taskkill /pid %%a /f
-    if not errorlevel 1 set "killed=1"
+:: netstat's state column is localized, so a listener is matched by its
+:: wildcard foreign address rather than by the word LISTENING.
+for /f "tokens=2,3,5" %%a in ('netstat -ano -p TCP ^| findstr /R /C:":%PORT% "') do (
+    set "is_listener="
+    if "%%b"=="0.0.0.0:0" set "is_listener=1"
+    if "%%b"=="[::]:0" set "is_listener=1"
+    if defined is_listener (
+        set "found_process=1"
+        echo Killing process using port %PORT% with PID %%c
+        taskkill /pid %%c /f
+        if not errorlevel 1 set "killed=1"
+    )
 )
 
 :: Wait after killing
@@ -35,10 +42,11 @@ taskkill /IM printerServer.exe /F >nul 2>&1
 :: Wait a moment after kill
 timeout /t 1 >nul
 
-:: Check again if port is still in use by LISTENING process
+:: Check again if something still holds the port
 set "port_still_in_use=0"
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr /R /C:":%PORT% " ^| findstr "LISTENING"') do (
-    set "port_still_in_use=1"
+for /f "tokens=2,3" %%a in ('netstat -ano -p TCP ^| findstr /R /C:":%PORT% "') do (
+    if "%%b"=="0.0.0.0:0" set "port_still_in_use=1"
+    if "%%b"=="[::]:0" set "port_still_in_use=1"
 )
 
 if "%port_still_in_use%"=="1" (
