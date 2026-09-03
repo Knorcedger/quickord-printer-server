@@ -264,6 +264,10 @@ export interface TryFetchOpts<T> {
   retryDelayMs?: number;
   // Filters which failures the retries apply to. Defaults to all of them.
   shouldRetry?: (err: any) => boolean;
+  // Drop the per-attempt failure dumps. For callers that already log their own
+  // collapsed summary of an ongoing outage; the first failure must not set it,
+  // or the detail is lost entirely.
+  suppressFailureLogs?: boolean;
 }
 
 // Run fetchFn; if it throws (or returns non-2xx surfaced via thrown error),
@@ -319,10 +323,12 @@ export const tryFetchWithFallback = async <T>(
     socketReused = socketReuseByRequest.get(traceKey);
     releaseTraceKey(traceKey);
   }
-  logger.error(
-    { ...ctx, fetchAttempts, fetchDurationMs, socketReused },
-    'fetch failed, attempting curl fallback'
-  );
+  if (!opts.suppressFailureLogs) {
+    logger.error(
+      { ...ctx, fetchAttempts, fetchDurationMs, socketReused },
+      'fetch failed, attempting curl fallback'
+    );
+  }
 
   const curlStartedAt = Date.now();
   try {
@@ -343,14 +349,16 @@ export const tryFetchWithFallback = async <T>(
       }),
     };
   } catch (curlErr: any) {
-    logger.error(
-      {
-        ...ctx,
-        fetchAttempts,
-        curlStderr: curlErr?.stderr || curlErr?.message,
-      },
-      'curl fallback also failed'
-    );
+    if (!opts.suppressFailureLogs) {
+      logger.error(
+        {
+          ...ctx,
+          fetchAttempts,
+          curlStderr: curlErr?.stderr || curlErr?.message,
+        },
+        'curl fallback also failed'
+      );
+    }
     const wrapped: any = new Error(
       `fetch and curl both failed for ${method} ${url}: ${fetchErr?.message}`
     );

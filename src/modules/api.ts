@@ -8,22 +8,34 @@ import {
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
+import { FailureEpisode } from './failureEpisode';
 import logger from './logger';
 import { getVenueId } from './psIdentity';
 
 nconf.argv().env().file({ file: './config.json' });
 
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 const APIKEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 const APPID = 'desktop';
 
-export const getLocalIP = (): string => {
+// Null when no usable LAN IPv4 is up (DHCP not settled at boot, or only
+// virtual adapters). Never falls back to loopback or — unless the caller opts
+// in — to a Hyper-V/WSL/Docker address: a wrong IP published to the backend
+// kills LAN printing for the whole venue and nothing re-registers it.
+export const getLocalIP = (
+  options: { allowVirtual?: boolean } = {}
+): string | null => {
   const interfaces = os.networkInterfaces();
 
   // Skip virtual/container interfaces that may shadow the real LAN IP
   const virtualPatterns =
     /^(vEthernet|WSL|docker|br-|veth|Hyper-V|VMware|VirtualBox|virbr)/i;
 
-  let fallback: string | null = null;
+  let virtual: string | null = null;
 
   for (const name of Object.keys(interfaces)) {
     const iface = interfaces[name];
@@ -32,15 +44,14 @@ export const getLocalIP = (): string => {
     for (const alias of iface) {
       if (alias.family === 'IPv4' && !alias.internal) {
         if (virtualPatterns.test(name)) {
-          console.log('hit virtualPatterns:', name);
-          if (!fallback) fallback = alias.address;
+          if (!virtual) virtual = alias.address;
         } else {
           return alias.address;
         }
       }
     }
   }
-  return fallback || '127.0.0.1';
+  return options.allowVirtual ? virtual : null;
 };
 
 const escapeGraphqlString = (s: string): string =>
@@ -103,12 +114,16 @@ const reportFetchFailure = async (
   }
 };
 
-export const apiCall = async (query: string): Promise<any> => {
+export const apiCall = async (
+  query: string,
+  opts: { suppressFailureLogs?: boolean } = {}
+): Promise<any> => {
   const apiUrl = nconf.get('QUICKORD_API_URL');
 
   const result = await tryFetchWithFallback<{ data?: any; errors?: any }>({
     url: apiUrl,
     method: 'POST',
+    suppressFailureLogs: opts.suppressFailureLogs,
     fetchFn: async () => {
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -135,37 +150,115 @@ export const apiCall = async (query: string): Promise<any> => {
     reportFetchFailure(result.fetchFailure).catch(() => {});
   }
 
-  if (result.data?.errors) {
+  if (result.data?.errors && !opts.suppressFailureLogs) {
     logger.error('API call error:', JSON.stringify(result.data.errors));
   }
 
   return result.data;
 };
 
+// One attempt. True on a confirmed 'ok'; anything else throws, so the retry
+// loop below owns all the logging for a run of failed attempts.
 export const registerPrinterServerIp = async (
-  venueId: string
-): Promise<void> => {
-  const localIp = getLocalIP();
-  logger.info(
-    `Registering printer server IP: ${localIp} for venue: ${venueId}`
+  venueId: string,
+  opts: { ip?: string | null; quiet?: boolean } = {}
+): Promise<boolean> => {
+  const localIp = opts.ip === undefined ? getLocalIP() : opts.ip;
+  if (!localIp) return false;
+
+  if (!opts.quiet) {
+    logger.info(
+      `Registering printer server IP: ${localIp} for venue: ${venueId}`
+    );
+  }
+
+  const res = await apiCall(
+    `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`,
+    { suppressFailureLogs: opts.quiet }
   );
 
-  try {
-    const res = await apiCall(
-      `mutation { updatePrinterServerIp(venueId: "${venueId}", ip: "${localIp}") { status ip } }`
+  if (res?.errors) {
+    throw new Error(
+      `updatePrinterServerIp returned errors: ${JSON.stringify(res.errors)}`
     );
-
-    if (res?.errors) {
-      logger.error(
-        'Failed to register printer server IP:',
-        JSON.stringify(res.errors)
-      );
-    } else if (res?.data?.updatePrinterServerIp?.status === 'ok') {
-      logger.info('Printer server IP registered successfully');
-    }
-  } catch (err) {
-    logger.error('Failed to register printer server IP:', err);
   }
+  if (res?.data?.updatePrinterServerIp?.status !== 'ok') {
+    throw new Error(
+      `updatePrinterServerIp was not confirmed: ${JSON.stringify(res?.data ?? null)}`
+    );
+  }
+
+  logger.info('Printer server IP registered successfully');
+  return true;
+};
+
+const IP_REGISTRATION_RETRY_MS = 15_000;
+// A dead uplink lasts hours, and every attempt costs a fetch plus a curl
+// process, so slow down once a boot-time DHCP race is no longer the likely
+// cause. Registration is not latency-critical: it only enables the FE's
+// direct-LAN fast path.
+const IP_REGISTRATION_SLOW_RETRY_MS = 60_000;
+const IP_REGISTRATION_FAST_ATTEMPTS = 4;
+// Only virtual adapters up right after boot means DHCP hasn't settled. Past
+// this window it's the machine's real address — on a Hyper-V external switch
+// the host's LAN IP genuinely lives on a vEthernet adapter.
+const VIRTUAL_IP_GRACE_MS = 5 * 60 * 1000;
+
+let ipRegistrationVenueId: string | null = null;
+
+// Retries until the backend confirms once, then stops. The PS must not block on
+// this: it only enables the FE's direct-LAN fast path, while the pull channel —
+// which does the printing — needs no IP at all. At boot the service starts
+// before DHCP has a lease, so the first attempts legitimately have nothing to
+// publish.
+export const startPrinterServerIpRegistration = (venueId: string): void => {
+  if (ipRegistrationVenueId === venueId) return;
+  ipRegistrationVenueId = venueId;
+
+  void (async () => {
+    const episode = new FailureEpisode('Printer server IP registration');
+    const startedAt = Date.now();
+    let waitingLogged = false;
+
+    while (ipRegistrationVenueId === venueId) {
+      const ip = getLocalIP({
+        allowVirtual: Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS,
+      });
+
+      if (!ip) {
+        if (!waitingLogged) {
+          waitingLogged = true;
+          logger.warn(
+            `No LAN IPv4 yet — deferring printer server IP registration, retrying every ${IP_REGISTRATION_RETRY_MS}ms`
+          );
+        }
+      } else {
+        waitingLogged = false;
+        try {
+          // quiet from the second attempt on: the first failure's full dump is
+          // already in the log and the episode carries the rest.
+          if (
+            await registerPrinterServerIp(venueId, {
+              ip,
+              quiet: episode.active,
+            })
+          ) {
+            episode.succeed();
+            return;
+          }
+          episode.fail(new Error('no LAN IPv4 to register'));
+        } catch (err) {
+          episode.fail(err);
+        }
+      }
+
+      await sleep(
+        episode.failureCount >= IP_REGISTRATION_FAST_ATTEMPTS
+          ? IP_REGISTRATION_SLOW_RETRY_MS
+          : IP_REGISTRATION_RETRY_MS
+      );
+    }
+  })();
 };
 
 export { reportFetchFailure };
