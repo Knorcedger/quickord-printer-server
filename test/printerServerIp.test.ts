@@ -150,9 +150,44 @@ describe('startPrinterServerIpRegistration', () => {
       'Printer server IP registered successfully'
     );
 
-    // Confirmed once: no further attempts for the life of the process.
+    // Confirmed: nothing more to say while the address stays the same.
     await jest.advanceTimersByTimeAsync(10 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-registers when the LAN IP changes', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, logger, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-5');
+    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // A new DHCP lease used to sit unpublished until the next restart.
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+    expect(logger.info).toHaveBeenCalledWith(
+      'LAN IP changed 192.168.1.50 -> 192.168.1.77, re-registering'
+    );
+  });
+
+  it('keeps retrying a change the backend did not confirm', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-6');
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // The new address must not be remembered as registered until confirmed.
+    tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000 + 45_000);
+    expect(tryFetch.mock.calls.length).toBeGreaterThan(2);
   });
 
   it('collapses the logs of a sustained outage and backs off', async () => {

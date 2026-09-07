@@ -23,6 +23,12 @@ import {
 } from '../modules/http';
 import { reportFetchFailure } from '../modules/api';
 import {
+  flushUpdateLog,
+  markUpdaterProcess,
+  updateLog,
+  updateLogError,
+} from './updateLog';
+import {
   parseListeningPids,
   parseScQueryState,
   parseServiceStatusName,
@@ -142,7 +148,7 @@ export async function copyOnlyFiles(
 
       // Skip explicitly ignored folders
       if (entry.isDirectory() && ignored.has(entry.name)) {
-        console.log(`🚫 Ignoring folder: ${relativePath}`);
+        updateLog(`🚫 Ignoring folder: ${relativePath}`);
         continue;
       }
 
@@ -153,7 +159,7 @@ export async function copyOnlyFiles(
         entry.name === 'node_modules' &&
         isNestedBuildsPath(entrySrcPath)
       ) {
-        console.log(`🚫 Skipping nested node_modules: ${relativePath}`);
+        updateLog(`🚫 Skipping nested node_modules: ${relativePath}`);
         continue;
       }
 
@@ -162,13 +168,13 @@ export async function copyOnlyFiles(
         await walk(entrySrcPath);
       } else if (entry.isFile()) {
         await fs.promises.copyFile(entrySrcPath, entryDestPath);
-        console.log(`✅ Copied: ${relativePath}`);
+        updateLog(`✅ Copied: ${relativePath}`);
       }
     }
   }
 
   await walk(srcDir);
-  console.log('🎉 Copy completed.');
+  updateLog('🎉 Copy completed.');
 }
 /**
  * `cwd` matters more than it looks: the server reads and writes its runtime
@@ -193,7 +199,7 @@ export function launchDetached(
     child.unref();
     return true;
   } catch (err) {
-    console.error('Failed to relaunch exe:', err);
+    updateLogError('Failed to relaunch exe:', err);
     return false;
   }
 }
@@ -217,7 +223,7 @@ export async function relaunchExe(
 ) {
   if (!launchDetached(appPath, args)) return;
 
-  console.log('Relaunched exe with args. Waiting to exit...');
+  updateLog('Relaunched exe with args. Waiting to exit...');
 
   // The delay lets the child get off the ground before this process dies. On
   // the remote-update path it also has to outlast the HTTP result report to
@@ -225,7 +231,7 @@ export async function relaunchExe(
   // never answers cannot keep the old exe alive forever).
   setTimeout(async () => {
     if (preExitTasks.size > 0) {
-      console.log(
+      updateLog(
         `Waiting for ${preExitTasks.size} pending report(s) before exit.`
       );
       await Promise.race([
@@ -330,7 +336,7 @@ export async function killPortHolders(port: number): Promise<number[]> {
  */
 export async function stopServiceAndFreePort(port: number): Promise<boolean> {
   const initial = await getServiceState();
-  console.log(`Service state before stop: ${initial}`);
+  updateLog(`Service state before stop: ${initial}`);
 
   if (initial !== 'ABSENT' && initial !== 'STOPPED') {
     const { code, output } = await runCmd(
@@ -341,11 +347,13 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
     // when force_autoupdate.bat runs unelevated) is worth surfacing, but the
     // state poll below is what actually decides.
     if (code !== 0) {
-      console.error(`sc stop returned ${code}: ${output.trim()}`);
+      updateLogError(
+        `sc stop returned ${code}: ${describeScError(code, output)}`
+      );
     }
     const state = await waitForState(['STOPPED', 'ABSENT'], 45_000);
     if (state !== 'STOPPED' && state !== 'ABSENT') {
-      console.error(
+      updateLogError(
         `Service did not reach Stopped (state: ${state}). Aborting update to avoid a half-copied install.`
       );
       return false;
@@ -359,17 +367,70 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
     const holders = await findPortHolders(port);
     if (holders.length === 0) return true;
     if (Date.now() > deadline) {
-      console.error(
+      updateLogError(
         `Port ${port} still held by PID(s) ${holders.join(', ')} after kill attempts. Aborting update.`
       );
       return false;
     }
     for (const pid of holders) {
-      console.log(`Killing stale process ${pid} holding port ${port}`);
+      updateLog(`Killing stale process ${pid} holding port ${port}`);
       await runCmd(`taskkill /PID ${pid} /F /T`, 15_000);
     }
     await sleep(1000);
   }
+}
+
+const START_ATTEMPTS = 3;
+const START_RETRY_MS = 5_000;
+
+// sc.exe prints localized text but the numeric code is invariant, so the code
+// is what we key off — and what a technician can look up.
+const SC_ERRORS: Record<string, string> = {
+  '1053': 'the service did not respond in time (it started but died)',
+  '1056': 'the service is already running',
+  '1060': 'the service is not installed',
+  '1061': 'the service is busy (still stopping)',
+  '1062': 'the service is not started',
+  '5': 'access denied - not running as administrator',
+};
+
+// sc.exe exits with the Win32 error itself; the printed text is localized.
+export function scErrorCode(code: number, output: string): number | null {
+  if (code) return code;
+  const match = output.match(/FAILED\s+(\d+)|\b(\d{1,4})\b(?=:)/);
+  const parsed = Number(match?.[1] ?? match?.[2]);
+  return Number.isFinite(parsed) && parsed ? parsed : null;
+}
+
+export function describeScError(code: number, output: string): string {
+  const scCode = scErrorCode(code, output);
+  const known = scCode ? SC_ERRORS[String(scCode)] : null;
+  const trimmed = output.trim();
+  return known ? `${trimmed} (${known})` : trimmed;
+}
+
+/** Can this process drive the SCM at all? Everything else follows from it. */
+export async function isElevated(): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  // Not `net session`: that also fails when the Server service is disabled,
+  // which would report a perfectly elevated process as unprivileged.
+  const { code, output } = await runCmd(
+    'powershell -NoProfile -NonInteractive -Command "(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"',
+    15_000
+  );
+  if (code === 0) return /true/i.test(output);
+  return (await runCmd('net session', 15_000)).code === 0;
+}
+
+/** Where the SCM thinks the service lives — the install we are really updating. */
+export async function getServiceImagePath(): Promise<string | null> {
+  const { code, output } = await runCmd(
+    `powershell -NoProfile -NonInteractive -Command "(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\${SERVICE_NAME}' -ErrorAction SilentlyContinue).ImagePath"`,
+    15_000
+  );
+  if (code !== 0) return null;
+  const trimmed = output.trim();
+  return trimmed || null;
 }
 
 /**
@@ -381,20 +442,37 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
 export async function startServiceOrFallback(
   installDir: string
 ): Promise<boolean> {
-  const { code, output } = await runCmd(`sc.exe start ${SERVICE_NAME}`, 30_000);
-  // 1056 = already running.
-  if (code !== 0 && !/1056/.test(output)) {
-    console.error(`sc start returned ${code}: ${output.trim()}`);
+  // One `sc start` was not enough: right after a stop the SCM can still be
+  // finishing (1053/1061), and a single refusal used to drop straight to an
+  // unmanaged process. Retry while the service is merely stopped.
+  for (let attempt = 1; attempt <= START_ATTEMPTS; attempt += 1) {
+    const { code, output } = await runCmd(
+      `sc.exe start ${SERVICE_NAME}`,
+      30_000
+    );
+    // 1056 = already running.
+    if (code === 0 || /1056/.test(output)) break;
+
+    updateLogError(
+      `sc start attempt ${attempt}/${START_ATTEMPTS} returned ${code}: ${describeScError(code, output)}`
+    );
+    // Denied is not a race — retrying the same call as the same user cannot
+    // help, and the caller needs the fallback now.
+    if (scErrorCode(code, output) === 5) break;
+    if (attempt < START_ATTEMPTS) await sleep(START_RETRY_MS);
   }
 
   const state = await waitForState(['RUNNING'], 45_000);
   if (state === 'RUNNING') {
-    console.log('Service is running.');
+    updateLog('Service is running.');
     return true;
   }
 
-  console.error(
+  updateLogError(
     `Service did not reach Running (state: ${state}). Falling back to a direct launch.`
+  );
+  updateLogError(
+    `RUNNING UNMANAGED: ${SERVICE_NAME} is NOT running. The printer server was started as a plain process — it dies at logoff and nothing restarts it. Run install_printer_service.bat as administrator to repair.`
   );
   // The launch must run from the *installed* builds dir, not the updater's
   // temp cwd, or the fallback instance reads config.json/settings.json/version
@@ -447,7 +525,7 @@ export function scheduleServiceStartWatchdog(): void {
     });
     child.unref();
   } catch (err: any) {
-    console.error(
+    updateLogError(
       'Failed to schedule the service-start watchdog:',
       err.message || err
     );
@@ -492,16 +570,16 @@ export async function deleteFolderRecursive(
 
     await fsp.rmdir(folderPath); // remove empty folder
     if (!silent) {
-      console.log(`Deleted: ${folderPath}`);
+      updateLog(`Deleted: ${folderPath}`);
     }
   } catch (err: any) {
     if (err.code === 'ENOENT') {
       if (!silent) {
-        console.warn(`Folder does not exist: ${folderPath}`);
+        updateLog(`Folder does not exist: ${folderPath}`);
       }
     } else {
       if (!silent) {
-        console.error(`Error deleting ${folderPath}:`, err.message || err);
+        updateLogError(`Error deleting ${folderPath}:`, err.message || err);
       }
     }
   }
@@ -531,12 +609,12 @@ function isLatestVersion(current, latest) {
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
   if (!versionUrl) {
-    console.warn('CODE_VERSION_URL not configured. Skipping version check.');
+    updateLog('CODE_VERSION_URL not configured. Skipping version check.');
     return null;
   }
 
   try {
-    console.log('Fetching latest release info from:', versionUrl);
+    updateLog('Fetching latest release info from:', versionUrl);
 
     const result = await tryFetchWithFallback<{ tag_name?: string }>({
       url: versionUrl,
@@ -559,14 +637,17 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
     const tagName = releaseData.tag_name;
 
     if (!tagName) {
-      console.warn('No tag_name found in release data');
+      updateLog('No tag_name found in release data');
       return null;
     }
 
-    console.log('Latest release version:', tagName);
+    updateLog('Latest release version:', tagName);
     return tagName;
   } catch (err: any) {
-    console.error('Error fetching latest release version:', err.message || err);
+    updateLogError(
+      'Error fetching latest release version:',
+      err.message || err
+    );
     return null;
   }
 }
@@ -593,9 +674,9 @@ export async function downloadLatestCode(
   let currentVersion = '';
   try {
     currentVersion = (await fsp.readFile('version', 'utf-8')).trim();
-    console.log('Current version:', currentVersion);
+    updateLog('Current version:', currentVersion);
   } catch {
-    console.log('No current version file found, assuming update needed.');
+    updateLog('No current version file found, assuming update needed.');
   }
 
   // Fetch latest version from GitHub API (without downloading)
@@ -604,14 +685,14 @@ export async function downloadLatestCode(
   if (latestVersion) {
     // Compare versions before downloading
     if (isLatestVersion(currentVersion, latestVersion)) {
-      console.log('Already up to date. No download needed.');
-      console.log(`Current: ${currentVersion}, Latest: ${latestVersion}`);
+      updateLog('Already up to date. No download needed.');
+      updateLog(`Current: ${currentVersion}, Latest: ${latestVersion}`);
       return { currentVersion, latestVersion, state: 'already-latest' };
     }
-    console.log('Update available!');
-    console.log(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
+    updateLog('Update available!');
+    updateLog(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
   } else {
-    console.log(
+    updateLog(
       'Could not fetch latest version from API (network not ready?). Skipping update.'
     );
     return {
@@ -623,7 +704,7 @@ export async function downloadLatestCode(
 
   // Proceed with download
   const url = nconf.get('CODE_UPDATE_URL');
-  console.log('Starting download from:', url);
+  updateLog('Starting download from:', url);
 
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
@@ -649,9 +730,9 @@ export async function downloadLatestCode(
   const zipBuffer = await fsp.readFile(zipPath);
   await extractZip(zipBuffer, tempCodePath);
 
-  console.log('Update needed. Code ready at:', tempCodePath);
-  console.log('Updating to latest version');
-  console.log(tempCodePath);
+  updateLog('Update needed. Code ready at:', tempCodePath);
+  updateLog('Updating to latest version');
+  updateLog(tempCodePath);
   const cwd = process.cwd();
   const parentDir = path.resolve(cwd, '..');
 
@@ -710,7 +791,7 @@ export async function triggerUpdate(
     return { error: 'No update handler registered', state: 'failed' };
   }
   if (updateInFlight) {
-    console.log('An update is already in flight; reusing its result.');
+    updateLog('An update is already in flight; reusing its result.');
     return updateInFlight;
   }
   updateInFlight = (async () => {
@@ -759,7 +840,7 @@ export async function sweepTempUpdateDirs(): Promise<void> {
     // us to reach Running from its own temp tree. Its exe is locked while it
     // lives, so leave that tree to the next boot.
     if (isUpdaterStillRunningIn(full)) {
-      console.log(`Leaving ${full} alone: its updater is still running.`);
+      updateLog(`Leaving ${full} alone: its updater is still running.`);
       continue;
     }
     await safeCleanup(full);
@@ -788,9 +869,9 @@ export async function safeCleanup(dirPath: string) {
     await new Promise((res) => setTimeout(res, 50));
 
     await rmrf(resolvedPath);
-    console.log('✅ Temp folder cleaned up:', resolvedPath);
+    updateLog('✅ Temp folder cleaned up:', resolvedPath);
   } catch (err: any) {
-    console.error('⚠️ Failed to clean temp folder:', err.message);
+    updateLogError('⚠️ Failed to clean temp folder:', err.message);
   }
 }
 
@@ -856,10 +937,10 @@ async function backupInstall(
   try {
     await removePath(sibling); // a leftover from an earlier failed attempt
     await fsp.rename(installDir, sibling);
-    console.log(`Previous install moved aside to ${sibling}`);
+    updateLog(`Previous install moved aside to ${sibling}`);
     return { moved: true, path: sibling };
   } catch (err: any) {
-    console.error(
+    updateLogError(
       `Could not move the old install aside (${err.message || err}); falling back to a copied backup.`
     );
   }
@@ -876,7 +957,7 @@ async function backupInstall(
       );
     }
   } catch (err: any) {
-    console.error(
+    updateLogError(
       `Could not back up the current install (${err.message || err}).`
     );
     // Nothing has touched `installDir` yet, so it is still exactly as it was.
@@ -892,11 +973,11 @@ async function backupInstall(
   try {
     await clearDirContents(installDir);
   } catch (err: any) {
-    console.error(
+    updateLogError(
       `Could not fully empty ${installDir} (${err.message || err}); continuing — the new build is copied over it and ${tmpBackup} can restore it.`
     );
   }
-  console.log(`Previous install backed up to ${tmpBackup}`);
+  updateLog(`Previous install backed up to ${tmpBackup}`);
   return { moved: false, path: tmpBackup };
 }
 
@@ -918,7 +999,7 @@ async function restoreInstall(
     }
     return true;
   } catch (err: any) {
-    console.error(
+    updateLogError(
       'Failed to restore the previous install:',
       err.message || err
     );
@@ -964,10 +1045,10 @@ export function copyWithCmd(
 
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Error: ${stderr}`);
+        updateLogError(`Error: ${stderr}`);
         return reject(error);
       }
-      console.log(stdout);
+      updateLog(stdout);
       resolve(undefined);
     });
   });
@@ -977,12 +1058,12 @@ function runServiceConfigCmd(cmd: string): Promise<void> {
   return new Promise((resolve) => {
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
-        console.error(
+        updateLogError(
           `Failed to apply service config (${cmd}):`,
           stderr || error.message
         );
       } else {
-        console.log('Service config applied:', stdout.trim());
+        updateLog('Service config applied:', stdout.trim());
       }
       resolve();
     });
@@ -1013,19 +1094,45 @@ function copySettingsFile(settingsPath, destDir) {
     const command = `xcopy "${settingsPath}" "${path.join(destDir, 'builds')}\\" /Y`;
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`Error copying settings: ${stderr}`);
+        updateLogError(`Error copying settings: ${stderr}`);
         return reject(error);
       }
-      console.log('Settings file copied with xcopy.');
+      updateLog('Settings file copied with xcopy.');
       resolve(undefined);
     });
   });
 }
+
+/**
+ * Carry the venue's log history into the new install. The whole install dir is
+ * renamed away and rebuilt from the release, so without this every update wipes
+ * app.log — which is exactly the history you need when an update goes wrong.
+ */
+async function preserveLogs(installDir: string, stagingDir: string) {
+  const from = path.join(installDir, 'builds');
+  const to = path.join(stagingDir, 'builds');
+  let names: string[] = [];
+  try {
+    names = await fsp.readdir(from);
+  } catch {
+    return;
+  }
+
+  const logs = names.filter((n) => /^(app|autoupdate)(\.\d+)?\.log$/.test(n));
+  for (const name of logs) {
+    try {
+      await fsp.copyFile(path.join(from, name), path.join(to, name));
+    } catch (err: any) {
+      updateLogError(`Could not preserve ${name}:`, err.message || err);
+    }
+  }
+  if (logs.length) updateLog(`Preserved ${logs.length} log file(s).`);
+}
 export default async function autoUpdate(path: string[]) {
-  console.log('AutoUpdate path:', path);
+  updateLog('AutoUpdate path:', path);
   // Check if running on Windows
   if (process.platform !== 'win32') {
-    console.log('Skipping auto-update: non-Windows OS detected.');
+    updateLog('Skipping auto-update: non-Windows OS detected.');
     return;
   }
 
@@ -1035,12 +1142,56 @@ export default async function autoUpdate(path: string[]) {
   }
 
   if (path[0] === '--update') {
-    const ok = await runUpdater(path);
+    markUpdaterProcess();
+    let ok = false;
+    try {
+      ok = await runUpdater(path);
+    } finally {
+      // Every exit path, including a throw: the runs worth reading are the ones
+      // that failed. destDir is set by runUpdater before anything can throw.
+      flushUpdateLog(destDir);
+    }
     // This process is the updater, not a server: it runs from %TMP% and the
     // real instance is already back up under the service manager. Falling
     // through to main() would bind the port from the temp copy. The exit code
     // is what a technician running force_autoupdate.bat sees.
     process.exit(ok ? 0 : 1);
+  }
+}
+
+/** One line that says which process this is and what it is about to touch. */
+async function logUpdaterPreamble(): Promise<void> {
+  const elevated = await isElevated();
+  updateLog(
+    `Updater starting — pid ${process.pid}, elevated: ${elevated}, cwd: ${process.cwd()}`
+  );
+  updateLog(`argv: ${JSON.stringify(process.argv)}`);
+  updateLog(`srcDir: ${srcDir}`);
+  updateLog(`destDir: ${destDir}`);
+  updateLog(`Service state: ${await getServiceState()}`);
+
+  const imagePath = await getServiceImagePath();
+  updateLog(`Service binary: ${imagePath ?? 'unknown'}`);
+  // We update the folder we were launched from, but start the service the SCM
+  // knows about. When those are two different installs, the update lands
+  // somewhere the service will never run from.
+  const installed = imagePath
+    ? path.resolve(path.dirname(imagePath.replace(/^"|"$/g, '')), '..')
+    : null;
+  if (
+    installed &&
+    destDir &&
+    path.resolve(destDir).toLowerCase() !== installed.toLowerCase()
+  ) {
+    updateLogError(
+      `Install mismatch: updating ${path.resolve(destDir)} but the service runs from ${installed}.`
+    );
+  }
+
+  if (!elevated) {
+    updateLogError(
+      'Not running elevated: sc config/failure/start will be denied, and the update will end with an unmanaged process instead of a service.'
+    );
   }
 }
 
@@ -1052,9 +1203,9 @@ export default async function autoUpdate(path: string[]) {
 async function runUpdater(path: string[]): Promise<boolean> {
   srcDir = path[1]?.toString() || '';
   destDir = path[3]?.toString() || '';
-  console.log(`srcDir: ${srcDir}`);
-  console.log(`destDir: ${destDir}`);
   process.chdir(srcDir + '\\builds');
+
+  await logUpdaterPreamble();
 
   const port = Number(nconf.get('PORT')) || 7810;
 
@@ -1062,7 +1213,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // install dir. If that fails, the old install is still intact and running —
   // far better than a half-copied directory with the service down.
   if (!(await stopServiceAndFreePort(port))) {
-    console.error('Update aborted: could not free the install directory.');
+    updateLogError('Update aborted: could not free the install directory.');
     await startServiceOrFallback(destDir);
     return false;
   }
@@ -1075,7 +1226,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
     try {
       await copySettingsFile(settingsPath, srcDir);
     } catch (err: any) {
-      console.error(
+      updateLogError(
         'Update aborted: failed to back up settings.json:',
         err.message || err
       );
@@ -1083,8 +1234,11 @@ async function runUpdater(path: string[]): Promise<boolean> {
       return false;
     }
   } else {
-    console.warn(`No settings.json at ${settingsPath}, nothing to preserve.`);
+    updateLog(`No settings.json at ${settingsPath}, nothing to preserve.`);
   }
+
+  // Logs are not worth aborting for, but they are worth keeping.
+  await preserveLogs(destDir, srcDir);
 
   // The old install is preserved, never deleted outright, so a copy that dies
   // halfway (disk full, ACL, AV quarantine, a file that got re-locked) does not
@@ -1092,7 +1246,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // backup means no update: the install stays exactly as it was.
   const backup = await backupInstall(destDir);
   if (!backup) {
-    console.error(
+    updateLogError(
       'Update aborted: could not back up the current install. It was left untouched.'
     );
     await startServiceOrFallback(destDir);
@@ -1101,7 +1255,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
 
   try {
     await fsp.mkdir(destDir, { recursive: true });
-    console.log('paths: ', srcDir, destDir);
+    updateLog('paths: ', srcDir, destDir);
     await copyWithCmd(srcDir, destDir);
     const missing = missingBuildFiles(destDir);
     if (missing.length) {
@@ -1110,18 +1264,18 @@ async function runUpdater(path: string[]): Promise<boolean> {
       );
     }
   } catch (err: any) {
-    console.error('Copy of the new build failed:', err.message || err);
-    console.error('Restoring the previous install from the backup.');
+    updateLogError('Copy of the new build failed:', err.message || err);
+    updateLogError('Restoring the previous install from the backup.');
     if (!(await restoreInstall(backup, destDir))) {
       // Starting here would run a knowingly incomplete install. Leave the
       // backup in place and say exactly where it is instead — a service that
       // is down is recoverable by hand, a corrupted one silently misprints.
-      console.error(
+      updateLogError(
         `CRITICAL: ${destDir} is incomplete and the rollback failed. The previous install is at ${backup.path}; restore it manually. Not starting the service.`
       );
       return false;
     }
-    console.log('Previous install restored. Update aborted.');
+    updateLog('Previous install restored. Update aborted.');
     await applyServiceConfig();
     await startServiceOrFallback(destDir);
     return false;

@@ -82,3 +82,31 @@ describe('triggerUpdate handoff', () => {
     expect(runs).toBe(2);
   });
 });
+
+describe('sc.exe error codes', () => {
+  it('prefers the exit code, which is the Win32 error itself', () => {
+    const { scErrorCode } = loadAutoUpdate();
+    expect(scErrorCode(1060, 'anything')).toBe(1060);
+    expect(scErrorCode(5, '')).toBe(5);
+  });
+
+  it('falls back to the printed code when the exit code is lost', () => {
+    const { scErrorCode } = loadAutoUpdate();
+    expect(
+      scErrorCode(0, '[SC] StartService FAILED 1056:\n\nAn instance...')
+    ).toBe(1056);
+    expect(scErrorCode(0, 'OpenService FAILED 5:')).toBe(5);
+    expect(scErrorCode(0, 'no code here')).toBeNull();
+  });
+
+  it('explains the codes a technician will actually hit', () => {
+    const { describeScError } = loadAutoUpdate();
+    expect(describeScError(5, '[SC] OpenService FAILED 5:')).toContain(
+      'not running as administrator'
+    );
+    // A localized message with no known code is passed through untouched.
+    expect(describeScError(0, ' Η υπηρεσία δεν είναι εγκατεστημένη ')).toBe(
+      'Η υπηρεσία δεν είναι εγκατεστημένη'
+    );
+  });
+});

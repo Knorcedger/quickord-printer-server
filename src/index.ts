@@ -45,6 +45,7 @@ import autoUpdate, {
   setUpdateHandler,
   sweepTempUpdateDirs,
 } from './autoupdate/autoupdate';
+import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
 import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
 import {
   curlExecJson,
@@ -59,7 +60,10 @@ import { setRestartHandler } from './modules/psIdentity';
 // gone, so the recovery has to converge: clear the port, and stop scheduling
 // watchdogs after a few attempts instead of spawning one every ~15s forever.
 // The counter outlives the process, so it lives in a temp file.
-const BIND_FAILURE_STATE = path.join(os.tmpdir(), 'quickord-bind-failures.json');
+const BIND_FAILURE_STATE = path.join(
+  os.tmpdir(),
+  'quickord-bind-failures.json'
+);
 const BIND_FAILURE_WINDOW_MS = 15 * 60_000;
 const BIND_FAILURE_MAX = 5;
 
@@ -129,6 +133,17 @@ const main = async () => {
 
   await logger.init();
   const args = process.argv.slice(2); // Get arguments after the script name
+
+  // An updater that died before it could flush left its log in %TEMP%; it is
+  // the only record of why an update failed, so claim it now.
+  if (args[0] !== '--update') {
+    try {
+      absorbStrayUpdateLogs();
+    } catch (err) {
+      logger.error('Failed to absorb stray update logs:', err);
+    }
+  }
+
   if (args[0] !== '--noupdate') {
     console.log('Arguments:', args);
 
@@ -324,7 +339,10 @@ const main = async () => {
   // beforeHandoff is the caller's last chance to be heard before that.
   setUpdateHandler(async (beforeHandoff) => {
     if (process.platform !== 'win32') {
-      return { error: 'Auto-update is only supported on Windows', state: 'failed' as const };
+      return {
+        error: 'Auto-update is only supported on Windows',
+        state: 'failed' as const,
+      };
     }
     return downloadLatestCode(3000, beforeHandoff);
   });
