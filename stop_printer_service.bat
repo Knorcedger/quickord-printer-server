@@ -8,10 +8,17 @@ set PORT=7810
 :: sc stop and killing a SYSTEM-owned process both need elevation. Without this
 :: the script silently failed to stop anything, or "succeeded" by killing an
 :: unmanaged process while the real service kept running.
-net session >nul 2>&1
-if %errorlevel% neq 0 (
+call :iselevated
+if errorlevel 1 (
+    if /i "%~1"=="--elevated" (
+        echo.
+        echo Still not elevated after the UAC prompt - not retrying.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+        exit /b 1
+    )
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
     if errorlevel 1 (
         echo.
         echo Administrator privileges were declined - the service cannot be stopped.
@@ -106,12 +113,12 @@ if %WAIT_LEFT% leq 0 exit /b 1
 timeout /t 1 >nul
 goto :waitfree_loop
 
-:: Wait up to %1 seconds for the service to leave Running. 0 = it did.
+:: Wait up to %1 seconds for the service to reach Stopped. 0 = it did.
 :waitstopped
 set "WAIT_LEFT=%~1"
 :waitstopped_loop
-call :serviceisrunning
-if errorlevel 1 exit /b 0
+call :serviceisstopped
+if not errorlevel 1 exit /b 0
 set /a WAIT_LEFT-=1
 if %WAIT_LEFT% leq 0 exit /b 1
 timeout /t 1 >nul
@@ -121,6 +128,25 @@ goto :waitstopped_loop
 :: localized and never matches "RUNNING" on a Greek Windows.
 :serviceisrunning
 powershell -NoProfile -NonInteractive -Command "if ((Get-Service -Name '%SERVICE_NAME%' -ErrorAction SilentlyContinue).Status -eq 'Running') { exit 0 } else { exit 1 }"
+exit /b %errorlevel%
+
+:: 0 = the service is Stopped or not installed. StopPending is neither, and
+:: reporting it as stopped is what makes the caller act on a service that is
+:: still going down.
+:serviceisstopped
+powershell -NoProfile -NonInteractive -Command "$s = (Get-Service -Name '%SERVICE_NAME%' -ErrorAction SilentlyContinue); if (-not $s -or $s.Status -eq 'Stopped') { exit 0 } else { exit 1 }"
+exit /b %errorlevel%
+
+:: 0 = this window holds an administrator token. Not `net session`: that also
+:: needs the Server service (LanmanServer), so on a machine where it is stopped
+:: an already elevated window would keep relaunching itself. Same check as
+:: isElevated() in autoupdate.ts, with the old one kept as a fallback for when
+:: PowerShell itself cannot run.
+:iselevated
+powershell -NoProfile -NonInteractive -Command "if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }"
+if %errorlevel% equ 0 exit /b 0
+if %errorlevel% equ 1 exit /b 1
+net session >nul 2>&1
 exit /b %errorlevel%
 
 :msgbox

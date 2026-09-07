@@ -344,7 +344,8 @@ const main = async () => {
         state: 'failed' as const,
       };
     }
-    return downloadLatestCode(3000, beforeHandoff);
+    // force: an explicit request also clears a release that failed on boot.
+    return downloadLatestCode(3000, beforeHandoff, true);
   });
 
   app.post('/restart', (req: Request, res: Response) => {

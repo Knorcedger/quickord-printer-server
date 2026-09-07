@@ -228,11 +228,101 @@ function backupSettings() {
   }
 }
 
-// Idempotent: happy path + finally net.
+// Latched once the venue's settings are known to be in place, so the finally
+// net can tell "restored" from "some other settings.json appeared" — a
+// restarted server writes defaults, and then an existence check alone would
+// happily throw the only backup away.
+let settingsRestored = false;
+
+// Idempotent: happy path + finally net. Returns false when the backup is still
+// the only copy of the venue's settings.
 function restoreSettings() {
-  if (fs.existsSync(SETTINGS_BACKUP) && !fs.existsSync(SETTINGS_FILE)) {
-    fs.copyFileSync(SETTINGS_BACKUP, SETTINGS_FILE);
+  if (settingsRestored || !fs.existsSync(SETTINGS_BACKUP)) return true;
+  try {
+    const backup = fs.readFileSync(SETTINGS_BACKUP, "utf8");
+    if (fs.existsSync(SETTINGS_FILE)) {
+      // Identical: the install we kept or rolled back already has them.
+      if (fs.readFileSync(SETTINGS_FILE, "utf8") === backup) {
+        settingsRestored = true;
+        return true;
+      }
+      // Different: defaults written by a server that booted before us. Don't
+      // overwrite a live file underneath it; keep the backup instead.
+      console.error("⚠️ settings.json exists but does not match the backup.");
+      return false;
+    }
+    fs.writeFileSync(SETTINGS_FILE, backup);
+    if (fs.readFileSync(SETTINGS_FILE, "utf8") !== backup) {
+      throw new Error("the restored settings.json does not match the backup");
+    }
+    settingsRestored = true;
     console.log("✅ settings.json restored");
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to restore settings.json: ${err.message}`);
+    return false;
+  }
+}
+
+// The backup lives in the staging dir, which this run and the next one wipe. If
+// it could not be restored, move it somewhere that survives: settings.json is
+// the venue's printers and credentials, and both .old backups are gone by now.
+function preserveSettingsBackup() {
+  const kept = path.join(ROOT_DIR, "settings_backup.json");
+  try {
+    fs.copyFileSync(SETTINGS_BACKUP, kept);
+    console.error(
+      `⚠️ settings.json was NOT restored. The backup is kept at ${kept} — copy it to builds\\settings.json by hand.`
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `CRITICAL: could not preserve the settings backup (${err.message}). Keeping ${STAGING_DIR}; it holds the only copy.`
+    );
+    return false;
+  }
+}
+
+// True when the venue's settings are safe: restored, or backed up somewhere the
+// cleanup will not delete.
+function settingsAreSafe() {
+  if (restoreSettings()) return true;
+  return preserveSettingsBackup();
+}
+
+// Same marker the server's own updater writes: the release we failed to install
+// must not be retried on every boot forever. Counted per version, so a
+// transient failure still gets its retries. See noteFailedRelease() in
+// src/autoupdate/autoupdate.ts.
+function noteFailedRelease() {
+  const marker = path.join(BUILD_DIR, "failed-release.json");
+  let version = "";
+  try {
+    version = fs
+      .readFileSync(path.join(EXTRACT_DIR, "builds", "version"), "utf8")
+      .trim();
+  } catch {
+    return; // Nothing was staged; there is no release to blame.
+  }
+  let attempts = 0;
+  try {
+    const previous = JSON.parse(fs.readFileSync(marker, "utf8"));
+    if (previous.version === version) attempts = Number(previous.attempts) || 0;
+  } catch {
+    // No marker yet, or an unreadable one: start counting from scratch.
+  }
+  try {
+    fs.writeFileSync(
+      marker,
+      JSON.stringify({
+        at: new Date().toISOString(),
+        attempts: attempts + 1,
+        version,
+      })
+    );
+    console.log(`Marked ${version} as failed (attempt ${attempts + 1}).`);
+  } catch (err) {
+    console.warn(`Could not write the failed-release marker: ${err.message}`);
   }
 }
 
@@ -318,7 +408,7 @@ function swapInstall() {
   // Both folders are in place — commit (drop the backups) only now.
   buildsTxn.commit();
   modulesTxn.commit();
-  restoreSettings();
+  settingsAreSafe();
 }
 
 // Can't overwrite our own running exe; stage it for the .bat to swap in.
@@ -409,6 +499,12 @@ function main() {
       // The install is coherent (never swapped, fully rolled back, or swapped
       // and verified) but nothing has been started yet — including the case
       // where the throw came out of restartService() itself. Bring it back up.
+      //
+      // Settings first, and the marker with them: a server that boots without
+      // settings.json writes defaults, and the old install would find the same
+      // newer release and try to install it again on every boot.
+      settingsAreSafe();
+      noteFailedRelease();
       try {
         restartService();
       } catch (e) {
@@ -416,12 +512,10 @@ function main() {
       }
     }
   } finally {
-    try {
-      restoreSettings();
-    } catch (e) {
-      console.error("Failed to restore settings.json:", e.message || e);
+    // Keep the staging dir only while it holds the sole copy of the settings.
+    if (settingsAreSafe()) {
+      fs.rmSync(STAGING_DIR, { recursive: true, force: true });
     }
-    fs.rmSync(STAGING_DIR, { recursive: true, force: true });
   }
 }
 

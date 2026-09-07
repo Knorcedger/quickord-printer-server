@@ -6,10 +6,17 @@ REM leaving a detached process behind, so it needs elevation. Double-clicked by
 REM a technician this script is normally NOT elevated, and every sc call would
 REM fail with access denied - the update would abort on purpose rather than
 REM half-copy the install. Re-launch ourselves elevated instead.
-net session >nul 2>&1
-if %errorlevel% neq 0 (
+call :iselevated
+if errorlevel 1 (
+    if /i "%~1"=="--elevated" (
+        echo.
+        echo Still not elevated after the UAC prompt - not retrying.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+        exit /b 1
+    )
     echo Requesting administrator privileges...
-    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
     if errorlevel 1 (
         echo.
         echo Administrator privileges were declined - the update cannot run.
@@ -110,3 +117,16 @@ echo Starting service...
 sc start "%SERVICE_NAME%"
 
 pause
+exit /b 0
+
+:: 0 = this window holds an administrator token. Not `net session`: that also
+:: needs the Server service (LanmanServer), so on a machine where it is stopped
+:: an already elevated window would keep relaunching itself. Same check as
+:: isElevated() in autoupdate.ts, with the old one kept as a fallback for when
+:: PowerShell itself cannot run.
+:iselevated
+powershell -NoProfile -NonInteractive -Command "if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }"
+if %errorlevel% equ 0 exit /b 0
+if %errorlevel% equ 1 exit /b 1
+net session >nul 2>&1
+exit /b %errorlevel%

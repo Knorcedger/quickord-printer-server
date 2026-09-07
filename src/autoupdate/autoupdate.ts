@@ -606,6 +606,72 @@ function isLatestVersion(current, latest) {
   return true; // equal versions
 }
 
+// A rollback restarts the old install, which finds the same newer tag and
+// updates again — a loop that never reaches app.listen(). The marker counts the
+// failed attempts per release so a transient one (AV lock, a slow stop) still
+// gets retried, while a release that is genuinely broken here stops the loop.
+// It lives in the install's builds dir, next to `version`.
+const FAILED_RELEASE_FILE = 'failed-release.json';
+export const MAX_RELEASE_ATTEMPTS = 3;
+
+interface FailedRelease {
+  attempts: number;
+  version: string;
+}
+
+const failedReleasePath = (buildsDir?: string) =>
+  buildsDir ? path.join(buildsDir, FAILED_RELEASE_FILE) : FAILED_RELEASE_FILE;
+
+export function readFailedRelease(buildsDir?: string): FailedRelease | null {
+  try {
+    const raw = fs.readFileSync(failedReleasePath(buildsDir), 'utf-8');
+    const { attempts, version } = JSON.parse(raw) || {};
+    if (typeof version !== 'string' || !version) return null;
+    return { attempts: Number(attempts) || 0, version };
+  } catch {
+    return null;
+  }
+}
+
+export function clearFailedRelease(buildsDir?: string): void {
+  try {
+    fs.rmSync(failedReleasePath(buildsDir), { force: true });
+  } catch (err: any) {
+    updateLogError('Could not clear the failed-release marker:', err.message);
+  }
+}
+
+/**
+ * Count this failed install against the release being installed. The version is
+ * the updater's own — it runs from the new build — and the marker goes to the
+ * install we are about to restart.
+ */
+export function noteFailedRelease(installDir: string): void {
+  if (!installDir) return;
+  const buildsDir = path.join(installDir, 'builds');
+  let version = '';
+  try {
+    version = fs.readFileSync('version', 'utf-8').trim();
+  } catch {
+    updateLog('No version file in the new build; nothing to mark as failed.');
+    return;
+  }
+
+  const previous = readFailedRelease(buildsDir);
+  const attempts = (previous?.version === version ? previous.attempts : 0) + 1;
+  try {
+    fs.writeFileSync(
+      failedReleasePath(buildsDir),
+      JSON.stringify({ at: new Date().toISOString(), attempts, version })
+    );
+    updateLog(
+      `Release ${version} has now failed ${attempts}/${MAX_RELEASE_ATTEMPTS} time(s) on this machine.`
+    );
+  } catch (err: any) {
+    updateLogError('Could not write the failed-release marker:', err.message);
+  }
+}
+
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
   if (!versionUrl) {
@@ -668,7 +734,10 @@ export type BeforeHandoff = (result: UpdateCheckResult) => Promise<unknown>;
 
 export async function downloadLatestCode(
   relaunchDelayMs = 500,
-  beforeHandoff?: BeforeHandoff
+  beforeHandoff?: BeforeHandoff,
+  // An explicit update request (technician, or a remote command) is the way out
+  // of a release that keeps failing: it retries and resets the counter.
+  force = false
 ): Promise<UpdateCheckResult> {
   // Read current version
   let currentVersion = '';
@@ -691,6 +760,21 @@ export async function downloadLatestCode(
     }
     updateLog('Update available!');
     updateLog(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
+
+    const failed = readFailedRelease();
+    if (failed?.version === latestVersion && !force) {
+      if (failed.attempts >= MAX_RELEASE_ATTEMPTS) {
+        const error = `Release ${latestVersion} failed to install here ${failed.attempts} times; not retrying automatically. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
+        updateLogError(error);
+        return { currentVersion, error, latestVersion, state: 'failed' };
+      }
+      updateLog(
+        `Release ${latestVersion} failed ${failed.attempts}/${MAX_RELEASE_ATTEMPTS} time(s) here; retrying.`
+      );
+    } else if (failed) {
+      // A newer release, or an explicit request: the old count is meaningless.
+      clearFailedRelease();
+    }
   } else {
     updateLog(
       'Could not fetch latest version from API (network not ready?). Skipping update.'
@@ -1149,6 +1233,7 @@ export default async function autoUpdate(path: string[]) {
     } finally {
       // Every exit path, including a throw: the runs worth reading are the ones
       // that failed. destDir is set by runUpdater before anything can throw.
+      if (!ok) noteFailedRelease(destDir);
       flushUpdateLog(destDir);
     }
     // This process is the updater, not a server: it runs from %TMP% and the

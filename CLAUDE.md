@@ -107,6 +107,8 @@ On customer machines the server runs as a Windows service via **WinSW**:
 - `printerServerService.xml` - WinSW config (id, executable, start mode, dependencies). Read only at `install` time — changes are NOT auto-applied to existing installations.
 - `install_printer_service.bat` / `uninstall_printer_service.bat` / `start_printer_service.bat` / `stop_printer_service.bat` - wrappers around `printerServerService.exe install/uninstall/start/stop`.
 
+`builds/failed-release.json` is written by both updaters when an install fails, and counts the attempts for that release tag. After `MAX_RELEASE_ATTEMPTS` (3) the boot-time check stops downloading that release, so a rollback cannot loop forever without the server ever reaching `app.listen()`. A newer tag, or any explicit update (remote command, `force_autoupdate.bat`), clears it.
+
 To change service config (start mode, dependencies, failure actions) on already-installed machines, either reinstall the service or run `sc.exe config` / `sc.exe failure printerServer ...`. `applyServiceConfig()` in `autoupdate.ts` applies both on every `--update` phase (idempotent) — that is how existing installs get the `<onfailure>` restart policy, since copying a newer xml does not.
 
 ## Code Style
