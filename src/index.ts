@@ -39,9 +39,11 @@ import settings from './resolvers/settings';
 import testPrint from './resolvers/testPrint';
 import autoUpdate, {
   downloadLatestCode,
+  getServiceState,
   isServiceManaged,
   killPortHolders,
   scheduleServiceStartWatchdog,
+  SERVICE_NAME,
   setUpdateHandler,
   sweepTempUpdateDirs,
 } from './autoupdate/autoupdate';
@@ -92,10 +94,46 @@ function recordBindFailure(): number {
   return count;
 }
 
+// A bind failure only counts while they keep coming, so a clean bind ends the
+// window — otherwise a later isolated failure inherits the old count and skips
+// straight past the watchdog.
+function clearBindFailures(): void {
+  try {
+    fs.rmSync(BIND_FAILURE_STATE, { force: true });
+  } catch {
+    // best effort — at worst one extra retry is skipped
+  }
+}
+
+/**
+ * Are we the *second* instance rather than the one that should own the port?
+ *
+ * The fallback launch in startServiceOrFallback, the watchdog's `start "" exe`
+ * and a double-clicked exe all land here, and taskkilling the port holder there
+ * would kill the healthy service-managed server instead of just standing down.
+ */
+async function isRedundantInstance(): Promise<boolean> {
+  try {
+    // WinSW's own child is the one the SCM watches: anything else on the port
+    // is the orphan, and killing it is the whole point.
+    if (await isServiceManaged()) return false;
+    return (await getServiceState()) === 'RUNNING';
+  } catch {
+    return false;
+  }
+}
+
 async function handleBindFailure(
   err: NodeJS.ErrnoException,
   port: number
 ): Promise<void> {
+  if (err.code === 'EADDRINUSE' && (await isRedundantInstance())) {
+    logger.info(
+      `Port ${port} is already served by the ${SERVICE_NAME} service; exiting this redundant instance.`
+    );
+    process.exit(0);
+  }
+
   const attempt = recordBindFailure();
   logger.error(
     `Problem: failed to bind port ${port} (${err.code}), attempt ${attempt}. Exiting so the service manager retries.`
@@ -468,6 +506,8 @@ const main = async () => {
       'API listening at port',
       (server?.address?.() as { port: number })?.port
     );
+
+    clearBindFailures();
 
     // Self-register printer server IP with the backend
     const venueId = getSettings().venueId || getModems()[0]?.venueId;

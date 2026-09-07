@@ -116,6 +116,23 @@ if %errorlevel% neq 0 echo WARNING: sc failure failed (%errorlevel%) - the servi
 echo Starting service...
 sc start "%SERVICE_NAME%"
 
+REM The orphan kill above also removes the unmanaged process a current updater
+REM starts when its own `sc start` failed - and this `sc start` is that very
+REM call. Verify instead of assuming, or a failed start ends with the venue
+REM running nothing at all.
+echo Waiting for the service to reach Running...
+powershell -NoProfile -NonInteractive -Command "for ($i = 0; $i -lt 15; $i++) { if ((Get-Service -Name '%SERVICE_NAME%' -ErrorAction SilentlyContinue).Status -eq 'Running') { exit 0 }; Start-Sleep -Seconds 2 }; exit 1"
+if errorlevel 1 (
+    echo.
+    echo ============================================================
+    echo WARNING: the %SERVICE_NAME% service did not start.
+    echo Starting printerServer.exe directly so the venue can print.
+    echo It runs UNMANAGED - it dies at logoff and nothing restarts
+    echo it. Run install_printer_service.bat as administrator to fix.
+    echo ============================================================
+    start "" "%~dp0printerServer.exe"
+)
+
 pause
 exit /b 0
 

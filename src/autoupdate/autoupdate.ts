@@ -216,12 +216,47 @@ export function registerPreExitTask(task: Promise<unknown>): void {
   void task.catch(() => {}).finally(() => preExitTasks.delete(task));
 }
 
+// A running .exe cannot be opened for writing on Windows — from the outside,
+// that lock is the only proof a launched process is really up.
+function isExeLocked(exe: string): boolean {
+  try {
+    fs.closeSync(fs.openSync(exe, 'r+'));
+    return false;
+  } catch (err: any) {
+    return ['EBUSY', 'EPERM', 'EACCES'].includes(err?.code);
+  }
+}
+
+async function waitForExeLock(
+  exe: string,
+  timeoutMs = 15_000
+): Promise<boolean> {
+  if (process.platform !== 'win32') return true;
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (isExeLocked(exe)) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(250);
+  }
+}
+
+/** Relaunch and exit — returns false when the child never came up, so we stay. */
 export async function relaunchExe(
   appPath: string,
   args: string[],
   exitDelayMs = 500
-) {
-  if (!launchDetached(appPath, args)) return;
+): Promise<boolean> {
+  if (!launchDetached(appPath, args)) return false;
+
+  // `cmd /c start` exits 0 even when it could not launch the exe (AV lock,
+  // Smart App Control, a swept temp tree). Exiting on that alone stops the
+  // service with no updater to bring it back, so wait for the child's lock.
+  if (!(await waitForExeLock(appPath))) {
+    updateLogError(
+      `Launched ${appPath} but no process ever took it; staying up instead of exiting.`
+    );
+    return false;
+  }
 
   updateLog('Relaunched exe with args. Waiting to exit...');
 
@@ -241,6 +276,7 @@ export async function relaunchExe(
     }
     process.exit(0);
   }, exitDelayMs);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -843,8 +879,16 @@ export async function downloadLatestCode(
     ]);
   }
 
-  relaunchExe(path2, args, relaunchDelayMs);
-  return result;
+  if (await relaunchExe(path2, args, relaunchDelayMs)) return result;
+
+  // The updater never started, so nothing is stopping the service and we are
+  // still here. Returning 'failed' is what corrects the 'updating' just reported
+  // — the caller sends the correction — and what releases the in-flight latch so
+  // the next command can retry. beforeHandoff is deliberately not called again:
+  // it is a one-shot report for a handoff that did not happen.
+  const error = `Could not start the updater at ${path2}; staying on ${currentVersion}.`;
+  updateLogError(error);
+  return { currentVersion, error, latestVersion, state: 'failed' };
 }
 
 // Update trigger registered by index.ts, mirroring setRestartHandler. Lets the
@@ -931,16 +975,10 @@ export async function sweepTempUpdateDirs(): Promise<void> {
   }
 }
 
-// A running .exe cannot be opened for writing on Windows, which is the only
-// signal the new server has that an updater is still live in that tree.
+// The exe lock is the only signal the new server has that an updater is still
+// live in that tree.
 function isUpdaterStillRunningIn(dir: string): boolean {
-  const exe = path.join(dir, 'code', 'builds', 'printerServer.exe');
-  try {
-    fs.closeSync(fs.openSync(exe, 'r+'));
-    return false;
-  } catch (err: any) {
-    return ['EBUSY', 'EPERM', 'EACCES'].includes(err?.code);
-  }
+  return isExeLocked(path.join(dir, 'code', 'builds', 'printerServer.exe'));
 }
 
 export async function safeCleanup(dirPath: string) {
@@ -988,13 +1026,26 @@ function hasServerExe(dir: string): boolean {
 }
 
 // Losing printerServerService.exe leaves the running server up but the service
-// unstartable (and un-uninstallable) at the next reboot. Checked on the new
-// build only — an install already missing it is what an update must repair.
+// unstartable (and un-uninstallable) at the next reboot. node_modules carries
+// the native deps (serialport, sharp), so new exes on a missing or empty one
+// are a dead install — the same rule updater.js validates before it stages.
+// Checked on the new build only — an install already missing them is what an
+// update must repair.
 function missingBuildFiles(dir: string): string[] {
   const builds = path.join(dir, 'builds');
-  return ['printerServer.exe', 'printerServerService.exe'].filter(
+  const missing = ['printerServer.exe', 'printerServerService.exe'].filter(
     (name) => !fs.existsSync(path.join(builds, name))
   );
+  const modules = path.join(dir, 'node_modules');
+  const populated = (() => {
+    try {
+      return fs.readdirSync(modules).length > 0;
+    } catch {
+      return false;
+    }
+  })();
+  if (!populated) missing.push('node_modules');
+  return missing;
 }
 
 type InstallBackup = {
@@ -1293,6 +1344,18 @@ async function runUpdater(path: string[]): Promise<boolean> {
   await logUpdaterPreamble();
 
   const port = Number(nconf.get('PORT')) || 7810;
+
+  // Validate the download before anything destructive: backupInstall() renames
+  // the whole install away, so a release found broken only after the copy costs
+  // a rollback. Aborting here leaves the install exactly as it was.
+  const staged = missingBuildFiles(srcDir);
+  if (staged.length) {
+    updateLogError(
+      `Update aborted: the downloaded release at ${srcDir} is missing ${staged.join(', ')}.`
+    );
+    await startServiceOrFallback(destDir);
+    return false;
+  }
 
   // Stop the service (and any orphan holding the port) BEFORE touching the
   // install dir. If that fails, the old install is still intact and running —

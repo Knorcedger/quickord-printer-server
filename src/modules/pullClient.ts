@@ -375,7 +375,11 @@ function dispatchJob(job: {
         });
         if (pending.report) {
           await pending.report;
-          return;
+          // A handoff report went out saying the update started. It only comes
+          // back 'failed' when the updater never came up and we are still here,
+          // and then that report is a lie the backend would wait on forever —
+          // fall through and correct it.
+          if (result.state !== 'failed') return;
         }
         // No handoff happened: already-latest, or a version check that could
         // not reach the API / a non-Windows host. Those resolve with state
