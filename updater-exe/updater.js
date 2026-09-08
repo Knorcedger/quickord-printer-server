@@ -235,12 +235,13 @@ function backupSettings() {
 let settingsRestored = false;
 
 // Idempotent: happy path + finally net. Returns false when the backup is still
-// the only copy of the venue's settings.
-function restoreSettings() {
+// the only copy of the venue's settings. `overwrite` is for the swap, where the
+// service is stopped: a settings.json there can only have come from the zip.
+function restoreSettings({ overwrite = false } = {}) {
   if (settingsRestored || !fs.existsSync(SETTINGS_BACKUP)) return true;
   try {
     const backup = fs.readFileSync(SETTINGS_BACKUP, "utf8");
-    if (fs.existsSync(SETTINGS_FILE)) {
+    if (fs.existsSync(SETTINGS_FILE) && !overwrite) {
       // Identical: the install we kept or rolled back already has them.
       if (fs.readFileSync(SETTINGS_FILE, "utf8") === backup) {
         settingsRestored = true;
@@ -405,10 +406,20 @@ function swapInstall() {
     throw err;
   }
 
-  // Both folders are in place — commit (drop the backups) only now.
+  // settings.json is not in the zip, so the new builds arrives without it.
+  // Restore it while the backups still exist: a server started without the
+  // venue's printers and credentials writes defaults over them.
+  if (!restoreSettings({ overwrite: true })) {
+    rollbackOrCritical(modulesTxn.rollback, "node_modules");
+    rollbackOrCritical(buildsTxn.rollback, "builds");
+    throw new Error(
+      "settings.json could not be restored into the new build; rolled back"
+    );
+  }
+
+  // Everything is in place — commit (drop the backups) only now.
   buildsTxn.commit();
   modulesTxn.commit();
-  settingsAreSafe();
 }
 
 // Can't overwrite our own running exe; stage it for the .bat to swap in.
