@@ -35,12 +35,17 @@ export const PrinterTextOptions = z.enum(
 // 0 normal, 1 double width, 2 double both axes, 3 triple both axes. Level 1 is
 // what the legacy BOLD_* flags have always printed. Left absent rather than
 // defaulted: a stored 0 beats a legacy BOLD_* flag on the backend's resolver.
-const textSizeLevel = z
-  .number({ invalid_type_error: 'text size level must be a number.' })
-  .int()
-  .min(0)
-  .max(3)
-  .optional();
+// An unset element arrives as null (the FE selects all six GraphQL fields), and
+// rejecting it would 400 the whole venue payload, printers and modems included.
+const textSizeLevel = z.preprocess(
+  (value) => value ?? undefined,
+  z
+    .number({ invalid_type_error: 'text size level must be a number.' })
+    .int()
+    .min(0)
+    .max(3)
+    .optional()
+);
 
 export const PrinterTextSizes = z.object({
   categories: textSizeLevel,

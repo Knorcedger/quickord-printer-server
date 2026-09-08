@@ -63,6 +63,33 @@ describe('PrinterSettings.textSizes', () => {
     ).toThrow();
   });
 
+  test('treats the nulls a partial GraphQL object carries as unset', () => {
+    // What the FE actually forwards for a printer with only one element set:
+    // the query selects all six fields, so the rest come back null.
+    const parsed = PrinterSettings.parse({
+      ...basePrinter,
+      textSizes: {
+        categories: null,
+        comments: null,
+        orderNumber: null,
+        orderType: null,
+        prices: null,
+        products: 1,
+      },
+    });
+
+    expect(parsed.textSizes).toEqual({ products: 1 });
+  });
+
+  test('a fully null object leaves every element unset', () => {
+    const parsed = PrinterSettings.parse({
+      ...basePrinter,
+      textSizes: { comments: null, products: null },
+    });
+
+    expect(parsed.textSizes).toEqual({});
+  });
+
   test('strips an element it does not know', () => {
     const parsed = PrinterSettings.parse({
       ...basePrinter,
