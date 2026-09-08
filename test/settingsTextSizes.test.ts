@@ -42,9 +42,18 @@ describe('PrinterSettings.textSizes', () => {
     expect(parsed.textSizes?.products).toBe(0);
   });
 
+  test('accepts the top of the ladder', () => {
+    const parsed = PrinterSettings.parse({
+      ...basePrinter,
+      textSizes: { products: 3 },
+    });
+
+    expect(parsed.textSizes?.products).toBe(3);
+  });
+
   test('rejects a level outside the ladder', () => {
     expect(() =>
-      PrinterSettings.parse({ ...basePrinter, textSizes: { products: 3 } })
+      PrinterSettings.parse({ ...basePrinter, textSizes: { products: 4 } })
     ).toThrow();
     expect(() =>
       PrinterSettings.parse({ ...basePrinter, textSizes: { products: -1 } })

@@ -32,13 +32,14 @@ export const PrinterTextOptions = z.enum(
   }
 );
 
-// 0 normal, 1 double, 2 triple — both axes. Left absent rather than defaulted:
-// a stored 0 beats a legacy BOLD_* flag on the backend's resolver.
+// 0 normal, 1 double width, 2 double both axes, 3 triple both axes. Level 1 is
+// what the legacy BOLD_* flags have always printed. Left absent rather than
+// defaulted: a stored 0 beats a legacy BOLD_* flag on the backend's resolver.
 const textSizeLevel = z
   .number({ invalid_type_error: 'text size level must be a number.' })
   .int()
   .min(0)
-  .max(2)
+  .max(3)
   .optional();
 
 export const PrinterTextSizes = z.object({
@@ -226,7 +227,7 @@ export const PrinterSettings = z.object({
     .optional()
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
-  // Per-element size levels. Accepted and round-tripped through settings.json so
+  // Per-element size levels (0-3). Accepted and round-tripped through settings.json so
   // the BE stays the single writer; the LAN-fallback renderer here still uses
   // textOptions, which the FE dual-writes for exactly that reason. A new value
   // inside the closed textOptions enum would 400 the whole venue's settings,
