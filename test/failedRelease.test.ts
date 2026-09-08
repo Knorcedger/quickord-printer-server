@@ -6,6 +6,7 @@ import {
   clearFailedRelease,
   MAX_RELEASE_ATTEMPTS,
   noteFailedRelease,
+  overCapRelease,
   readFailedRelease,
 } from '../src/autoupdate/autoupdate';
 
@@ -83,5 +84,51 @@ describe('failed-release marker', () => {
     expect(readFailedRelease(builds())).toBeNull();
     // Clearing a marker that is not there is not an error.
     expect(() => clearFailedRelease(builds())).not.toThrow();
+  });
+
+  // The updater repeats the check because the install it rolls back to may be
+  // older than the check itself and would otherwise re-download forever.
+  describe('the updater-side check', () => {
+    const overCap = () => overCapRelease(dirs.installDir, false);
+
+    it('lets a release through until it has used up its attempts', () => {
+      expect(overCap()).toBeNull();
+      for (let i = 0; i < MAX_RELEASE_ATTEMPTS - 1; i += 1) {
+        noteFailedRelease(dirs.installDir);
+        expect(overCap()).toBeNull();
+      }
+
+      noteFailedRelease(dirs.installDir);
+      expect(overCap()).toContain('v2026.09.07-019300');
+    });
+
+    it('only blocks the release the marker names', () => {
+      for (let i = 0; i < MAX_RELEASE_ATTEMPTS; i += 1) {
+        noteFailedRelease(dirs.installDir);
+      }
+      fs.writeFileSync(
+        path.join(dirs.newBuild, 'version'),
+        'v2026.09.08-019301'
+      );
+
+      expect(overCap()).toBeNull();
+    });
+
+    it('lets an explicit update past the cap', () => {
+      for (let i = 0; i < MAX_RELEASE_ATTEMPTS; i += 1) {
+        noteFailedRelease(dirs.installDir);
+      }
+
+      expect(overCapRelease(dirs.installDir, true)).toBeNull();
+    });
+
+    it('goes ahead when the new build has no version file', () => {
+      for (let i = 0; i < MAX_RELEASE_ATTEMPTS; i += 1) {
+        noteFailedRelease(dirs.installDir);
+      }
+      fs.rmSync(path.join(dirs.newBuild, 'version'));
+
+      expect(overCap()).toBeNull();
+    });
   });
 });

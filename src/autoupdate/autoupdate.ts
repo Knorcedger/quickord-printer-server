@@ -708,6 +708,30 @@ export function noteFailedRelease(installDir: string): void {
   }
 }
 
+/**
+ * Reason to refuse installing the build we are running from into `installDir`,
+ * or null to go ahead. Read from the marker in the install, written by whichever
+ * updater failed last. `force` is the technician's way out.
+ */
+export function overCapRelease(
+  installDir: string,
+  force: boolean
+): string | null {
+  if (!installDir || force) return null;
+  let version = '';
+  try {
+    version = fs.readFileSync('version', 'utf-8').trim();
+  } catch {
+    return null; // No version in the new build; nothing to match a marker on.
+  }
+
+  const failed = readFailedRelease(path.join(installDir, 'builds'));
+  if (failed?.version !== version || failed.attempts < MAX_RELEASE_ATTEMPTS) {
+    return null;
+  }
+  return `${version} already failed to install here ${failed.attempts} time(s). The install was left untouched. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
+}
+
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
   if (!versionUrl) {
@@ -859,6 +883,10 @@ export async function downloadLatestCode(
   args[1] = tempCodePath;
   args[2] = '--parent';
   args[3] = parentDir;
+  // The updater repeats the failed-release check, so it needs to know this run
+  // is the explicit one that is allowed past it.
+  if (force) args[4] = '--force';
+  else args.length = 4;
   path2 = tempCodePath + '/builds/printerServer.exe';
 
   const result: UpdateCheckResult = {
@@ -1342,6 +1370,18 @@ async function runUpdater(path: string[]): Promise<boolean> {
   process.chdir(srcDir + '\\builds');
 
   await logUpdaterPreamble();
+
+  // Second home of the failed-release check. The boot-time one lives in the
+  // server, so a rollback to an install that predates it re-downloads the same
+  // release on every boot; this one runs from the *new* build, so it is always
+  // present, and aborting here costs a download instead of a stop-copy-rollback
+  // cycle with the venue offline for it.
+  const cappedRelease = overCapRelease(destDir, path.includes('--force'));
+  if (cappedRelease) {
+    updateLogError(`Update aborted: ${cappedRelease}`);
+    await startServiceOrFallback(destDir);
+    return false;
+  }
 
   const port = Number(nconf.get('PORT')) || 7810;
 
