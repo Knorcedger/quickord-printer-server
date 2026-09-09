@@ -35,12 +35,12 @@ import {
 } from './psIdentity';
 import logger from './logger';
 
-// Poll timeout must clear the backend's 25s hold with margin, so a healthy idle
+// Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
 // poll is answered empty by the server rather than aborted here. The margin is
 // wide because this timer starts before the connection does: DNS + TCP + TLS
 // come out of it, and on a slow venue uplink they alone can eat 5s (undici's
 // own connect timeout is 10s). At 30s such a poll aborted while the backend was
-// answering normally at 25s. Nothing is lost by waiting longer: a backend that
+// still answering normally. Nothing is lost by waiting longer: a backend that
 // genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
