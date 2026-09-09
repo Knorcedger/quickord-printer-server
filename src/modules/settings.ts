@@ -32,6 +32,30 @@ export const PrinterTextOptions = z.enum(
   }
 );
 
+// 0 normal, 1 double width, 2 double both axes, 3 triple both axes. Level 1 is
+// what the legacy BOLD_* flags have always printed. Left absent rather than
+// defaulted: a stored 0 beats a legacy BOLD_* flag on the backend's resolver.
+// An unset element arrives as null (the FE selects all six GraphQL fields), and
+// rejecting it would 400 the whole venue payload, printers and modems included.
+const textSizeLevel = z.preprocess(
+  (value) => value ?? undefined,
+  z
+    .number({ invalid_type_error: 'text size level must be a number.' })
+    .int()
+    .min(0)
+    .max(3)
+    .optional()
+);
+
+export const PrinterTextSizes = z.object({
+  categories: textSizeLevel,
+  comments: textSizeLevel,
+  orderNumber: textSizeLevel,
+  orderType: textSizeLevel,
+  prices: textSizeLevel,
+  products: textSizeLevel,
+});
+
 export const PrinterSettings = z.object({
   id: z
     .string({
@@ -208,6 +232,12 @@ export const PrinterSettings = z.object({
     .optional()
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
+  // Per-element size levels (0-3). Accepted and round-tripped through settings.json so
+  // the BE stays the single writer; the LAN-fallback renderer here still uses
+  // textOptions, which the FE dual-writes for exactly that reason. A new value
+  // inside the closed textOptions enum would 400 the whole venue's settings,
+  // which is why this is a separate field.
+  textSizes: PrinterTextSizes.optional(),
   transliterate: z.boolean().default(false),
 });
 
