@@ -14,7 +14,9 @@
  * late; staff reprint manually if needed.
  */
 import { reportFetchFailure } from './api';
+import { applyDesiredSettings } from './applySettings';
 import { getBackendBaseUrl } from './backendUrl';
+import { markFirstPoll } from './bootGate';
 import { FailureEpisode } from './failureEpisode';
 import {
   curlExecJson,
@@ -33,6 +35,7 @@ import {
   getWsSecret,
   triggerRestart,
 } from './psIdentity';
+import { getSyncedHash } from './settings';
 import logger from './logger';
 
 // Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
@@ -281,9 +284,12 @@ async function pollOnce(): Promise<void> {
   const data = await postJson(
     '/print-jobs/poll',
     // Piggyback the version so the backend can surface it without depending on
-    // the WS register — the pull channel is the primary transport.
+    // the WS register — the pull channel is the primary transport. settingsHash
+    // is always present (null when we hold none): its presence is how the
+    // backend tells this build from one that can't take settings from a poll.
     {
       secret: getWsSecret(),
+      settingsHash: getSyncedHash() ?? null,
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
@@ -310,6 +316,20 @@ async function pollOnce(): Promise<void> {
       `Unexpected poll response without a jobs array: ${JSON.stringify(data)?.slice(0, 200)}`
     );
   }
+  // Settings first: jobs in this same answer must print with the config the
+  // backend just sent, not the one it already knows is stale. A failure here
+  // never costs the jobs — they print with what is on disk.
+  if (data.settings && data.settingsHash !== getSyncedHash()) {
+    try {
+      await applyDesiredSettings(data.settings, {
+        hash: data.settingsHash,
+        source: 'pull channel',
+      });
+    } catch (err) {
+      logger.error('Failed to apply settings from the pull channel:', err);
+    }
+  }
+
   const jobs = data.jobs;
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
@@ -402,6 +422,7 @@ async function loop(): Promise<void> {
     }
     try {
       await pollOnce();
+      markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
     } catch (err) {

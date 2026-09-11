@@ -25,6 +25,7 @@ import {
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings';
+import { bootGate } from './modules/bootGate';
 import { dedup } from './modules/dedup';
 import printOrderComments from './resolvers/printOrderComments';
 import printOrders, { printFullOrders } from './resolvers/printOrders';
@@ -257,22 +258,26 @@ const main = async () => {
       }
     });
 
-  app.route('/print-orders').post(dedup, printOrders);
-  app.route('/print-full-order').post(dedup, printFullOrders);
-  app.route('/print-order-comments').post(dedup, printOrderComments);
+  app.route('/print-orders').post(bootGate, dedup, printOrders);
+  app.route('/print-full-order').post(bootGate, dedup, printFullOrders);
+  app.route('/print-order-comments').post(bootGate, dedup, printOrderComments);
 
-  app.route('/test-print').post(testPrint);
-  app.route('/print-alp').post(dedup, paymentReceipt);
-  app.route('/print-alp-mypelates').post(dedup, paymentMyPelatesReceipt);
-  app.route('/print-invoice-mypelates').post(dedup, invoiceMyPelates);
+  app.route('/test-print').post(bootGate, testPrint);
+  app.route('/print-alp').post(bootGate, dedup, paymentReceipt);
+  app
+    .route('/print-alp-mypelates')
+    .post(bootGate, dedup, paymentMyPelatesReceipt);
+  app.route('/print-invoice-mypelates').post(bootGate, dedup, invoiceMyPelates);
 
-  app.route('/print-payment-slip').post(dedup, paymentSlip);
-  app.route('/print-order-form').post(dedup, orderForm);
-  app.route('/print-parking-ticket').post(dedup, parkingTicket);
-  app.route('/print-pelatologio-record').post(dedup, pelatologioRecord);
-  app.route('/print-text').post(dedup, printText);
-  app.route('/print-invoice').post(dedup, invoice);
-  app.route('/print-delivery-note').post(dedup, deliveryNote);
+  app.route('/print-payment-slip').post(bootGate, dedup, paymentSlip);
+  app.route('/print-order-form').post(bootGate, dedup, orderForm);
+  app.route('/print-parking-ticket').post(bootGate, dedup, parkingTicket);
+  app
+    .route('/print-pelatologio-record')
+    .post(bootGate, dedup, pelatologioRecord);
+  app.route('/print-text').post(bootGate, dedup, printText);
+  app.route('/print-invoice').post(bootGate, dedup, invoice);
+  app.route('/print-delivery-note').post(bootGate, dedup, deliveryNote);
 
   app
     .route('/logs')
