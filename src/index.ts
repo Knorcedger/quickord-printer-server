@@ -42,6 +42,7 @@ import autoUpdate, {
   getServiceState,
   isServiceManaged,
   killPortHolders,
+  probeServiceManaged,
   scheduleServiceStartWatchdog,
   SERVICE_NAME,
   setUpdateHandler,
@@ -115,8 +116,10 @@ function clearBindFailures(): void {
 async function isRedundantInstance(): Promise<boolean> {
   try {
     // WinSW's own child is the one the SCM watches: anything else on the port
-    // is the orphan, and killing it is the whole point.
-    if (await isServiceManaged()) return false;
+    // is the orphan, and killing it is the whole point. An unanswered probe
+    // must not read as "orphan" either — exiting 0 as WinSW's child is a clean
+    // stop to the SCM, and the real orphan then keeps the port until a reboot.
+    if ((await probeServiceManaged()) !== false) return false;
     return (await getServiceState()) === 'RUNNING';
   } catch {
     return false;

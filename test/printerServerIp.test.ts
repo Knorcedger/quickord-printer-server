@@ -131,6 +131,42 @@ describe('startPrinterServerIpRegistration', () => {
     );
   });
 
+  it('never replaces a registered physical address with a virtual one', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-7');
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // The NIC drops long after the DHCP grace window; the WSL address that is
+    // left must not be published over the venue's real one.
+    ifaces({ 'vEthernet (WSL)': [['172.28.0.1']] });
+    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still follows a virtual address it registered itself', async () => {
+    ifaces({ 'vEthernet (External)': [['192.168.1.60']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-8');
+    await jest.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // A Hyper-V external switch is the machine's only adapter, so its new
+    // lease is still the address the FE has to reach.
+    ifaces({ 'vEthernet (External)': [['192.168.1.61']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('retries until the backend confirms, then stops', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
     const { api, logger, tryFetch } = load();

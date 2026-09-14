@@ -515,7 +515,16 @@ export async function startServiceOrFallback(
   // out of %TMP%.
   const buildsDir = path.join(path.resolve(installDir), 'builds');
   const exe = path.join(buildsDir, 'printerServer.exe');
-  return launchDetached(exe, [], buildsDir);
+  if (!launchDetached(exe, [], buildsDir)) return false;
+
+  // `cmd /c start` exits 0 even when it launched nothing (AV, Smart App
+  // Control). Reporting that as a start would mark the release good with the
+  // service stopped and nothing on the port, so wait for the exe's own lock.
+  if (await waitForExeLock(exe)) return true;
+  updateLogError(
+    `Fallback launch of ${exe} never took: no process is running it.`
+  );
+  return false;
 }
 
 /**
@@ -577,6 +586,15 @@ export function scheduleServiceStartWatchdog(): void {
  * detached `sc start`, which is a no-op on an already-running service.
  */
 export async function isServiceManaged(): Promise<boolean> {
+  return (await probeServiceManaged()) === true;
+}
+
+/**
+ * The same probe, but `null` when it could not be answered (WMI hung, timed
+ * out). Callers for which "not managed" is the dangerous answer — standing down
+ * as the redundant instance — need that difference.
+ */
+export async function probeServiceManaged(): Promise<boolean | null> {
   if (process.platform !== 'win32') return false;
   const ppid = process.ppid;
   if (!ppid) return false;
@@ -584,7 +602,7 @@ export async function isServiceManaged(): Promise<boolean> {
     `powershell -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${ppid}').Name"`,
     15_000
   );
-  if (code !== 0) return false;
+  if (code !== 0) return null;
   return /printerServerService\.exe/i.test(output);
 }
 export async function deleteFolderRecursive(

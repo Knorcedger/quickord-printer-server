@@ -228,11 +228,20 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
     // Only what the backend has confirmed, so a failed attempt is retried
     // instead of being remembered as done.
     let registeredIp: string | null = null;
+    // A virtual address is only ever acceptable as the first one published.
+    let registeredVirtual = false;
 
     while (ipRegistrationVenueId === venueId) {
-      const ip = getLocalIP({
-        allowVirtual: Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS,
-      });
+      const physicalIp = getLocalIP();
+      // The grace window covers a boot with nothing real up yet; it must not
+      // outlive the first registration, or a physical NIC that drops later gets
+      // replaced by a vEthernet/WSL address and the venue loses LAN printing.
+      const allowVirtual =
+        Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS &&
+        (registeredIp === null || registeredVirtual);
+      const ip =
+        physicalIp ??
+        (allowVirtual ? getLocalIP({ allowVirtual: true }) : null);
 
       if (!ip) {
         if (!waitingLogged) {
@@ -259,6 +268,7 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
           ) {
             episode.succeed();
             registeredIp = ip;
+            registeredVirtual = ip !== physicalIp;
           } else {
             episode.fail(new Error('no LAN IPv4 to register'));
           }

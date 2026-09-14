@@ -82,19 +82,32 @@ function findPortHolders(port) {
   return [...pids];
 }
 
-function killPort(port) {
-  const holders = findPortHolders(port);
-  if (!holders.length) {
-    console.log(`Nothing listening on port ${port}`);
-    return;
-  }
-  for (const pid of holders) {
-    console.log(`Killing PID ${pid} on port ${port}...`);
-    try {
-      execSync(`taskkill /PID ${pid} /F /T`, { stdio: "ignore" });
-    } catch {
-      console.warn(`Could not kill PID ${pid}`);
+// False when the port is still held: taskkill exits 0 on a process it never
+// killed, and swapping builds\ out from under a live server is worse than not
+// updating at all.
+function killPort(port, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const holders = findPortHolders(port);
+    if (!holders.length) {
+      console.log(`Nothing listening on port ${port}`);
+      return true;
     }
+    if (Date.now() > deadline) {
+      console.error(
+        `⚠️ Port ${port} still held by PID(s) ${holders.join(", ")}.`
+      );
+      return false;
+    }
+    for (const pid of holders) {
+      console.log(`Killing PID ${pid} on port ${port}...`);
+      try {
+        execSync(`taskkill /PID ${pid} /F /T`, { stdio: "ignore" });
+      } catch {
+        console.warn(`Could not kill PID ${pid}`);
+      }
+    }
+    sleepSync(1);
   }
 }
 
@@ -489,7 +502,11 @@ function main() {
         "The service did not stop, so the install was left untouched. Reboot and run this again."
       );
     }
-    killPort(PORT);
+    if (!killPort(PORT)) {
+      throw new Error(
+        `Port ${PORT} is still in use, so the install was left untouched. Reboot and run this again.`
+      );
+    }
     swapInstall();
     stageNewUpdater();
 
@@ -524,8 +541,18 @@ function main() {
     }
   } finally {
     // Keep the staging dir only while it holds the sole copy of the settings.
-    if (settingsAreSafe()) {
-      fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+    // Guarded: a throw here would escape main() and turn the deliberate exit
+    // code into the uncaught-exception one, which the .bat wrapper reads as
+    // "go ahead and start" for an install the updater refused to start.
+    try {
+      if (settingsAreSafe()) {
+        fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.warn(
+        `⚠️ Could not clean up ${STAGING_DIR}:`,
+        (err && err.message) || err
+      );
     }
   }
 }
