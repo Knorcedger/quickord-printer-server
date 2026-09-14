@@ -97,6 +97,8 @@ npm run build
 
 Run `deploy.sh` on Windows. This builds the exe via nexe, copies native node_modules (@serialport, etc.), and creates the full zip with service files. Requires C++ build tools, Python, and nasm.
 
+It also rebuilds `updater.exe` (`npm run build:updater`, nexe over `updater-exe/updater.js`) before copying it into the release. `updater.exe` is the standalone binary `force_autoupdate.bat` runs; it is checked in, so without that rebuild step a release would ship whatever binary was built last and source changes to `updater-exe/updater.js` would never reach venues. The compiled binary resolves the install directory from `process.execPath` (nexe's `__dirname` points inside the binary's virtual filesystem).
+
 ## Windows Service Deployment
 
 On customer machines the server runs as a Windows service via **WinSW**:
@@ -105,7 +107,11 @@ On customer machines the server runs as a Windows service via **WinSW**:
 - `printerServerService.xml` - WinSW config (id, executable, start mode, dependencies). Read only at `install` time — changes are NOT auto-applied to existing installations.
 - `install_printer_service.bat` / `uninstall_printer_service.bat` / `start_printer_service.bat` / `stop_printer_service.bat` - wrappers around `printerServerService.exe install/uninstall/start/stop`.
 
-To change service config (start mode, dependencies) on already-installed machines, either reinstall the service or run `sc.exe config printerServer ...`. `autoupdate.ts` applies service config via `sc.exe` on every `--update` phase (idempotent).
+`builds/failed-release.json` is written by both updaters when an install fails, and counts the attempts for that release tag. After `MAX_RELEASE_ATTEMPTS` (3) the boot-time check stops downloading that release, so a rollback cannot loop forever without the server ever reaching `app.listen()`. The `--update` child repeats the check (`overCapRelease()`) before it stops the service, because a rollback restarts an install that may predate the boot-time check; there the loop costs a download instead of a stop-copy-rollback cycle. A newer tag, or any explicit update (remote command, `force_autoupdate.bat`), clears it — an explicit update passes `--force` down to the child so both checks stand aside.
+
+When the `--update` child aborts on the cap it also has to hand the machine back to something that *serves*. An install older than the boot-time check downloads the same release before it listens, so starting it plainly would just feed the loop; the child adds `<arguments>--noupdate</arguments>` to that install's `printerServerService.xml` (WinSW reads it on every start) and, if that edit fails, launches the exe directly with `--noupdate` rather than starting the service. Installs that do read the marker are started normally, so a later release still reaches them on their own — the update check writes `builds/honors-failed-release` to advertise that. The next successful install lays the release's own xml down and undoes the suppression.
+
+To change service config (start mode, dependencies, failure actions) on already-installed machines, either reinstall the service or run `sc.exe config` / `sc.exe failure printerServer ...`. `applyServiceConfig()` in `autoupdate.ts` applies both on every `--update` phase (idempotent) — that is how existing installs get the `<onfailure>` restart policy, since copying a newer xml does not.
 
 ## Code Style
 
