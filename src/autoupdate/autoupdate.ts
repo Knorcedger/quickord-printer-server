@@ -469,19 +469,142 @@ export async function getServiceImagePath(): Promise<string | null> {
   return trimmed || null;
 }
 
+// The one flag every build's launcher understands: skip the boot-time update
+// check and go straight to listening.
+const NO_UPDATE_ARG = '--noupdate';
+const SERVICE_XML_FILE = 'printerServerService.xml';
+// Left in the install by builds whose update check honours the failed-release
+// marker, i.e. the ones that can refuse a capped release on their own.
+const BOOT_GUARD_FILE = 'honors-failed-release';
+
+/** Does this xml already start the exe with updates off? */
+export function xmlSuppressesUpdates(xml: string): boolean {
+  return new RegExp(
+    `<arguments>[^<]*${NO_UPDATE_ARG}|<argument>\\s*${NO_UPDATE_ARG}\\s*</argument>`
+  ).test(xml);
+}
+
+/**
+ * The same xml with `--noupdate` added, or null when it is not a file we can
+ * safely edit. WinSW reads <arguments> on every start — unlike <onfailure>,
+ * which only reaches the SCM at install time.
+ */
+export function serviceXmlWithNoUpdate(xml: string): string | null {
+  if (/<arguments>[\s\S]*?<\/arguments>/.test(xml)) {
+    return xml.replace(
+      /<arguments>([\s\S]*?)<\/arguments>/,
+      (_match, inner) =>
+        `<arguments>${[inner.trim(), NO_UPDATE_ARG].filter(Boolean).join(' ')}</arguments>`
+    );
+  }
+  // WinSW's list form: keep it a list rather than mixing the two spellings.
+  const lastArgument = xml.lastIndexOf('</argument>');
+  if (lastArgument !== -1) {
+    const end = lastArgument + '</argument>'.length;
+    return `${xml.slice(0, end)}\n  <argument>${NO_UPDATE_ARG}</argument>${xml.slice(end)}`;
+  }
+  if (!xml.includes('</service>')) return null;
+  return xml.replace(
+    '</service>',
+    `  <arguments>${NO_UPDATE_ARG}</arguments>\n</service>`
+  );
+}
+
+/**
+ * Turn off an install's boot-time update check through the xml its service
+ * starts from. The next successful install lays the release's own xml down
+ * again, so the suppression undoes itself.
+ */
+export function suppressBootUpdates(buildsDir: string): boolean {
+  const xmlPath = path.join(buildsDir, SERVICE_XML_FILE);
+  let xml = '';
+  try {
+    xml = fs.readFileSync(xmlPath, 'utf-8');
+  } catch (err: any) {
+    updateLogError(`Could not read ${xmlPath}:`, err.message || err);
+    return false;
+  }
+
+  if (xmlSuppressesUpdates(xml)) {
+    updateLog(`${xmlPath} already starts the server with ${NO_UPDATE_ARG}.`);
+    return true;
+  }
+
+  const next = serviceXmlWithNoUpdate(xml);
+  if (!next) {
+    updateLogError(`${xmlPath} is not a service xml we can edit.`);
+    return false;
+  }
+
+  try {
+    fs.writeFileSync(xmlPath, next);
+  } catch (err: any) {
+    updateLogError(`Could not write ${xmlPath}:`, err.message || err);
+    return false;
+  }
+  updateLog(
+    `Updates suppressed in ${xmlPath}: the service now starts with ${NO_UPDATE_ARG}. force_autoupdate.bat and an update from the backend still work, and either one restores the xml.`
+  );
+  return true;
+}
+
+/**
+ * Say, in the install dir, that this build's update check honours the marker.
+ * Builds older than it download and hand off before they listen.
+ */
+export function markBootUpdateGuard(): void {
+  try {
+    fs.writeFileSync(BOOT_GUARD_FILE, new Date().toISOString());
+  } catch (err: any) {
+    updateLog('Could not write the boot-update guard:', err.message || err);
+  }
+}
+
+/** Can this install refuse a capped release on its own? */
+export function hasBootUpdateGuard(installDir: string): boolean {
+  if (!installDir) return false;
+  return fs.existsSync(path.join(installDir, 'builds', BOOT_GUARD_FILE));
+}
+
 /**
  * Start the service and confirm it actually reached Running. Falls back to
  * launching the exe directly only if the SCM refuses (service missing, or no
  * privileges — force_autoupdate.bat runs as the technician, not LocalSystem),
  * so a failed `sc start` can never leave the venue with nothing running.
+ * `suppressUpdates` is for the caller that hands the machine back to an install
+ * which would otherwise update itself out of existence again.
  */
 export async function startServiceOrFallback(
-  installDir: string
+  installDir: string,
+  options: { suppressUpdates?: boolean } = {}
 ): Promise<boolean> {
+  // The launch must run from the *installed* builds dir, not the updater's
+  // temp cwd, or the fallback instance reads config.json/settings.json/version
+  // out of %TMP%.
+  const buildsDir = path.join(path.resolve(installDir), 'builds');
+  const exe = path.join(buildsDir, 'printerServer.exe');
+  // The SCM passes the arguments from the xml, so suppressing updates has to
+  // reach the xml first; if it cannot, a serving unmanaged process beats a
+  // service that downloads and exits before listening.
+  const startArgs = options.suppressUpdates ? [NO_UPDATE_ARG] : [];
+  const canStartService = options.suppressUpdates
+    ? suppressBootUpdates(buildsDir)
+    : true;
+
+  if (!canStartService) {
+    updateLogError(
+      'Could not suppress updates in the service xml. Skipping sc start: starting the service would put this install back into the update loop.'
+    );
+  }
+
   // One `sc start` was not enough: right after a stop the SCM can still be
   // finishing (1053/1061), and a single refusal used to drop straight to an
   // unmanaged process. Retry while the service is merely stopped.
-  for (let attempt = 1; attempt <= START_ATTEMPTS; attempt += 1) {
+  for (
+    let attempt = 1;
+    canStartService && attempt <= START_ATTEMPTS;
+    attempt += 1
+  ) {
     const { code, output } = await runCmd(
       `sc.exe start ${SERVICE_NAME}`,
       30_000
@@ -498,24 +621,21 @@ export async function startServiceOrFallback(
     if (attempt < START_ATTEMPTS) await sleep(START_RETRY_MS);
   }
 
-  const state = await waitForState(['RUNNING'], 45_000);
-  if (state === 'RUNNING') {
-    updateLog('Service is running.');
-    return true;
+  if (canStartService) {
+    const state = await waitForState(['RUNNING'], 45_000);
+    if (state === 'RUNNING') {
+      updateLog('Service is running.');
+      return true;
+    }
+    updateLogError(
+      `Service did not reach Running (state: ${state}). Falling back to a direct launch.`
+    );
   }
 
   updateLogError(
-    `Service did not reach Running (state: ${state}). Falling back to a direct launch.`
-  );
-  updateLogError(
     `RUNNING UNMANAGED: ${SERVICE_NAME} is NOT running. The printer server was started as a plain process — it dies at logoff and nothing restarts it. Run install_printer_service.bat as administrator to repair.`
   );
-  // The launch must run from the *installed* builds dir, not the updater's
-  // temp cwd, or the fallback instance reads config.json/settings.json/version
-  // out of %TMP%.
-  const buildsDir = path.join(path.resolve(installDir), 'builds');
-  const exe = path.join(buildsDir, 'printerServer.exe');
-  if (!launchDetached(exe, [], buildsDir)) return false;
+  if (!launchDetached(exe, startArgs, buildsDir)) return false;
 
   // `cmd /c start` exits 0 even when it launched nothing (AV, Smart App
   // Control). Reporting that as a start would mark the release good with the
@@ -817,6 +937,10 @@ export async function downloadLatestCode(
   // of a release that keeps failing: it retries and resets the counter.
   force = false
 ): Promise<UpdateCheckResult> {
+  // This build refuses a capped release below, so an updater handing the
+  // machine back to it never has to suppress its updates.
+  markBootUpdateGuard();
+
   // Read current version
   let currentVersion = '';
   try {
@@ -1397,7 +1521,13 @@ async function runUpdater(path: string[]): Promise<boolean> {
   const cappedRelease = overCapRelease(destDir, path.includes('--force'));
   if (cappedRelease) {
     updateLogError(`Update aborted: ${cappedRelease}`);
-    await startServiceOrFallback(destDir);
+    // An install older than the boot-time check re-downloads this release the
+    // moment it starts and exits before listening, so it goes back up with its
+    // update check off. One that can refuse the release itself starts normally
+    // and still takes a later release on its own.
+    await startServiceOrFallback(destDir, {
+      suppressUpdates: !hasBootUpdateGuard(destDir),
+    });
     return false;
   }
 

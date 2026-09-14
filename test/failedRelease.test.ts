@@ -4,10 +4,15 @@ import * as path from 'node:path';
 
 import {
   clearFailedRelease,
+  hasBootUpdateGuard,
+  markBootUpdateGuard,
   MAX_RELEASE_ATTEMPTS,
   noteFailedRelease,
   overCapRelease,
   readFailedRelease,
+  serviceXmlWithNoUpdate,
+  suppressBootUpdates,
+  xmlSuppressesUpdates,
 } from '../src/autoupdate/autoupdate';
 
 // The updater runs from the new build (its cwd holds the new `version`) and
@@ -130,5 +135,126 @@ describe('failed-release marker', () => {
 
       expect(overCap()).toBeNull();
     });
+  });
+});
+
+// What has to happen once the cap has stopped the install: the machine is
+// handed back to the old build, and that build must end up *serving*. Every
+// pre-marker build checks for the update before it listens and exits 500 ms
+// after spawning the updater, so restarting one with no arguments only feeds
+// the loop the cap exists to break.
+describe('handing the machine back after a capped release', () => {
+  const cwd = process.cwd();
+  let dirs: ReturnType<typeof makeDirs>;
+
+  const SHIPPED_XML = fs.readFileSync('printerServerService.xml', 'utf-8');
+
+  beforeEach(() => {
+    dirs = makeDirs();
+  });
+
+  afterEach(() => {
+    process.chdir(cwd);
+    fs.rmSync(dirs.root, { force: true, recursive: true });
+  });
+
+  const builds = () => path.join(dirs.installDir, 'builds');
+  const writeXml = (xml: string) =>
+    fs.writeFileSync(path.join(builds(), 'printerServerService.xml'), xml);
+  const readXml = () =>
+    fs.readFileSync(path.join(builds(), 'printerServerService.xml'), 'utf-8');
+
+  it('starts the shipped service xml with updates off', () => {
+    writeXml(SHIPPED_XML);
+
+    expect(suppressBootUpdates(builds())).toBe(true);
+
+    const xml = readXml();
+    expect(xml).toContain('<arguments>--noupdate</arguments>');
+    expect(xml).toContain('</service>');
+    expect(xmlSuppressesUpdates(xml)).toBe(true);
+  });
+
+  it('does not stack the flag when the recovery runs again', () => {
+    writeXml(SHIPPED_XML);
+    suppressBootUpdates(builds());
+    const once = readXml();
+
+    expect(suppressBootUpdates(builds())).toBe(true);
+    expect(readXml()).toBe(once);
+  });
+
+  it('keeps the arguments the install already had', () => {
+    writeXml(
+      SHIPPED_XML.replace(
+        '</service>',
+        '  <arguments>--port 7810</arguments>\n</service>'
+      )
+    );
+
+    suppressBootUpdates(builds());
+
+    expect(readXml()).toContain(
+      '<arguments>--port 7810 --noupdate</arguments>'
+    );
+  });
+
+  it('stays with the list form when the xml uses it', () => {
+    writeXml(
+      SHIPPED_XML.replace(
+        '</service>',
+        '  <argument>--port</argument>\n  <argument>7810</argument>\n</service>'
+      )
+    );
+
+    suppressBootUpdates(builds());
+
+    const xml = readXml();
+    expect(xml).toContain('<argument>--noupdate</argument>');
+    expect(xml).not.toContain('<arguments>');
+    expect(xmlSuppressesUpdates(xml)).toBe(true);
+  });
+
+  it('refuses to edit a file that is not a service xml', () => {
+    expect(serviceXmlWithNoUpdate('not xml at all')).toBeNull();
+    writeXml('not xml at all');
+    expect(suppressBootUpdates(builds())).toBe(false);
+  });
+
+  it('reports a missing xml instead of throwing', () => {
+    expect(suppressBootUpdates(builds())).toBe(false);
+  });
+
+  // Which recovery the updater picks. A build that reads the marker refuses the
+  // release on its own and must keep its update check, or it would never take
+  // the release that fixes it.
+  it('tells a self-protecting install from one that loops', () => {
+    expect(hasBootUpdateGuard(dirs.installDir)).toBe(false);
+
+    process.chdir(builds());
+    markBootUpdateGuard();
+    process.chdir(cwd);
+
+    expect(hasBootUpdateGuard(dirs.installDir)).toBe(true);
+  });
+
+  it('leaves a serving instance for an install that predates the marker', () => {
+    writeXml(SHIPPED_XML);
+    process.chdir(dirs.newBuild);
+    for (let i = 0; i < MAX_RELEASE_ATTEMPTS; i += 1) {
+      noteFailedRelease(dirs.installDir);
+    }
+
+    // The updater aborts, and because the install cannot refuse the release
+    // itself, it goes back up without its boot-time update check.
+    expect(overCapRelease(dirs.installDir, false)).toContain(
+      'v2026.09.07-019300'
+    );
+    expect(hasBootUpdateGuard(dirs.installDir)).toBe(false);
+    expect(suppressBootUpdates(builds())).toBe(true);
+
+    // That is the whole point: the next start reaches app.listen() instead of
+    // downloading the same release, handing off and exiting.
+    expect(xmlSuppressesUpdates(readXml())).toBe(true);
   });
 });
