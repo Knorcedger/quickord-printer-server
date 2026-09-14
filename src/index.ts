@@ -25,7 +25,7 @@ import {
   PrinterTextOptions,
   PrinterTextSize,
 } from './modules/settings';
-import { bootGate } from './modules/bootGate';
+import { bootGate, startBootGate } from './modules/bootGate';
 import { dedup } from './modules/dedup';
 import printOrderComments from './resolvers/printOrderComments';
 import printOrders, { printFullOrders } from './resolvers/printOrders';
@@ -343,6 +343,9 @@ const main = async () => {
 
   // start server
   server = app.listen(SERVER_PORT, () => {
+    // Only now can a print request arrive, so this is where the gate's window
+    // to reach the backend starts.
+    startBootGate();
     logger.info(
       'API listening at port',
       (server?.address?.() as { port: number })?.port

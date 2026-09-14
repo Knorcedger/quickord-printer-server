@@ -79,6 +79,73 @@ describe('settings hash sync', () => {
     expect(setupPrinters).toHaveBeenCalledTimes(1);
   });
 
+  it('clears a local field the authoritative payload omits', async () => {
+    // The pull channel carries the whole desired state, so a field it leaves
+    // out is unset in the database — keeping the local one would be drift the
+    // acknowledged hash then reports as in sync.
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [{ ...desired.printers[0], priceOnOrder: false }],
+      },
+      { source: 'LAN' }
+    );
+    expect(getSettings().printers[0]?.priceOnOrder).toBe(false);
+
+    await applyDesiredSettings(desired, {
+      authoritative: true,
+      hash: 'abc123',
+      source: 'pull channel',
+    });
+
+    expect(getSettings().printers[0]?.priceOnOrder).toBeUndefined();
+    expect(getSyncedHash()).toBe('abc123');
+  });
+
+  it('still merges a partial LAN push onto the local printer', async () => {
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [{ ...desired.printers[0], priceOnOrder: false }],
+      },
+      { source: 'LAN' }
+    );
+    await applyDesiredSettings(desired, { source: 'LAN' });
+
+    expect(getSettings().printers[0]?.priceOnOrder).toBe(false);
+  });
+
+  it('does not acknowledge a hash it failed to write', async () => {
+    // A directory where the file belongs: the write throws EISDIR, standing in
+    // for the disk-full, permissions and file-lock cases.
+    const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-nowrite-'));
+    fs.mkdirSync(path.join(blocked, 'settings.json'));
+    process.chdir(blocked);
+
+    try {
+      await applyDesiredSettings(desired, {
+        authoritative: true,
+        hash: 'abc123',
+        source: 'pull channel',
+      });
+
+      expect(getSyncedHash()).toBeUndefined();
+    } finally {
+      process.chdir(tmpDir);
+    }
+
+    // Reporting the old hash is what makes the backend re-deliver, which is
+    // the retry: the same payload now writes and the venue converges.
+    await applyDesiredSettings(desired, {
+      authoritative: true,
+      hash: 'abc123',
+      source: 'pull channel',
+    });
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(readSettingsFile().syncedHash).toBe('abc123');
+  });
+
   it('keeps the hash across a reload of the file it wrote', async () => {
     await applyDesiredSettings(desired, { hash: 'abc123', source: 'test' });
     updateSettings(Settings.parse({ printers: [] }));

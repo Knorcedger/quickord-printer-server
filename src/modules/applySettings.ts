@@ -18,6 +18,18 @@ import {
   updateSettings,
 } from './settings';
 
+/**
+ * The settings are live in memory but never reached the disk. Keep reporting
+ * the hash we last persisted so the backend re-delivers and the write is
+ * retried, instead of acknowledging a state a restart would lose.
+ */
+const keepUnsynced = (persistedHash?: string): void => {
+  updateSettings({ ...getSettings(), syncedHash: persistedHash });
+  logger.warn(
+    'Settings could not be written to disk; still reporting the last persisted hash'
+  );
+};
+
 export class VenueMismatchError extends Error {
   ownVenueId: string;
 
@@ -34,10 +46,12 @@ export class VenueMismatchError extends Error {
  * `hash` is the backend's, stored verbatim for the next poll to echo; without
  * one (a LAN push) the stored hash is dropped so the backend re-delivers —
  * unless the push changes nothing, which leaves the venue in sync as it was.
+ * `authoritative` marks a payload that carries the venue's whole desired state
+ * (the pull channel), where an absent field is a reset rather than an omission.
  */
 export const applyDesiredSettings = async (
   incoming: any,
-  options: { hash?: string; source: string }
+  options: { authoritative?: boolean; hash?: string; source: string }
 ): Promise<{ isFirstClaim: boolean; newSettings: ISettings }> => {
   const oldSettings = getSettings();
 
@@ -58,14 +72,20 @@ export const applyDesiredSettings = async (
       );
       const sanitizedIp =
         printer.ip !== undefined ? printer.ip.replace('\r', '') : undefined;
+      // Only a partial push merges onto the local printer. An authoritative one
+      // must not: a field it omits is unset in the database, and carrying the
+      // local value over would leave drift the acknowledged hash calls in sync.
+      const local = options.authoritative
+        ? {}
+        : oldSettings.printers.find(
+            (p) =>
+              (sanitizedIp !== undefined &&
+                p.ip === sanitizedIp &&
+                p.ip !== '') ||
+              (p.port === printer.port && p.port !== '')
+          ) || {};
       return {
-        ...(oldSettings.printers.find(
-          (p) =>
-            (sanitizedIp !== undefined &&
-              p.ip === sanitizedIp &&
-              p.ip !== '') ||
-            (p.port === printer.port && p.port !== '')
-        ) || {}),
+        ...local,
         ...cleaned,
         ...(sanitizedIp !== undefined ? { ip: sanitizedIp } : {}),
       };
@@ -109,7 +129,9 @@ export const applyDesiredSettings = async (
 
     if (hash !== oldSettings.syncedHash) {
       updateSettings({ ...oldSettings, syncedHash: hash });
-      await saveSettings();
+      if (!(await saveSettings())) {
+        keepUnsynced(oldSettings.syncedHash);
+      }
     }
 
     logger.info(`Settings unchanged from ${options.source}`);
@@ -119,7 +141,9 @@ export const applyDesiredSettings = async (
 
   updateSettings(newSettings);
 
-  await saveSettings();
+  if (!(await saveSettings())) {
+    keepUnsynced(oldSettings.syncedHash);
+  }
   setupPrinters(newSettings);
 
   try {

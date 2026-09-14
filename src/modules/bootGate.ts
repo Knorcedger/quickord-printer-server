@@ -11,19 +11,27 @@ import logger from './logger';
 
 const BOOT_GATE_MAX_MS = 15_000;
 
-const startedAt = Date.now();
+// Starts when the server listens, not at import: the auto-update check and the
+// modem and printer setup run before that, and a slow one would burn the whole
+// window before the first poll was even attempted.
+let startedAt: number | undefined;
 let polled = false;
+
+export const startBootGate = (): void => {
+  startedAt = Date.now();
+};
 
 export const markFirstPoll = (): void => {
   if (polled) return;
   polled = true;
   logger.info(
-    `Print routes open after first poll (${Date.now() - startedAt}ms)`
+    `Print routes open after first poll (${Date.now() - (startedAt ?? Date.now())}ms)`
   );
 };
 
 export const isPrintReady = (): boolean =>
-  polled || Date.now() - startedAt >= BOOT_GATE_MAX_MS;
+  polled ||
+  (startedAt !== undefined && Date.now() - startedAt >= BOOT_GATE_MAX_MS);
 
 export const bootGate = (
   req: Request<{}, any, any>,

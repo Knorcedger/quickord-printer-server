@@ -345,12 +345,16 @@ export const loadSettings = async () => {
   }
 };
 
-export const saveSettings = async () => {
+// Returns whether the file was actually written: a caller that records a sync
+// hash must not acknowledge settings that never made it to disk.
+export const saveSettings = async (): Promise<boolean> => {
   try {
     settings.writtenFingerprint = settingsFingerprint(settings);
     fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
+    return true;
   } catch (error) {
     logger.error('Error writing settings file:', error);
+    return false;
   }
 };
 

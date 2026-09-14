@@ -327,6 +327,7 @@ async function pollOnce(): Promise<void> {
   if (data.settings && data.settingsHash !== getSyncedHash()) {
     try {
       await applyDesiredSettings(data.settings, {
+        authoritative: true,
         hash: data.settingsHash,
         source: 'pull channel',
       });
