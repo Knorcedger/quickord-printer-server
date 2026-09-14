@@ -300,8 +300,9 @@ export const getModems = (s: ISettings = settings): IModemSettings[] => {
 };
 
 // Fingerprint of everything except the two bookkeeping fields, so the check
-// doesn't depend on its own result.
-const fingerprint = (s: ISettings): string => {
+// doesn't depend on its own result. Also used to tell a settings push that
+// changes nothing from one that does.
+export const settingsFingerprint = (s: ISettings): string => {
   const { syncedHash: _hash, writtenFingerprint: _fp, ...rest } = s;
   return createHash('sha256').update(JSON.stringify(rest)).digest('hex');
 };
@@ -322,7 +323,7 @@ export const loadSettings = async () => {
     // forget it and let the next poll deliver the settings the venue really has.
     if (
       settings.syncedHash &&
-      settings.writtenFingerprint !== fingerprint(settings)
+      settings.writtenFingerprint !== settingsFingerprint(settings)
     ) {
       logger.warn(
         'settings.json changed outside the sync; dropping syncedHash so the backend re-delivers'
@@ -346,7 +347,7 @@ export const loadSettings = async () => {
 
 export const saveSettings = async () => {
   try {
-    settings.writtenFingerprint = fingerprint(settings);
+    settings.writtenFingerprint = settingsFingerprint(settings);
     fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
   } catch (error) {
     logger.error('Error writing settings file:', error);

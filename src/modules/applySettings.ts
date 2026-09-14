@@ -14,6 +14,7 @@ import {
   ISettings,
   saveSettings,
   Settings,
+  settingsFingerprint,
   updateSettings,
 } from './settings';
 
@@ -31,7 +32,8 @@ export class VenueMismatchError extends Error {
 /**
  * Merge a settings payload into what is on disk and put it into effect.
  * `hash` is the backend's, stored verbatim for the next poll to echo; without
- * one (a LAN push) the stored hash is dropped so the backend re-delivers.
+ * one (a LAN push) the stored hash is dropped so the backend re-delivers —
+ * unless the push changes nothing, which leaves the venue in sync as it was.
  */
 export const applyDesiredSettings = async (
   incoming: any,
@@ -97,6 +99,23 @@ export const applyDesiredSettings = async (
       : undefined,
     modems,
   };
+
+  // A push that changes nothing still arrives on every page mount and after
+  // every LAN push (the backend re-delivers what it sees as unsynced). Record
+  // the hash and stop: re-running the printers and modems would drop every
+  // connection and restart the keep-alive for identical content.
+  if (settingsFingerprint(newSettings) === settingsFingerprint(oldSettings)) {
+    const hash = options.hash ?? oldSettings.syncedHash;
+
+    if (hash !== oldSettings.syncedHash) {
+      updateSettings({ ...oldSettings, syncedHash: hash });
+      await saveSettings();
+    }
+
+    logger.info(`Settings unchanged from ${options.source}`);
+
+    return { isFirstClaim, newSettings: getSettings() };
+  }
 
   updateSettings(newSettings);
 

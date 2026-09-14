@@ -12,8 +12,8 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
     logger.info('Updating settings:', stripSecrets(req.body));
 
-    // No hash: a LAN push is not the backend's desired state, so the stored
-    // hash is dropped and the next poll re-delivers.
+    // No hash: a LAN push is not the backend's desired state, so anything it
+    // actually changes drops the stored hash and the next poll re-delivers.
     const { isFirstClaim, newSettings } = await applyDesiredSettings(req.body, {
       source: 'LAN POST /settings',
     });

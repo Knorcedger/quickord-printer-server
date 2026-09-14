@@ -75,6 +75,11 @@ const AUTH_RETRY_MS = 60_000;
 // Re-check cadence while venueId/wsSecret aren't provisioned yet (a /settings
 // sync will fill them in), so an un-provisioned PS doesn't hammer the backend.
 const NO_CREDS_RETRY_MS = 5_000;
+// Pause before re-polling when settings could not be applied. The backend
+// answers a poll straight away while we are out of sync, so without this the
+// two would spin on each other for as long as the failure lasts.
+const SETTINGS_RETRY_PAUSE_MS = 5_000;
+let settingsApplyFailed = false;
 
 // Raised when the backend rejects the pull channel's credentials. Two triggers:
 // (1) the HTTP status is 401 — the authoritative signal, works even against a
@@ -326,6 +331,7 @@ async function pollOnce(): Promise<void> {
         source: 'pull channel',
       });
     } catch (err) {
+      settingsApplyFailed = true;
       logger.error('Failed to apply settings from the pull channel:', err);
     }
   }
@@ -425,6 +431,10 @@ async function loop(): Promise<void> {
       markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
+      if (settingsApplyFailed) {
+        settingsApplyFailed = false;
+        await sleep(SETTINGS_RETRY_PAUSE_MS);
+      }
     } catch (err) {
       if (err instanceof PollRejectedError) {
         // Its own episode with its own log line — don't let it inflate the

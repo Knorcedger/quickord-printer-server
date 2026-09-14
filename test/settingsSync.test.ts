@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { applyDesiredSettings } from '../src/modules/applySettings';
+import { setupPrinters } from '../src/modules/printer';
 import {
   getSettings,
   getSyncedHash,
@@ -60,11 +61,22 @@ describe('settings hash sync', () => {
     expect(readSettingsFile().syncedHash).toBe('abc123');
   });
 
-  it('drops the hash on a LAN push, so the backend re-delivers', async () => {
+  it('drops the hash on a LAN push that changes something', async () => {
+    await applyDesiredSettings(desired, { hash: 'abc123', source: 'test' });
+    await applyDesiredSettings(
+      { ...desired, printers: [{ ...desired.printers[0], copies: 2 }] },
+      { source: 'LAN' }
+    );
+
+    expect(getSyncedHash()).toBeUndefined();
+  });
+
+  it('keeps the hash on a LAN push that changes nothing', async () => {
     await applyDesiredSettings(desired, { hash: 'abc123', source: 'test' });
     await applyDesiredSettings(desired, { source: 'LAN' });
 
-    expect(getSyncedHash()).toBeUndefined();
+    expect(getSyncedHash()).toBe('abc123');
+    expect(setupPrinters).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the hash across a reload of the file it wrote', async () => {
