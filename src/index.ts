@@ -1,3 +1,6 @@
+// First, before anything reads ./config.json at import time: it pins the cwd
+// to the install dir so every relative path below is the installed one.
+import './modules/installDir';
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import nconf from 'nconf';
