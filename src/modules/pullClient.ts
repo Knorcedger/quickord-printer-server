@@ -14,7 +14,9 @@
  * late; staff reprint manually if needed.
  */
 import { reportFetchFailure } from './api';
+import { applyDesiredSettings } from './applySettings';
 import { getBackendBaseUrl } from './backendUrl';
+import { markFirstPoll } from './bootGate';
 import { FailureEpisode } from './failureEpisode';
 import {
   curlExecJson,
@@ -33,6 +35,7 @@ import {
   getWsSecret,
   triggerRestart,
 } from './psIdentity';
+import { getSyncedHash } from './settings';
 import logger from './logger';
 
 // Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
@@ -72,6 +75,18 @@ const AUTH_RETRY_MS = 60_000;
 // Re-check cadence while venueId/wsSecret aren't provisioned yet (a /settings
 // sync will fill them in), so an un-provisioned PS doesn't hammer the backend.
 const NO_CREDS_RETRY_MS = 5_000;
+// Pause before re-polling when settings could not be applied. The backend
+// answers a poll straight away while we are out of sync, so without this the
+// two would spin on each other for as long as the failure lasts. It doubles up
+// to the cap because the pause is not there to ride out a blip: a settings.json
+// that can't be written stays unwritable, and at the flat 5s such a venue polls
+// four times the normal idle rate — with a full settings payload on every
+// answer — for as long as it lasts. The trigger is rarely one venue's disk; a
+// bad service reinstall has broken the settings path across the fleet at once.
+const SETTINGS_RETRY_PAUSE_MS = 5_000;
+const SETTINGS_RETRY_PAUSE_MAX_MS = 60_000;
+let settingsRetryPauseMs = SETTINGS_RETRY_PAUSE_MS;
+let settingsApplyFailed = false;
 
 // Raised when the backend rejects the pull channel's credentials. Two triggers:
 // (1) the HTTP status is 401 — the authoritative signal, works even against a
@@ -118,6 +133,9 @@ const pollErrorBackoffMs = (): number =>
 // A dead uplink otherwise wrote two structured fetch-failure dumps plus a
 // stack trace per poll — 18MB across one 13h outage.
 const pollFailures = new FailureEpisode('Print-job poll');
+// An unwritable settings.json fails on every poll and never recovers on its
+// own. Without an episode that is a warn plus an info every retry, forever.
+const settingsApplyFailures = new FailureEpisode('Settings apply');
 
 function alreadySeen(jobId: string): boolean {
   const now = Date.now();
@@ -281,9 +299,12 @@ async function pollOnce(): Promise<void> {
   const data = await postJson(
     '/print-jobs/poll',
     // Piggyback the version so the backend can surface it without depending on
-    // the WS register — the pull channel is the primary transport.
+    // the WS register — the pull channel is the primary transport. settingsHash
+    // is always present (null when we hold none): its presence is how the
+    // backend tells this build from one that can't take settings from a poll.
     {
       secret: getWsSecret(),
+      settingsHash: getSyncedHash() ?? null,
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
@@ -310,6 +331,33 @@ async function pollOnce(): Promise<void> {
       `Unexpected poll response without a jobs array: ${JSON.stringify(data)?.slice(0, 200)}`
     );
   }
+  // Settings first: jobs in this same answer must print with the config the
+  // backend just sent, not the one it already knows is stale. A failure here
+  // never costs the jobs — they print with what is on disk.
+  if (data.settings && data.settingsHash !== getSyncedHash()) {
+    let thrown: unknown;
+    try {
+      await applyDesiredSettings(data.settings, {
+        authoritative: true,
+        hash: data.settingsHash,
+        source: 'pull channel',
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    // A settings.json that can't be written doesn't throw — it just leaves the
+    // hash unacknowledged. Read the outcome instead of the exception, or the
+    // backend (which answers at once while we differ) and this loop spin.
+    settingsApplyFailed = getSyncedHash() !== data.settingsHash;
+    if (settingsApplyFailed) {
+      settingsApplyFailures.fail(
+        thrown ?? new Error('settings applied but the hash was not acknowledged')
+      );
+    } else {
+      settingsApplyFailures.succeed();
+    }
+  }
+
   const jobs = data.jobs;
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
@@ -402,8 +450,19 @@ async function loop(): Promise<void> {
     }
     try {
       await pollOnce();
+      markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
+      if (settingsApplyFailed) {
+        settingsApplyFailed = false;
+        await sleep(settingsRetryPauseMs);
+        settingsRetryPauseMs = Math.min(
+          settingsRetryPauseMs * 2,
+          SETTINGS_RETRY_PAUSE_MAX_MS
+        );
+      } else {
+        settingsRetryPauseMs = SETTINGS_RETRY_PAUSE_MS;
+      }
     } catch (err) {
       if (err instanceof PollRejectedError) {
         // Its own episode with its own log line — don't let it inflate the
