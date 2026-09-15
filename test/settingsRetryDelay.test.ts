@@ -141,4 +141,37 @@ describe('settings retry pause', () => {
 
     expect(tryFetch.mock.calls.length).toBeGreaterThan(20);
   });
+
+  it('backs off further the longer the failure lasts', async () => {
+    // An unwritable settings.json never fixes itself, so the pause has to grow:
+    // at a flat 5s this window would be ~58 polls, each carrying a full
+    // settings payload, for as long as the venue stays broken.
+    const { pullClient, tryFetch } = load();
+    applySettings.applyDesiredSettings.mockResolvedValue({});
+    tryFetch.mockImplementation(withSettings('h2') as any);
+
+    pullClient.initPullClient();
+    await jest.advanceTimersByTimeAsync(300_000);
+
+    expect(tryFetch.mock.calls.length).toBeLessThan(15);
+  });
+
+  it('returns to the normal rate once the venue recovers', async () => {
+    // The pause is a symptom of the failure, not a penalty: a venue whose disk
+    // comes back must not stay parked on the 60s cap it had climbed to.
+    const { pullClient, tryFetch } = load();
+    let attempts = 0;
+    applySettings.applyDesiredSettings.mockImplementation(async () => {
+      attempts += 1;
+      if (attempts > 3) settings.getSyncedHash.mockReturnValue('h2');
+    });
+    tryFetch.mockImplementation(withSettings('h2') as any);
+
+    pullClient.initPullClient();
+    await jest.advanceTimersByTimeAsync(300_000);
+
+    // Three paced retries (5s + 10s + 20s), then back to back-to-back polling.
+    expect(attempts).toBe(4);
+    expect(tryFetch.mock.calls.length).toBeGreaterThan(100);
+  });
 });
