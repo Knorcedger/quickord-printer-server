@@ -214,10 +214,15 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(''),
-  networkName: z.string({
-    invalid_type_error: 'printer networkName must be a string.',
-    required_error: 'printer networkName is required.',
-  }),
+  // Vestigial: nothing here reads it, and the frontend only uses it as a
+  // display fallback behind `name`. Optional because a printer saved without
+  // one must not make the whole desired payload fail to parse.
+  networkName: z
+    .string({
+      invalid_type_error: 'printer networkName must be a string.',
+    })
+    .optional()
+    .default(''),
   port: z
     .string({
       invalid_type_error: 'printer port must be a string.',

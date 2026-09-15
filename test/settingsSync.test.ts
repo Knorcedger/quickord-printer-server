@@ -146,6 +146,50 @@ describe('settings hash sync', () => {
     expect(readSettingsFile().syncedHash).toBe('abc123');
   });
 
+  it('does not acknowledge a LAN change it failed to write', async () => {
+    await applyDesiredSettings(desired, {
+      authoritative: true,
+      hash: 'abc123',
+      source: 'pull channel',
+    });
+
+    const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-nowrite-'));
+    fs.mkdirSync(path.join(blocked, 'settings.json'));
+    process.chdir(blocked);
+    const changed = {
+      ...desired,
+      printers: [{ ...desired.printers[0], copies: 2 }],
+    };
+
+    try {
+      await applyDesiredSettings(changed, { source: 'LAN' });
+
+      // The live printers now run the LAN payload, which the backend has never
+      // seen. Keeping 'abc123' would report that drift as in sync.
+      expect(getSyncedHash()).toBeUndefined();
+    } finally {
+      process.chdir(tmpDir);
+    }
+
+    // An identical push once the file is writable again is the retry: nothing
+    // changes, but settings.json is still behind and has to catch up.
+    await applyDesiredSettings(changed, { source: 'LAN' });
+
+    expect(readSettingsFile().printers[0].copies).toBe(2);
+  });
+
+  it('accepts a printer without a networkName', async () => {
+    const { networkName: _dropped, ...printer } = desired.printers[0]!;
+
+    await applyDesiredSettings(
+      { ...desired, printers: [printer] },
+      { authoritative: true, hash: 'abc123', source: 'pull channel' }
+    );
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(getSettings().printers[0]?.networkName).toBe('');
+  });
+
   it('keeps the hash across a reload of the file it wrote', async () => {
     await applyDesiredSettings(desired, { hash: 'abc123', source: 'test' });
     updateSettings(Settings.parse({ printers: [] }));

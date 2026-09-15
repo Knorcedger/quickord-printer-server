@@ -332,9 +332,12 @@ async function pollOnce(): Promise<void> {
         source: 'pull channel',
       });
     } catch (err) {
-      settingsApplyFailed = true;
       logger.error('Failed to apply settings from the pull channel:', err);
     }
+    // A settings.json that can't be written doesn't throw — it just leaves the
+    // hash unacknowledged. Read the outcome instead of the exception, or the
+    // backend (which answers at once while we differ) and this loop spin.
+    if (getSyncedHash() !== data.settingsHash) settingsApplyFailed = true;
   }
 
   const jobs = data.jobs;

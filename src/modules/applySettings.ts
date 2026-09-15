@@ -18,15 +18,33 @@ import {
   updateSettings,
 } from './settings';
 
+// A failed write leaves the live settings ahead of settings.json. Retry it on
+// the next apply even when nothing changed — the file may have recovered since.
+let persistPending = false;
+
 /**
- * The settings are live in memory but never reached the disk. Keep reporting
- * the hash we last persisted so the backend re-delivers and the write is
- * retried, instead of acknowledging a state a restart would lose.
+ * Write the live settings to settings.json, and on failure report a hash that
+ * can't be mistaken for sync. The pull path falls back to the hash last written
+ * there, so the backend re-delivers and the write is retried; a LAN push falls
+ * back to no hash at all — the backend has never seen that state, so keeping
+ * the old hash would hide the drift from the only channel that repairs it.
  */
-const keepUnsynced = (persistedHash?: string): void => {
-  updateSettings({ ...getSettings(), syncedHash: persistedHash });
+const persist = async (
+  options: { hash?: string },
+  persistedHash?: string
+): Promise<void> => {
+  if (await saveSettings()) {
+    persistPending = false;
+    return;
+  }
+
+  persistPending = true;
+  updateSettings({
+    ...getSettings(),
+    syncedHash: options.hash ? persistedHash : undefined,
+  });
   logger.warn(
-    'Settings could not be written to disk; still reporting the last persisted hash'
+    'Could not write settings.json; not acknowledging the settings as synced'
   );
 };
 
@@ -127,11 +145,11 @@ export const applyDesiredSettings = async (
   if (settingsFingerprint(newSettings) === settingsFingerprint(oldSettings)) {
     const hash = options.hash ?? oldSettings.syncedHash;
 
-    if (hash !== oldSettings.syncedHash) {
+    // persistPending: an earlier write failed, so settings.json is behind even
+    // though this payload changes nothing. This is the retry.
+    if (hash !== oldSettings.syncedHash || persistPending) {
       updateSettings({ ...oldSettings, syncedHash: hash });
-      if (!(await saveSettings())) {
-        keepUnsynced(oldSettings.syncedHash);
-      }
+      await persist(options, oldSettings.syncedHash);
     }
 
     logger.info(`Settings unchanged from ${options.source}`);
@@ -141,9 +159,7 @@ export const applyDesiredSettings = async (
 
   updateSettings(newSettings);
 
-  if (!(await saveSettings())) {
-    keepUnsynced(oldSettings.syncedHash);
-  }
+  await persist(options, oldSettings.syncedHash);
   setupPrinters(newSettings);
 
   try {
