@@ -10,6 +10,7 @@ import { setupPrinters } from './printer';
 import {
   getModems,
   getSettings,
+  IModemSettings,
   IPrinterSettings,
   ISettings,
   saveSettings,
@@ -48,6 +49,18 @@ const persist = async (
   );
 };
 
+/** One modem that won't open must not fail the settings apply around it. */
+const reconcileModems = async (modems: IModemSettings[]): Promise<void> => {
+  try {
+    await syncModems(modems);
+  } catch (modemError) {
+    logger.error(
+      'Failed to initialize modems, continuing without modem:',
+      modemError
+    );
+  }
+};
+
 export class VenueMismatchError extends Error {
   ownVenueId: string;
 
@@ -84,12 +97,21 @@ export const applyDesiredSettings = async (
 
   const printers: IPrinterSettings[] = incoming.printers.map(
     (printer: IPrinterSettings) => {
-      // Strip undefined values so they don't overwrite existing settings
+      // The schema rejects null outright, so neither marker can be passed
+      // through: undefined means "not sent, keep what is local", null means the
+      // field was cleared in the database and has to fall back to the schema
+      // default instead of inheriting the local value.
+      const entries = Object.entries(printer);
       const cleaned = Object.fromEntries(
-        Object.entries(printer).filter(([, v]) => v !== undefined)
+        entries.filter(([, v]) => v !== undefined && v !== null)
       );
+      const clearedKeys = entries
+        .filter(([, v]) => v === null)
+        .map(([key]) => key);
       const sanitizedIp =
-        printer.ip !== undefined ? printer.ip.replace('\r', '') : undefined;
+        typeof printer.ip === 'string'
+          ? printer.ip.replace('\r', '')
+          : undefined;
       // Only a partial push merges onto the local printer. An authoritative one
       // must not: a field it omits is unset in the database, and carrying the
       // local value over would leave drift the acknowledged hash calls in sync.
@@ -102,11 +124,15 @@ export const applyDesiredSettings = async (
                 p.ip !== '') ||
               (p.port === printer.port && p.port !== '')
           ) || {};
-      return {
+      const merged: Record<string, unknown> = {
         ...local,
         ...cleaned,
         ...(sanitizedIp !== undefined ? { ip: sanitizedIp } : {}),
       };
+
+      clearedKeys.forEach((key) => delete merged[key]);
+
+      return merged as IPrinterSettings;
     }
   );
 
@@ -140,8 +166,8 @@ export const applyDesiredSettings = async (
 
   // A push that changes nothing still arrives on every page mount and after
   // every LAN push (the backend re-delivers what it sees as unsynced). Record
-  // the hash and stop: re-running the printers and modems would drop every
-  // connection and restart the keep-alive for identical content.
+  // the hash and skip setupPrinters: rebuilding identical printer handles only
+  // churns them.
   if (settingsFingerprint(newSettings) === settingsFingerprint(oldSettings)) {
     const hash = options.hash ?? oldSettings.syncedHash;
 
@@ -152,6 +178,12 @@ export const applyDesiredSettings = async (
       await persist(options, oldSettings.syncedHash);
     }
 
+    // Modems still reconcile: one whose reconnect attempts ran out stays dead
+    // until something reopens it, and an unchanged push is what the venue has
+    // to reach for. syncModems leaves open and reconnecting ports untouched,
+    // so only the dead ones are revived.
+    await reconcileModems(modems);
+
     logger.info(`Settings unchanged from ${options.source}`);
 
     return { isFirstClaim, newSettings: getSettings() };
@@ -161,15 +193,7 @@ export const applyDesiredSettings = async (
 
   await persist(options, oldSettings.syncedHash);
   setupPrinters(newSettings);
-
-  try {
-    await syncModems(modems);
-  } catch (modemError) {
-    logger.error(
-      'Failed to initialize modems, continuing without modem:',
-      modemError
-    );
-  }
+  await reconcileModems(modems);
 
   logger.info(`Settings applied from ${options.source}`);
 

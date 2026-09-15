@@ -190,6 +190,45 @@ describe('settings hash sync', () => {
     expect(getSettings().printers[0]?.networkName).toBe('');
   });
 
+  it('accepts a printer whose fields are explicitly null', async () => {
+    // A field cleared in the database arrives as null, which the schema rejects
+    // outright — one such printer would fail the parse for the whole venue and
+    // leave every printer and modem setting stale until someone re-saved it.
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [
+          {
+            ...desired.printers[0],
+            ip: null,
+            networkName: null,
+            priceOnOrder: null,
+          },
+        ],
+      },
+      { authoritative: true, hash: 'abc123', source: 'pull channel' }
+    );
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(getSettings().printers[0]?.networkName).toBe('');
+    expect(getSettings().printers[0]?.ip).toBe('');
+    expect(getSettings().printers[0]?.priceOnOrder).toBeUndefined();
+  });
+
+  it('treats null as a clear on a partial push, not as "keep the local value"', async () => {
+    await applyDesiredSettings(desired, { source: 'LAN' });
+    expect(getSettings().printers[0]?.networkName).toBe('kitchen');
+
+    // undefined means "not sent"; null means the field was cleared, so it must
+    // fall back to the schema default rather than inherit what is local.
+    await applyDesiredSettings(
+      { ...desired, printers: [{ ...desired.printers[0], networkName: null }] },
+      { source: 'LAN' }
+    );
+
+    expect(getSettings().printers[0]?.networkName).toBe('');
+  });
+
   it('keeps the hash across a reload of the file it wrote', async () => {
     await applyDesiredSettings(desired, { hash: 'abc123', source: 'test' });
     updateSettings(Settings.parse({ printers: [] }));
