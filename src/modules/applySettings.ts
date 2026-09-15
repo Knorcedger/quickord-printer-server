@@ -24,26 +24,19 @@ import {
 let persistPending = false;
 
 /**
- * Write the live settings to settings.json, and on failure report a hash that
- * can't be mistaken for sync. The pull path falls back to the hash last written
- * there, so the backend re-delivers and the write is retried; a LAN push falls
- * back to no hash at all — the backend has never seen that state, so keeping
- * the old hash would hide the drift from the only channel that repairs it.
+ * Write the live settings to settings.json, and on failure report no hash at
+ * all. Falling back to the hash on disk would name settings the venue has
+ * already stopped running: revert the backend to that state and it sees a
+ * match, stops sending, and nothing is left to repair the live drift.
  */
-const persist = async (
-  options: { hash?: string },
-  persistedHash?: string
-): Promise<void> => {
+const persist = async (): Promise<void> => {
   if (await saveSettings()) {
     persistPending = false;
     return;
   }
 
   persistPending = true;
-  updateSettings({
-    ...getSettings(),
-    syncedHash: options.hash ? persistedHash : undefined,
-  });
+  updateSettings({ ...getSettings(), syncedHash: undefined });
   logger.warn(
     'Could not write settings.json; not acknowledging the settings as synced'
   );
@@ -175,7 +168,7 @@ export const applyDesiredSettings = async (
     // though this payload changes nothing. This is the retry.
     if (hash !== oldSettings.syncedHash || persistPending) {
       updateSettings({ ...oldSettings, syncedHash: hash });
-      await persist(options, oldSettings.syncedHash);
+      await persist();
     }
 
     // Modems still reconcile: one whose reconnect attempts ran out stays dead
@@ -191,7 +184,7 @@ export const applyDesiredSettings = async (
 
   updateSettings(newSettings);
 
-  await persist(options, oldSettings.syncedHash);
+  await persist();
   setupPrinters(newSettings);
   await reconcileModems(modems);
 

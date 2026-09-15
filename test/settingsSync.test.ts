@@ -134,8 +134,8 @@ describe('settings hash sync', () => {
       process.chdir(tmpDir);
     }
 
-    // Reporting the old hash is what makes the backend re-deliver, which is
-    // the retry: the same payload now writes and the venue converges.
+    // Reporting no hash is what makes the backend re-deliver, which is the
+    // retry: the same payload now writes and the venue converges.
     await applyDesiredSettings(desired, {
       authoritative: true,
       hash: 'abc123',
@@ -176,6 +176,49 @@ describe('settings hash sync', () => {
     await applyDesiredSettings(changed, { source: 'LAN' });
 
     expect(readSettingsFile().printers[0].copies).toBe(2);
+  });
+
+  it('converges after a failed write when the backend reverts meanwhile', async () => {
+    await applyDesiredSettings(desired, {
+      authoritative: true,
+      hash: 'hash-a',
+      source: 'pull channel',
+    });
+
+    const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-nowrite-'));
+    fs.mkdirSync(path.join(blocked, 'settings.json'));
+    process.chdir(blocked);
+    const changed = {
+      ...desired,
+      printers: [{ ...desired.printers[0], copies: 2 }],
+    };
+
+    try {
+      await applyDesiredSettings(changed, {
+        authoritative: true,
+        hash: 'hash-b',
+        source: 'pull channel',
+      });
+
+      // B is live on the printers now. Reporting 'hash-a' would let a backend
+      // reverted to A see a match, stop sending, and leave B running forever.
+      expect(getSettings().printers[0]?.copies).toBe(2);
+      expect(getSyncedHash()).toBeUndefined();
+    } finally {
+      process.chdir(tmpDir);
+    }
+
+    // The revert: the backend is back on A, and an unset hash is what still
+    // gets A delivered once the file is writable again.
+    await applyDesiredSettings(desired, {
+      authoritative: true,
+      hash: 'hash-a',
+      source: 'pull channel',
+    });
+
+    expect(getSettings().printers[0]?.copies).toBe(1);
+    expect(getSyncedHash()).toBe('hash-a');
+    expect(readSettingsFile().printers[0].copies).toBe(1);
   });
 
   it('accepts a printer without a networkName', async () => {
