@@ -5,6 +5,7 @@ import { printer as ThermalPrinter } from 'node-thermal-printer';
 import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
 import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
+import { sanitizeForPrinter } from './charsetGuard';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -1524,8 +1525,9 @@ export const printDeliveryNoteVatBreakdown = (
   ];
 
   summaryLines.forEach((line) => {
-    const spacing = lineWidth - line.label.length - line.value.length;
-    printer.println(line.label + ' '.repeat(Math.max(1, spacing)) + line.value);
+    const value = sanitizeForPrinter(printer, line.value);
+    const spacing = lineWidth - line.label.length - value.length;
+    printer.println(line.label + ' '.repeat(Math.max(1, spacing)) + value);
   });
 
   drawLine2(printer);
