@@ -75,18 +75,16 @@ const AUTH_RETRY_MS = 60_000;
 // Re-check cadence while venueId/wsSecret aren't provisioned yet (a /settings
 // sync will fill them in), so an un-provisioned PS doesn't hammer the backend.
 const NO_CREDS_RETRY_MS = 5_000;
-// Pause before re-polling when settings could not be applied. The backend
-// answers a poll straight away while we are out of sync, so without this the
-// two would spin on each other for as long as the failure lasts. It doubles up
-// to the cap because the pause is not there to ride out a blip: a settings.json
-// that can't be written stays unwritable, and at the flat 5s such a venue polls
-// four times the normal idle rate — with a full settings payload on every
-// answer — for as long as it lasts. The trigger is rarely one venue's disk; a
-// bad service reinstall has broken the settings path across the fleet at once.
-const SETTINGS_RETRY_PAUSE_MS = 5_000;
-const SETTINGS_RETRY_PAUSE_MAX_MS = 60_000;
-let settingsRetryPauseMs = SETTINGS_RETRY_PAUSE_MS;
-let settingsApplyFailed = false;
+// Floor between polls while settings won't apply, and the answer time below
+// which a poll counts as un-held. Pacing is the backend's job: told we can't
+// take the settings (settingsApplyFailed in the poll body) it holds the poll
+// normally instead of answering at once, which paces the retries without ever
+// closing the channel jobs arrive on. This floor only covers a backend that
+// ignores the flag — one that predates it, or a rollback — where the two would
+// otherwise spin. Short and flat, so even then a job waits well inside the
+// backend's 25s command and 60s freshness deadlines.
+const SETTINGS_SPIN_GUARD_MS = 5_000;
+const HELD_POLL_MS = 10_000;
 
 // Raised when the backend rejects the pull channel's credentials. Two triggers:
 // (1) the HTTP status is 401 — the authoritative signal, works even against a
@@ -295,15 +293,20 @@ function reportResult(
   })();
 }
 
-async function pollOnce(): Promise<void> {
+// Returns whether the answer carried work, so the caller can tell an idle poll
+// from one that just delivered a batch.
+async function pollOnce(): Promise<boolean> {
   const data = await postJson(
     '/print-jobs/poll',
     // Piggyback the version so the backend can surface it without depending on
     // the WS register — the pull channel is the primary transport. settingsHash
     // is always present (null when we hold none): its presence is how the
     // backend tells this build from one that can't take settings from a poll.
+    // settingsApplyFailed says the last delivery couldn't be taken, so it holds
+    // the poll instead of answering at once and re-sending on a loop.
     {
       secret: getWsSecret(),
+      settingsApplyFailed: settingsApplyFailures.active,
       settingsHash: getSyncedHash() ?? null,
       venueId: getVenueId(),
       version: getPrinterVersion(),
@@ -340,18 +343,20 @@ async function pollOnce(): Promise<void> {
       await applyDesiredSettings(data.settings, {
         authoritative: true,
         hash: data.settingsHash,
+        // Already inside a failing episode: its own logs would repeat the same
+        // write error on every retry, forever. The summary line carries it.
+        quiet: settingsApplyFailures.active,
         source: 'pull channel',
       });
     } catch (err) {
       thrown = err;
     }
     // A settings.json that can't be written doesn't throw — it just leaves the
-    // hash unacknowledged. Read the outcome instead of the exception, or the
-    // backend (which answers at once while we differ) and this loop spin.
-    settingsApplyFailed = getSyncedHash() !== data.settingsHash;
-    if (settingsApplyFailed) {
+    // hash unacknowledged, so read the outcome instead of the exception.
+    if (getSyncedHash() !== data.settingsHash) {
       settingsApplyFailures.fail(
-        thrown ?? new Error('settings applied but the hash was not acknowledged')
+        thrown ??
+          new Error('settings applied but the hash was not acknowledged')
       );
     } else {
       settingsApplyFailures.succeed();
@@ -359,10 +364,13 @@ async function pollOnce(): Promise<void> {
   }
 
   const jobs = data.jobs;
+  let dispatched = 0;
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
     dispatchJob(job);
+    dispatched += 1;
   }
+  return dispatched > 0;
 }
 
 /**
@@ -449,19 +457,21 @@ async function loop(): Promise<void> {
       continue;
     }
     try {
-      await pollOnce();
+      const polledAt = Date.now();
+      const delivered = await pollOnce();
       markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
-      if (settingsApplyFailed) {
-        settingsApplyFailed = false;
-        await sleep(settingsRetryPauseMs);
-        settingsRetryPauseMs = Math.min(
-          settingsRetryPauseMs * 2,
-          SETTINGS_RETRY_PAUSE_MAX_MS
-        );
-      } else {
-        settingsRetryPauseMs = SETTINGS_RETRY_PAUSE_MS;
+      // See SETTINGS_SPIN_GUARD_MS: a backend that held the poll has already
+      // paced this retry — and held it with the channel open, so jobs kept
+      // arriving. An answer that carried jobs is the venue printing, not a
+      // spin, and must not be slowed down either.
+      if (
+        settingsApplyFailures.active &&
+        !delivered &&
+        Date.now() - polledAt < HELD_POLL_MS
+      ) {
+        await sleep(SETTINGS_SPIN_GUARD_MS);
       }
     } catch (err) {
       if (err instanceof PollRejectedError) {

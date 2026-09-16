@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { applyDesiredSettings } from '../src/modules/applySettings';
+import logger from '../src/modules/logger';
 import { setupPrinters } from '../src/modules/printer';
 import {
   getSettings,
@@ -20,6 +21,11 @@ jest.mock('../src/modules/api', () => ({
 
 jest.mock('../src/modules/printer', () => ({
   setupPrinters: jest.fn(),
+}));
+
+jest.mock('../src/modules/logger', () => ({
+  __esModule: true,
+  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
 }));
 
 jest.mock('../src/modules/modem', () => ({
@@ -144,6 +150,42 @@ describe('settings hash sync', () => {
 
     expect(getSyncedHash()).toBe('abc123');
     expect(readSettingsFile().syncedHash).toBe('abc123');
+  });
+
+  it('reports a failed write once, then says nothing while it is retried', async () => {
+    // The retry runs on every poll and an unwritable settings.json never fixes
+    // itself, so the caller's episode reports the first failure and silences
+    // the rest — including the write error and the applied/unchanged line.
+    const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-nowrite-'));
+    fs.mkdirSync(path.join(blocked, 'settings.json'));
+    process.chdir(blocked);
+
+    try {
+      await applyDesiredSettings(desired, {
+        authoritative: true,
+        hash: 'abc123',
+        source: 'pull channel',
+      });
+
+      // One line, carrying the real reason the write failed.
+      expect(logger.warn).toHaveBeenCalledTimes(1);
+      expect((logger.warn as jest.Mock).mock.calls[0][0]).toContain('EISDIR');
+      expect(logger.error).not.toHaveBeenCalled();
+
+      jest.clearAllMocks();
+      await applyDesiredSettings(desired, {
+        authoritative: true,
+        hash: 'abc123',
+        quiet: true,
+        source: 'pull channel',
+      });
+
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    } finally {
+      process.chdir(tmpDir);
+    }
   });
 
   it('does not acknowledge a LAN change it failed to write', async () => {

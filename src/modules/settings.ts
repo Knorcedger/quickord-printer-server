@@ -350,16 +350,17 @@ export const loadSettings = async () => {
   }
 };
 
-// Returns whether the file was actually written: a caller that records a sync
-// hash must not acknowledge settings that never made it to disk.
-export const saveSettings = async (): Promise<boolean> => {
+// Returns what stopped the write, or null when it landed: a caller that records
+// a sync hash must not acknowledge settings that never made it to disk. The
+// error is returned rather than logged because the write is retried on every
+// poll, and only the caller knows whether this one is already a known failure.
+export const saveSettings = async (): Promise<Error | null> => {
   try {
     settings.writtenFingerprint = settingsFingerprint(settings);
     fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
-    return true;
+    return null;
   } catch (error) {
-    logger.error('Error writing settings file:', error);
-    return false;
+    return error instanceof Error ? error : new Error(String(error));
   }
 };
 

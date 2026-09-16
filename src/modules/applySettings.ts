@@ -29,17 +29,22 @@ let persistPending = false;
  * already stopped running: revert the backend to that state and it sees a
  * match, stops sending, and nothing is left to repair the live drift.
  */
-const persist = async (): Promise<void> => {
-  if (await saveSettings()) {
+const persist = async (quiet: boolean): Promise<void> => {
+  const error = await saveSettings();
+  if (!error) {
     persistPending = false;
     return;
   }
 
   persistPending = true;
   updateSettings({ ...getSettings(), syncedHash: undefined });
-  logger.warn(
-    'Could not write settings.json; not acknowledging the settings as synced'
-  );
+  // One line, and only outside a known failure episode: an unwritable file
+  // fails on every poll, and the caller's episode summary already carries it.
+  if (!quiet) {
+    logger.warn(
+      `Could not write settings.json (${error.message}); not acknowledging the settings as synced`
+    );
+  }
 };
 
 /** One modem that won't open must not fail the settings apply around it. */
@@ -72,11 +77,19 @@ export class VenueMismatchError extends Error {
  * unless the push changes nothing, which leaves the venue in sync as it was.
  * `authoritative` marks a payload that carries the venue's whole desired state
  * (the pull channel), where an absent field is a reset rather than an omission.
+ * `quiet` silences this apply's own logs: the caller is retrying a failure it
+ * has already reported, and the retry runs on every poll.
  */
 export const applyDesiredSettings = async (
   incoming: any,
-  options: { authoritative?: boolean; hash?: string; source: string }
+  options: {
+    authoritative?: boolean;
+    hash?: string;
+    quiet?: boolean;
+    source: string;
+  }
 ): Promise<{ isFirstClaim: boolean; newSettings: ISettings }> => {
+  const quiet = options.quiet === true;
   const oldSettings = getSettings();
 
   // Venue guard: reject settings sync from a different venue
@@ -168,7 +181,7 @@ export const applyDesiredSettings = async (
     // though this payload changes nothing. This is the retry.
     if (hash !== oldSettings.syncedHash || persistPending) {
       updateSettings({ ...oldSettings, syncedHash: hash });
-      await persist();
+      await persist(quiet);
     }
 
     // Modems still reconcile: one whose reconnect attempts ran out stays dead
@@ -177,18 +190,18 @@ export const applyDesiredSettings = async (
     // so only the dead ones are revived.
     await reconcileModems(modems);
 
-    logger.info(`Settings unchanged from ${options.source}`);
+    if (!quiet) logger.info(`Settings unchanged from ${options.source}`);
 
     return { isFirstClaim, newSettings: getSettings() };
   }
 
   updateSettings(newSettings);
 
-  await persist();
+  await persist(quiet);
   setupPrinters(newSettings);
   await reconcileModems(modems);
 
-  logger.info(`Settings applied from ${options.source}`);
+  if (!quiet) logger.info(`Settings applied from ${options.source}`);
 
   return { isFirstClaim, newSettings };
 };
