@@ -35,7 +35,7 @@ import {
   printProductDiscount,
   getInvoiceTypeLabel,
   isUSBPrinterOnline,
-  wrapWords,
+  buildProductRow,
 } from './common';
 import logger from './logger';
 import { installCharsetGuard, sanitizeForPrinter } from './charsetGuard';
@@ -3675,26 +3675,17 @@ export const printOrder = async (
                 )
               : '';
           }
-          // An enlarged price takes two cells per character, so reserve twice
-          // the room for it when padding the title.
-          const enlargePrice = boldPrices && !boldProducts && !!priceStr;
-          const lineWidth = boldProducts ? 21 : 42;
-          const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
-          // Transliterate before wrapping — it rewrites Greek to Latin and
-          // trims, so measuring or padding the raw text would misalign the
-          // price column.
-          const titleLines = wrapWords(
-            tr(productLine, settings.transliterate),
-            lineWidth,
-            '   ',
-            priceCells
+          const { enlargePrice, leadingLines, paddedLine } = buildProductRow(
+            printer,
+            productLine,
+            priceStr,
+            {
+              boldPrices,
+              boldProducts,
+              transliterate: settings.transliterate,
+            }
           );
-          const lastLine = titleLines[titleLines.length - 1]!;
-          titleLines.slice(0, -1).forEach((line) => printer.println(line));
-          const paddedLine = lastLine.padEnd(
-            Math.max(0, lineWidth - priceCells),
-            ' '
-          );
+          leadingLines.forEach((line) => printer.println(line));
 
           if (enlargePrice) {
             printer.print(paddedLine);

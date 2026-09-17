@@ -760,6 +760,36 @@ export const wrapWords = (
 ): string[] =>
   wrapChoices([text], width, '', continuationIndent, lastLineReserved);
 
+// Lays out one product row: the wrapped title, its last line padded so the
+// price column lands where it should. Transliteration and the charset guard
+// both rewrite the text (Θ → TH, `€` → `EUR`), so both run before any
+// measuring — padding the raw string would push the price off the paper.
+export const buildProductRow = (
+  printer,
+  productLine: string,
+  priceStr: string,
+  { boldPrices = false, boldProducts = false, transliterate = false } = {}
+) => {
+  // An enlarged price takes two cells per character, so reserve twice the room
+  // for it when padding the title.
+  const enlargePrice = boldPrices && !boldProducts && !!priceStr;
+  const lineWidth = boldProducts ? 21 : 42;
+  const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
+  const lines = wrapWords(
+    sanitizeForPrinter(printer, tr(productLine, transliterate)),
+    lineWidth,
+    '   ',
+    priceCells
+  );
+  const lastLine = lines[lines.length - 1]!;
+
+  return {
+    enlargePrice,
+    leadingLines: lines.slice(0, -1),
+    paddedLine: lastLine.padEnd(Math.max(0, lineWidth - priceCells), ' '),
+  };
+};
+
 // `enlarged` tells us the caller left the text at double width (BOLD_PRODUCTS),
 // where every character costs two cells and only half the line is usable.
 export const printOptionDetails = (
@@ -772,12 +802,16 @@ export const printOptionDetails = (
   const width = enlarged ? 21 : 42;
 
   options?.forEach((option) => {
-    // Transliterate before measuring: it rewrites Greek to Latin (Θ → TH), so
-    // wrapping the raw text would size the lines against characters we never
-    // print. It also trims, hence the indent is applied after.
-    let optionLabel = tr(
-      normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
-      settings.transliterate
+    // Transliterate and sanitize before measuring: both rewrite the text
+    // (Θ → TH, `€` → `EUR`), so wrapping the raw string would size the lines
+    // against characters we never print. tr also trims, hence the indent is
+    // applied after.
+    let optionLabel = sanitizeForPrinter(
+      printer,
+      tr(
+        normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
+        settings.transliterate
+      )
     );
     if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
       optionLabel = `${optionLabel}: `;
@@ -795,9 +829,12 @@ export const printOptionDetails = (
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
       choiceValues.push(
-        tr(
-          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
-          settings.transliterate
+        sanitizeForPrinter(
+          printer,
+          tr(
+            `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+            settings.transliterate
+          )
         )
       );
       if (choice.price && choice.price > 0)

@@ -12,7 +12,7 @@ import {
   sanitizeForEncoding,
   sanitizeForPrinter,
 } from '../src/modules/charsetGuard';
-import { printOptionDetails } from '../src/modules/common';
+import { buildProductRow, printOptionDetails } from '../src/modules/common';
 
 const SAMPLE = 'ΣΥΝΟΛΟ: 5.00 €';
 const CODE_PAGE = 7;
@@ -142,6 +142,117 @@ describe('charset guard', () => {
       const lines = renderOptions(true);
       expect(lines.some((l) => l.endsWith('2.50 EUR'))).toBe(true);
       lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+    });
+  });
+
+  // Menu text carries the same expanding characters as the price does. Before
+  // the option label and the choice values were sanitized up front, a `€` or
+  // `…` in a title grew after the row had already been wrapped and padded.
+  describe('expanding characters in option text', () => {
+    const settings: any = { priceOnOrder: true, transliterate: false };
+    const charsets = [
+      [CharacterSet.PC737_GREEK, 'PC737'],
+      [CharacterSet.PC869_GREEK, 'PC869'],
+    ] as const;
+
+    const renderOptions = (
+      characterSet: CharacterSet,
+      options: any,
+      enlarged: boolean
+    ) => {
+      const printer = installCharsetGuard(
+        makePrinter(characterSet),
+        characterSet
+      );
+      const lines: string[] = [];
+      const println = printer.println.bind(printer);
+      (printer as any).println = (text: string) => {
+        lines.push(sanitizeForPrinter(printer, text));
+        return println(text);
+      };
+      printOptionDetails(printer, options, 'el', settings, enlarged);
+      return lines;
+    };
+
+    // `…` → `...` and `€` → `EUR` each add two characters after wrapping.
+    const options = [
+      {
+        choices: [
+          {
+            content: [{ language: 'el', title: 'ΜΕ ΣΑΛΤΣΑ… ΚΑΙ ΤΥΡΙ 1€' }],
+            price: 250,
+          },
+        ],
+        content: [{ language: 'el', title: 'ΕΞΤΡΑ… 2€' }],
+      },
+    ] as any;
+
+    charsets.forEach(([characterSet, label]) => {
+      test(`${label}: rows stay within 42 characters`, () => {
+        const lines = renderOptions(characterSet, options, false);
+        expect(lines.some((l) => l.includes('EUR'))).toBe(true);
+        expect(lines.some((l) => l.includes('...'))).toBe(true);
+        lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
+      });
+
+      test(`${label}: BOLD_PRODUCTS rows stay within 21 characters`, () => {
+        const lines = renderOptions(characterSet, options, true);
+        lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+      });
+    });
+  });
+
+  // The product row measures the title, pads it, then appends the price, so an
+  // expanding character in the title used to push the price column off the row.
+  describe('expanding characters in a product title', () => {
+    const productRow = (
+      title: string,
+      { boldPrices = false, boldProducts = false } = {}
+    ) => {
+      const characterSet = CharacterSet.PC737_GREEK;
+      const printer = installCharsetGuard(
+        makePrinter(characterSet),
+        characterSet
+      );
+      const priceStr = sanitizeForPrinter(printer, ' 5.00 €');
+      const { enlargePrice, leadingLines, paddedLine } = buildProductRow(
+        printer,
+        `1x ${title}`,
+        priceStr,
+        { boldPrices, boldProducts }
+      );
+      return {
+        cells: paddedLine.length + priceStr.length * (enlargePrice ? 2 : 1),
+        rows: [...leadingLines, paddedLine + priceStr],
+      };
+    };
+
+    test('normal size: a title with `€` still ends on cell 42', () => {
+      const { cells, rows } = productRow('ΜΕΝΟΥ 5€');
+      expect(rows[rows.length - 1]).toContain('ΜΕΝΟΥ 5EUR');
+      expect(cells).toBe(42);
+      expect(rows[rows.length - 1]!.length).toBe(42);
+    });
+
+    test('normal size: a title with `…` and `→` still ends on cell 42', () => {
+      const { cells, rows } = productRow('ΚΡΕΠΑ… ΓΛΥΚΙΑ → ΜΕΓΑΛΗ');
+      const last = rows[rows.length - 1]!;
+      expect(last).toContain('...');
+      expect(last).toContain('->');
+      expect(cells).toBe(42);
+      rows.forEach((r) => expect(r.length).toBeLessThanOrEqual(42));
+    });
+
+    test('BOLD_PRODUCTS: the row stays inside the 21 enlarged cells', () => {
+      const { rows } = productRow('ΜΕΝΟΥ 5€', { boldProducts: true });
+      rows.forEach((r) => expect(r.length).toBeLessThanOrEqual(21));
+    });
+
+    test('BOLD_PRICES: the enlarged price still has its reserved cells', () => {
+      const { cells, rows } = productRow('ΜΕΝΟΥ 5€', { boldPrices: true });
+      // 24 title cells + the 9-character price at double width = 42.
+      expect(cells).toBe(42);
+      expect(rows[rows.length - 1]).toContain('5.00 EUR');
     });
   });
 });
