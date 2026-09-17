@@ -682,8 +682,6 @@ const wrapChoices = (
   continuationIndent: string,
   lastLineReserved: number
 ): string[] => {
-  if (choices.length === 0) return [firstPrefix];
-
   const lines: string[] = [];
   let current = firstPrefix;
 
@@ -715,6 +713,22 @@ const wrapChoices = (
       if (rem.length > 0) pushCurrent();
     }
   };
+
+  // The prefix is an option label, which can be wider than the row on its own
+  // (enlarged text, or a `…` the guard turned into `...`). Wrap it through the
+  // same path instead of letting it out at full length.
+  if (firstPrefix.length > width) {
+    current = /^ */.exec(firstPrefix)![0];
+    firstPrefix
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .forEach((word) => appendWord(word));
+    // Keep the separating space the caller put at the end of the label.
+    if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
+  }
+
+  if (choices.length === 0) return [...lines, current];
 
   choices.forEach((choice, i) => {
     const sep = i === 0 ? '' : ', ';
@@ -957,9 +971,14 @@ export const printProducts = (
     const localizedTitle =
       (matchedProduct && getTitle(matchedProduct.content, lang)) || detail.name;
 
-    const name = tr(
-      normalizeGreek(String(localizedTitle).toUpperCase()),
-      settings.transliterate
+    // Sanitize before the column maths below: the guard widens `€`/`…` at
+    // append time, which would shift the value and VAT columns.
+    const name = sanitizeForPrinter(
+      printer,
+      tr(
+        normalizeGreek(String(localizedTitle).toUpperCase()),
+        settings.transliterate
+      )
     );
 
     const quantity = signedQuantity.toFixed(0); // "-1" for credits
@@ -1370,7 +1389,11 @@ export const printDeliveryNoteProducts = (
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
-    const name = tr(normalizeGreek(detail.name.toUpperCase()), transliterate);
+    // Sanitized before the 10/14-cell name column is measured and padded.
+    const name = sanitizeForPrinter(
+      printer,
+      tr(normalizeGreek(detail.name.toUpperCase()), transliterate)
+    );
     const quantity = detail.quantity.toFixed(0);
 
     // Map unit code to Greek unit name

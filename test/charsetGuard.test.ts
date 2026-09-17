@@ -12,7 +12,12 @@ import {
   sanitizeForEncoding,
   sanitizeForPrinter,
 } from '../src/modules/charsetGuard';
-import { buildProductRow, printOptionDetails } from '../src/modules/common';
+import {
+  buildProductRow,
+  printDeliveryNoteProducts,
+  printOptionDetails,
+  printProducts,
+} from '../src/modules/common';
 
 const SAMPLE = 'ΣΥΝΟΛΟ: 5.00 €';
 const CODE_PAGE = 7;
@@ -253,6 +258,159 @@ describe('charset guard', () => {
       // 24 title cells + the 9-character price at double width = 42.
       expect(cells).toBe(42);
       expect(rows[rows.length - 1]).toContain('5.00 EUR');
+    });
+  });
+
+  // An option label wider than the row used to escape wrapping: wrapChoices
+  // emitted the whole prefix as its first line, so an expanded `…` or `€` in
+  // the label ran past the paper.
+  describe('option labels wider than the row are wrapped', () => {
+    const settings: any = { priceOnOrder: true, transliterate: false };
+
+    const renderLabel = (
+      characterSet: CharacterSet,
+      title: string,
+      choices: any[],
+      enlarged: boolean
+    ) => {
+      const printer = installCharsetGuard(
+        makePrinter(characterSet),
+        characterSet
+      );
+      const lines: string[] = [];
+      const println = printer.println.bind(printer);
+      (printer as any).println = (text: string) => {
+        lines.push(sanitizeForPrinter(printer, text));
+        return println(text);
+      };
+      printOptionDetails(
+        printer,
+        [{ choices, content: [{ language: 'el', title }] }] as any,
+        'el',
+        settings,
+        enlarged
+      );
+      return lines;
+    };
+
+    // ' - ' + 'ΔΙΑΛΕΞΤΕ ΣΥΝΟΔΕΥΤΙΚΟ...' + ': ' = 28 cells on a 21-cell row.
+    const LONG_LABEL = 'ΔΙΑΛΕΞΤΕ ΣΥΝΟΔΕΥΤΙΚΟ…';
+
+    test('BOLD_PRODUCTS: the expanded label wraps to the 21-cell row', () => {
+      const lines = renderLabel(
+        CharacterSet.PC737_GREEK,
+        LONG_LABEL,
+        [{ content: [{ language: 'el', title: 'ΠΑΤΑΤΕΣ' }], price: 250 }],
+        true
+      );
+      expect(lines.join(' ')).toContain('ΣΥΝΟΔΕΥΤΙΚΟ...');
+      expect(lines.length).toBeGreaterThan(1);
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+    });
+
+    test('BOLD_PRODUCTS: it wraps with no choices at all', () => {
+      const lines = renderLabel(CharacterSet.PC869_GREEK, LONG_LABEL, [], true);
+      expect(lines.join(' ')).toContain('ΣΥΝΟΔΕΥΤΙΚΟ...');
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+    });
+
+    test('normal size: a label past 42 cells wraps too', () => {
+      const lines = renderLabel(
+        CharacterSet.PC737_GREEK,
+        'ΔΙΑΛΕΞΤΕ ΣΥΝΟΔΕΥΤΙΚΟ ΚΑΙ ΣΑΛΤΣΑ ΓΙΑ ΤΟ ΜΕΝΟΥ…',
+        [{ content: [{ language: 'el', title: 'ΠΑΤΑΤΕΣ' }], price: 250 }],
+        false
+      );
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
+    });
+
+    test('a label that fits is left exactly as it was', () => {
+      const lines = renderLabel(
+        CharacterSet.PC737_GREEK,
+        'ΕΞΤΡΑ',
+        [{ content: [{ language: 'el', title: 'ΠΑΤΑΤΕΣ' }], price: 250 }],
+        false
+      );
+      expect(lines[0]!.startsWith('     - ΕΞΤΡΑ: ΠΑΤΑΤΕΣ')).toBe(true);
+    });
+  });
+
+  // Receipt and delivery-note rows are fixed columns: the name is measured,
+  // chunked and padded, so it has to be sanitized before any of that.
+  describe('invoice item names keep their columns', () => {
+    const settings: any = { transliterate: false };
+
+    const detail = (name: string) => ({
+      name,
+      net_value: 4.03,
+      quantity: 1,
+      rec_type: 1,
+      tax: { rate: 24, value: 0.97 },
+      unit: { code: '1' },
+    });
+
+    const capture = (characterSet: CharacterSet) => {
+      const printer = installCharsetGuard(
+        makePrinter(characterSet),
+        characterSet
+      );
+      const lines: string[] = [];
+      const println = printer.println.bind(printer);
+      (printer as any).println = (text: string) => {
+        lines.push(sanitizeForPrinter(printer, text));
+        return println(text);
+      };
+      return { lines, printer };
+    };
+
+    // Same visible length as the expanding name, so the rows must match.
+    const EXPANDING = 'ΚΑΦΕΣ… ΦΙΛΤΡΟΥ 2€';
+    const PLAIN = 'ΚΑΦΕΣ ΦΙΛΤΡΟΥ ΜΕΓΑΛ';
+
+    test('PC737 receipt rows keep the value and VAT columns in place', () => {
+      const expanding = capture(CharacterSet.PC737_GREEK);
+      printProducts(
+        expanding.printer,
+        { details: [detail(EXPANDING)] },
+        {},
+        settings,
+        'el'
+      );
+      const plain = capture(CharacterSet.PC737_GREEK);
+      printProducts(
+        plain.printer,
+        { details: [detail(PLAIN)] },
+        {},
+        settings,
+        'el'
+      );
+
+      const row = (lines: string[]) => lines.find((l) => l.startsWith('1  '))!;
+      expect(row(expanding.lines)).toContain('ΚΑΦΕΣ...');
+      expect(row(expanding.lines).length).toBe(row(plain.lines).length);
+      expect(row(expanding.lines).endsWith('       24%')).toBe(true);
+      expanding.lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(48));
+    });
+
+    test('PC869 delivery-note rows keep their column widths', () => {
+      const expanding = capture(CharacterSet.PC869_GREEK);
+      printDeliveryNoteProducts(
+        expanding.printer,
+        { details: [detail(EXPANDING)] } as any,
+        'el',
+        false
+      );
+      const plain = capture(CharacterSet.PC869_GREEK);
+      printDeliveryNoteProducts(
+        plain.printer,
+        { details: [detail(PLAIN)] } as any,
+        'el',
+        false
+      );
+
+      const row = (lines: string[]) => lines.find((l) => l.includes('ΤΕΜ'))!;
+      expect(row(expanding.lines).startsWith('ΚΑΦΕΣ...')).toBe(true);
+      expect(row(expanding.lines).length).toBe(row(plain.lines).length);
     });
   });
 });

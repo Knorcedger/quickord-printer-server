@@ -1820,7 +1820,9 @@ const printPaymentSlip = async (
           printer.bold(true);
           sumQuantity += detail.quantity;
 
-          const name = detail.name;
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0);
           const value = (
             detail.net_value *
@@ -1829,7 +1831,7 @@ const printPaymentSlip = async (
           const vat = `${detail.tax.rate}%`; // "24%"
           sumAmount += parseFloat(value);
           printer.println(
-            name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
+            name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
               quantity.padStart(7) +
               value.padStart(7) +
               vat.padStart(7)
@@ -2531,7 +2533,9 @@ const printMyPelatesReceipt = async (
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
-          const name = detail.name.toUpperCase();
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
@@ -2763,7 +2767,9 @@ const printMyPelatesInvoice = async (
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
-          const name = detail.name.toUpperCase();
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
