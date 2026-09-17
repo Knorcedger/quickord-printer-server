@@ -3666,8 +3666,13 @@ export const printOrder = async (
             settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true
           ) {
+            // Sanitized up front: `€` may become `EUR`, and the padding below
+            // is measured from this length.
             priceStr = product.total
-              ? ` ${convertToDecimal(product.total).toFixed(2)} €`
+              ? sanitizeForPrinter(
+                  printer,
+                  ` ${convertToDecimal(product.total).toFixed(2)} €`
+                )
               : '';
           }
           // An enlarged price takes two cells per character, so reserve twice

@@ -812,7 +812,12 @@ export const printOptionDetails = (
       totalPrice > 0 &&
       (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
     ) {
-      priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
+      // Sanitized up front: `€` may become `EUR`, and the padding below is
+      // measured from this length.
+      priceStr = sanitizeForPrinter(
+        printer,
+        `   ${(totalPrice / 100).toFixed(2)} €`
+      );
     }
     const continuationIndent = `${indent}  `;
     const lines = wrapChoices(

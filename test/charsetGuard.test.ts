@@ -12,6 +12,7 @@ import {
   sanitizeForEncoding,
   sanitizeForPrinter,
 } from '../src/modules/charsetGuard';
+import { printOptionDetails } from '../src/modules/common';
 
 const SAMPLE = 'ΣΥΝΟΛΟ: 5.00 €';
 const CODE_PAGE = 7;
@@ -94,5 +95,53 @@ describe('charset guard', () => {
     );
     expect(sanitizeForPrinter(guarded, SAMPLE)).toBe('ΣΥΝΟΛΟ: 5.00 EUR');
     expect(sanitizeForPrinter({} as any, SAMPLE)).toBe(SAMPLE);
+  });
+
+  // The guard widens `€` to `EUR`; a row padded from the raw price length
+  // would overflow the paper by two cells on PC737/PC869.
+  describe('padded option rows stay on the paper on PC737', () => {
+    const option = (title: string) =>
+      [
+        {
+          choices: [{ content: [{ language: 'el', title }], price: 250 }],
+          content: [{ language: 'el', title: 'ΕΞΤΡΑ' }],
+        },
+      ] as any;
+    const settings: any = { priceOnOrder: true, transliterate: false };
+
+    const renderOptions = (enlarged: boolean) => {
+      const printer = installCharsetGuard(
+        makePrinter(CharacterSet.PC737_GREEK),
+        CharacterSet.PC737_GREEK
+      );
+      const lines: string[] = [];
+      const println = printer.println.bind(printer);
+      (printer as any).println = (text: string) => {
+        lines.push(sanitizeForPrinter(printer, text));
+        return println(text);
+      };
+      printOptionDetails(
+        printer,
+        option('ΔΙΠΛΟ ΜΠΙΦΤΕΚΙ ΜΟΣΧΑΡΙΣΙΟ'),
+        'el',
+        settings,
+        enlarged
+      );
+      return lines;
+    };
+
+    test('normal size: the price row is exactly 42 characters', () => {
+      const lines = renderOptions(false);
+      const last = lines[lines.length - 1]!;
+      expect(last.endsWith('2.50 EUR')).toBe(true);
+      expect(last.length).toBe(42);
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
+    });
+
+    test('BOLD_PRODUCTS: every row fits the 21-character enlarged line', () => {
+      const lines = renderOptions(true);
+      expect(lines.some((l) => l.endsWith('2.50 EUR'))).toBe(true);
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+    });
   });
 });
