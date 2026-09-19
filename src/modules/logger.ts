@@ -54,8 +54,21 @@ const rotate = async () => {
   );
 };
 
-const format = (args: unknown[]) =>
-  `${new Date().toISOString()} ${args
+export type LogLevel = 'debug' | 'error' | 'info' | 'warn';
+
+export interface LogLine {
+  level: LogLevel;
+  message: string;
+  ts: string;
+}
+
+type LineListener = (line: LogLine) => void;
+
+// Sees every shippable line (logShipper); a listener can never break logging.
+const lineListeners = new Set<LineListener>();
+
+const formatArgs = (args: unknown[]): string =>
+  args
     .map((arg) => {
       let out = '';
 
@@ -70,10 +83,28 @@ const format = (args: unknown[]) =>
 
       return out;
     })
-    .join(' ')}\n`;
+    .join(' ');
 
-const appendLog = async (...args: unknown[]) => {
-  const line = format(args);
+const notify = (line: LogLine): void => {
+  lineListeners.forEach((listener) => {
+    try {
+      listener(line);
+    } catch {
+      // A broken listener must never take logging down with it.
+    }
+  });
+};
+
+const appendLog = async (
+  level: LogLevel,
+  args: unknown[],
+  shippable: boolean
+) => {
+  const ts = new Date().toISOString();
+  const message = formatArgs(args);
+  if (shippable) notify({ level, message, ts });
+
+  const line = `${ts} ${message}\n`;
   await enqueue(async () => {
     await rotate();
     await fs.appendFile(`${_filename}.log`, line);
@@ -82,23 +113,51 @@ const appendLog = async (...args: unknown[]) => {
 };
 
 const info = (...args: unknown[]) => {
-  appendLog(...args);
+  appendLog('info', args, true);
+  signale.info(...args);
+};
+// Local log only, never shipped: for lines carrying customer data.
+const infoLocal = (...args: unknown[]) => {
+  appendLog('info', args, false);
   signale.info(...args);
 };
 const error = (...args: unknown[]) => {
-  appendLog(...args);
+  appendLog('error', args, true);
   signale.error(...args);
 };
 const warn = (...args: unknown[]) => {
-  appendLog(...args);
+  appendLog('warn', args, true);
   signale.warn(...args);
+};
+// Verbose detail: kept briefly by the shipper and uploaded only while staff
+// have verbose logs on. Skips the log file and console so neither grows.
+const debug = (...args: unknown[]) => {
+  notify({
+    level: 'debug',
+    message: formatArgs(args),
+    ts: new Date().toISOString(),
+  });
+};
+
+/**
+ * Subscribe to every shippable log line. Returns an unsubscribe function.
+ */
+const onLine = (listener: LineListener): (() => void) => {
+  lineListeners.add(listener);
+  return () => {
+    lineListeners.delete(listener);
+  };
 };
 const init = async (filename: string = 'app') => {
   _filename = filename;
   logSize = null;
 
   await appendLog(
-    `--- Log opened at ${new Date()}. OS: ${process.platform}, pid: ${process.pid} ---`
+    'info',
+    [
+      `--- Log opened at ${new Date()}. OS: ${process.platform}, pid: ${process.pid} ---`,
+    ],
+    true
   );
 };
 
@@ -128,8 +187,11 @@ const createZip = () => {
 
 export default {
   createZip,
+  debug,
   error,
   info,
+  infoLocal,
   init,
+  onLine,
   warn,
 };
