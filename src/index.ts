@@ -46,6 +46,7 @@ import {
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { initPullClient } from './modules/pullClient';
+import { initLogShipper } from './modules/logShipper';
 import { setRestartHandler } from './modules/psIdentity';
 
 const main = async () => {
@@ -53,6 +54,8 @@ const main = async () => {
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
+  // Right after the log file exists, so boot and update lines are shipped too.
+  await initLogShipper();
   const args = process.argv.slice(2); // Get arguments after the script name
   if (args[0] !== '--noupdate') {
     console.log('Arguments:', args);
