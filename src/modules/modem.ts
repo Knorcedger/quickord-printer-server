@@ -1,7 +1,7 @@
 import { SerialPort } from 'serialport';
-import signale from 'signale';
 
 import { apiCall } from './api';
+import logger from './logger';
 import { shouldEmit } from './modemDedup';
 import { feed } from './modemParser';
 import { getModems, getSettings, IModemSettings } from './settings';
@@ -126,44 +126,49 @@ const detachPort = (inst: ModemInstance) => {
   inst.serial = null;
 };
 
+// Caller numbers are customer data: shipped lines carry only the last 3 digits.
+const maskNumber = (phoneNumber: string) =>
+  phoneNumber.length > 3 ? `***${phoneNumber.slice(-3)}` : '***';
+const maskDigits = (text: string) =>
+  text.replace(/\d{4,}/g, (d) => maskNumber(d));
+
 const onPhoneNumber = async (inst: ModemInstance, phoneNumber: string) => {
-  signale.info(`${tag(inst)} Phone call detected: ${phoneNumber}`);
+  const masked = maskNumber(phoneNumber);
+  logger.info(`${tag(inst)} Phone call detected: ${masked}`);
+  logger.infoLocal(`${tag(inst)} Phone call number: ${phoneNumber}`);
 
   const venueId = getSettings().venueId || inst.settings.venueId;
 
   if (!venueId) {
-    signale.error(`${tag(inst)} No venueId configured, dropping call`);
+    logger.error(`${tag(inst)} No venueId configured, dropping call`);
     return;
   }
 
   // Only consume a dedup slot for a call we will actually emit.
   if (!shouldEmit(phoneNumber)) {
-    signale.info(
-      `${tag(inst)} Duplicate call ${phoneNumber} within dedup window, skipping`
+    logger.info(
+      `${tag(inst)} Duplicate call ${masked} within dedup window, skipping`
     );
     return;
   }
 
   try {
-    signale.info(
-      `${tag(inst)} Sending phone info to BE: phoneNumber: "${phoneNumber}", venueId:"${venueId}"`
-    );
+    logger.info(`${tag(inst)} Sending phone info to BE: ${masked}`);
 
     const response = await apiCall(
       `mutation { incomingPhoneCall(phoneNumber: "${phoneNumber}", venueId:"${venueId}") { status } }`
     );
 
     if (response?.errors) {
-      signale.error(
+      logger.error(
         `${tag(inst)} failed to call BE for phonecall`,
         JSON.stringify(response.errors, null, 2)
       );
     } else {
-      signale.info(`${tag(inst)} Phone info sent`);
+      logger.info(`${tag(inst)} Phone info sent`);
     }
   } catch (err) {
-    signale.error(`${tag(inst)} error sending phone data to BE`);
-    signale.error(err);
+    logger.error(`${tag(inst)} error sending phone data to BE`, err);
   }
 };
 
@@ -174,7 +179,7 @@ const startKeepalive = (inst: ModemInstance) => {
     if (!inst.serial || !inst.serial.isOpen) return;
     inst.serial.write('AT\r', (err) => {
       if (err) {
-        signale.error(`${tag(inst)} keepalive failed:`, err.message);
+        logger.error(`${tag(inst)} keepalive failed:`, err.message);
         scheduleReconnect(inst);
       }
     });
@@ -196,7 +201,7 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
   if (inst.consecutiveVcidReissues >= MAX_CONSECUTIVE_VCID_REISSUES) {
     inst.consecutiveVcidReissues = 0;
     if (inst.isReconnecting) return;
-    signale.error(
+    logger.error(
       `${tag(inst)} VCID re-issue hit ${MAX_CONSECUTIVE_VCID_REISSUES}x in a row — modem appears stuck, forcing reconnect`
     );
     // Start the backoff from scratch: this is a fresh failure mode and must not
@@ -207,10 +212,10 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
     return;
   }
 
-  signale.info(`${tag(inst)} re-issuing AT+VCID=1 (${reason})`);
+  logger.info(`${tag(inst)} re-issuing AT+VCID=1 (${reason})`);
   inst.serial.write('AT+VCID=1\r', (err) => {
     if (err)
-      signale.error(`${tag(inst)} VCID re-issue write failed:`, err.message);
+      logger.error(`${tag(inst)} VCID re-issue write failed:`, err.message);
   });
 };
 
@@ -225,7 +230,7 @@ const watchRingWithoutCid = (inst: ModemInstance, chunk: string) => {
     if (inst.buffer.includes('NMBR')) return;
     if (Date.now() - inst.lastNmbrAt < RECENT_NMBR_WINDOW_MS) return;
 
-    signale.warn(
+    logger.warn(
       `${tag(inst)} RING received without NMBR (CID block) — VCID may not be enabled`
     );
     reissueVcid(inst, 'RING without NMBR');
@@ -302,7 +307,7 @@ const sendInitCommand = (
       );
 
       inst.initListener = listener;
-      signale.info(`${tag(inst)} init -> ${cmd}`);
+      logger.info(`${tag(inst)} init -> ${cmd}`);
       serial.write(Buffer.from(`${cmd}\r`), (err) => {
         if (err) finish(err);
       });
@@ -311,9 +316,9 @@ const sendInitCommand = (
   const attemptLoop = async (attempt = 1): Promise<void> => {
     try {
       await tryOnce();
-      signale.info(`${tag(inst)} init '${cmd}' OK`);
+      logger.info(`${tag(inst)} init '${cmd}' OK`);
     } catch (err) {
-      signale.warn(
+      logger.warn(
         `${tag(inst)} init '${cmd}' attempt ${attempt}/${timings.attempts} failed: ${(err as Error).message}`
       );
       if (attempt >= timings.attempts) {
@@ -355,7 +360,7 @@ const runInit = async (
 
   const drained = await collect(timings.drainMs);
   if (drained.length) {
-    signale.info(
+    logger.info(
       `${tag(inst)} drained pre-init output: ${JSON.stringify(drained.slice(0, 256))}`
     );
   }
@@ -363,11 +368,11 @@ const runInit = async (
 
   // ATE1 is fire-and-forget: a modem booted with ATE0 does not echo it back, so
   // waiting for the echo would always time out.
-  signale.info(`${tag(inst)} init -> ATE1 (fire-and-forget)`);
+  logger.info(`${tag(inst)} init -> ATE1 (fire-and-forget)`);
   serial.write('ATE1\r');
   const echoOn = /ATE1/.test(await collect(timings.settleMs));
   if (!echoOn) {
-    signale.warn(
+    logger.warn(
       `${tag(inst)} no ATE1 echo, matching init replies without the echo anchor`
     );
   }
@@ -380,7 +385,7 @@ const runInit = async (
     if (!alive()) return;
     // eslint-disable-next-line no-await-in-loop
     await sendInitCommand(inst, serial, cmd, echoOn).catch((err: Error) =>
-      signale.warn(
+      logger.warn(
         `${tag(inst)} init '${cmd}' did not complete: ${err.message} — continuing anyway`
       )
     );
@@ -429,7 +434,7 @@ const openPort = async (inst: ModemInstance) => {
   // the data handler is attached: it is what feeds them their replies.
   serial.on('data', (d: Buffer) => {
     const chunk = d.toString();
-    signale.debug(`${tag(inst)} raw ${JSON.stringify(chunk)}`);
+    logger.debug(`${tag(inst)} raw ${maskDigits(JSON.stringify(chunk))}`);
 
     inst.initListener?.(chunk);
     watchRingWithoutCid(inst, chunk);
@@ -438,8 +443,8 @@ const openPort = async (inst: ModemInstance) => {
     inst.buffer = result.buffer;
 
     if (result.overflowed) {
-      signale.warn(
-        `${tag(inst)} Buffer overflow, clearing. Content: ${JSON.stringify(result.overflowed)}`
+      logger.warn(
+        `${tag(inst)} Buffer overflow, clearing. Content: ${maskDigits(JSON.stringify(result.overflowed))}`
       );
     }
 
@@ -452,12 +457,12 @@ const openPort = async (inst: ModemInstance) => {
   });
 
   serial.on('error', (err) => {
-    signale.error(`${tag(inst)} serial port error:`, err.message);
+    logger.error(`${tag(inst)} serial port error:`, err.message);
   });
 
   serial.on('close', () => {
     if (inst.closing) return;
-    signale.warn(`${tag(inst)} disconnected unexpectedly`);
+    logger.warn(`${tag(inst)} disconnected unexpectedly`);
     inst.serial = null;
     scheduleReconnect(inst);
   });
@@ -468,7 +473,7 @@ const openPort = async (inst: ModemInstance) => {
   // Not awaited: on a silent modem init runs for the whole retry budget, and
   // both startup and POST /settings wait on this call.
   inst.initPromise = runInit(inst, serial).catch((err: Error) =>
-    signale.warn(`${tag(inst)} init aborted: ${err.message}`)
+    logger.warn(`${tag(inst)} init aborted: ${err.message}`)
   );
 };
 
@@ -481,7 +486,7 @@ function scheduleReconnect(inst: ModemInstance) {
     // Fully tear down the dead instance — otherwise its keepalive interval
     // would keep no-op'ing forever.
     clearTimers(inst);
-    signale.error(
+    logger.error(
       `${tag(inst)} reconnection gave up after ${MAX_RECONNECT_ATTEMPTS} attempts. Restart the service or update settings to retry.`
     );
     return;
@@ -493,7 +498,7 @@ function scheduleReconnect(inst: ModemInstance) {
     1000 * Math.pow(2, inst.reconnectAttempt),
     MAX_RECONNECT_DELAY_MS
   );
-  signale.info(
+  logger.info(
     `${tag(inst)} reconnect attempt ${inst.reconnectAttempt + 1}/${MAX_RECONNECT_ATTEMPTS} in ${delay / 1000}s...`
   );
 
@@ -506,9 +511,9 @@ function scheduleReconnect(inst: ModemInstance) {
       await openPort(inst);
       inst.reconnectAttempt = 0;
       inst.isReconnecting = false;
-      signale.info(`${tag(inst)} reconnected successfully`);
+      logger.info(`${tag(inst)} reconnected successfully`);
     } catch (err) {
-      signale.error(`${tag(inst)} reconnect failed:`, (err as Error).message);
+      logger.error(`${tag(inst)} reconnect failed:`, (err as Error).message);
       inst.reconnectAttempt++;
       inst.isReconnecting = false;
       scheduleReconnect(inst);
@@ -521,7 +526,7 @@ const closeInstance = async (inst: ModemInstance) => {
   clearTimers(inst);
   detachPort(inst);
   if (registry.get(inst.key) === inst) registry.delete(inst.key);
-  signale.info(`${tag(inst)} closed`);
+  logger.info(`${tag(inst)} closed`);
 };
 
 const openInstance = async (settings: IModemSettings) => {
@@ -547,7 +552,7 @@ const openInstance = async (settings: IModemSettings) => {
 
   try {
     await openPort(inst);
-    signale.info(`${tag(inst)} connected`);
+    logger.info(`${tag(inst)} connected`);
   } catch (err) {
     // Keep the instance registered so the reconnect loop keeps retrying.
     scheduleReconnect(inst);
@@ -562,11 +567,11 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
 
   list.forEach((m) => {
     if (!m.port) {
-      signale.warn('Ignoring modem entry without a port');
+      logger.warn('Ignoring modem entry without a port');
       return;
     }
     if (wanted.has(m.port)) {
-      signale.warn(`Duplicate modem port ${m.port} in settings, ignoring copy`);
+      logger.warn(`Duplicate modem port ${m.port} in settings, ignoring copy`);
       return;
     }
     wanted.set(m.port, m);
@@ -591,7 +596,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
     // One modem that fails to open must not take the others down.
     // eslint-disable-next-line no-await-in-loop
     await openInstance(cfg).catch((err) =>
-      signale.error(
+      logger.error(
         `[modem ${port}] failed to open, continuing:`,
         (err as Error).message
       )
@@ -602,7 +607,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
 export const initModem = async () => {
   const modems = getModems();
   if (!modems.length) return;
-  signale.info(`Initializing ${modems.length} modem(s)`);
+  logger.info(`Initializing ${modems.length} modem(s)`);
   await syncModems(modems);
 };
 
