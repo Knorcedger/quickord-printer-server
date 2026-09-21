@@ -93,6 +93,12 @@ describe('charset guard', () => {
     expect(sanitizeForEncoding('plain ascii', 'CP737')).toBe('plain ascii');
   });
 
+  test('decomposed input drops the lone combining mark instead of printing ?', () => {
+    // NFD 'ά' = 'α' + U+0301; the mark alone is not in CP737.
+    expect(sanitizeForEncoding('ά'.normalize('NFD'), 'CP737')).toBe('α');
+    expect(sanitizeForEncoding('́', 'CP737')).toBe('');
+  });
+
   test('sanitizeForPrinter sanitizes only guarded printers', () => {
     const guarded = installCharsetGuard(
       makePrinter(CharacterSet.PC737_GREEK),
@@ -321,6 +327,17 @@ describe('charset guard', () => {
         [{ content: [{ language: 'el', title: 'ΠΑΤΑΤΕΣ' }], price: 250 }],
         false
       );
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
+    });
+
+    test('a wrapped label keeps its internal double spaces', () => {
+      const lines = renderLabel(
+        CharacterSet.PC737_GREEK,
+        'ΔΙΑΛΕΞΤΕ  ΣΥΝΟΔΕΥΤΙΚΟ ΚΑΙ ΣΑΛΤΣΑ ΓΙΑ ΤΟ ΜΕΝΟΥ…',
+        [],
+        false
+      );
+      expect(lines[0]).toContain('ΔΙΑΛΕΞΤΕ  ΣΥΝΟΔΕΥΤΙΚΟ');
       lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
     });
 

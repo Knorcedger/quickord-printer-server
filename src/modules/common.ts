@@ -719,11 +719,20 @@ const wrapChoices = (
   // same path instead of letting it out at full length.
   if (firstPrefix.length > width) {
     current = /^ */.exec(firstPrefix)![0];
+    // Split on single spaces so a run of spaces inside the label survives:
+    // each empty token is one extra space beyond the one appendWord adds.
     firstPrefix
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean)
-      .forEach((word) => appendWord(word));
+      .slice(current.length)
+      .trimEnd()
+      .split(' ')
+      .forEach((word) => {
+        if (word) {
+          appendWord(word);
+          return;
+        }
+        const extra = current.endsWith(' ') ? ' ' : '  ';
+        if (current.length + extra.length <= width) current += extra;
+      });
     // Keep the separating space the caller put at the end of the label.
     if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
   }
@@ -779,7 +788,7 @@ export const wrapWords = (
 // both rewrite the text (Θ → TH, `€` → `EUR`), so both run before any
 // measuring — padding the raw string would push the price off the paper.
 export const buildProductRow = (
-  printer,
+  printer: ThermalPrinter,
   productLine: string,
   priceStr: string,
   { boldPrices = false, boldProducts = false, transliterate = false } = {}

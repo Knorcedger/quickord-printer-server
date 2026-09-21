@@ -37,12 +37,20 @@ const isAscii = (text: string): boolean => {
 };
 
 // Same probe the lib uses: iconv yields '?' for characters the page lacks.
+// Memoized: a Greek receipt is non-ASCII nearly end to end.
+const encodableCache = new Map<string, boolean>();
 const encodable = (ch: string, encoding: string): boolean => {
-  try {
-    return iconv.encode(ch, encoding).toString() !== '?';
-  } catch {
-    return false;
+  const key = `${encoding}\0${ch}`;
+  let result = encodableCache.get(key);
+  if (result === undefined) {
+    try {
+      result = iconv.encode(ch, encoding).toString() !== '?';
+    } catch {
+      result = false;
+    }
+    encodableCache.set(key, result);
   }
+  return result;
 };
 
 const stripDiacritics = (ch: string): string =>
