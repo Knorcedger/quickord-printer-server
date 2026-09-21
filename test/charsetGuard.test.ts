@@ -130,6 +130,25 @@ describe('charset guard', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  // CP437 has `Ω` as a math symbol but no `Α`/`Β`; PC851_GREEK maps to CP860
+  // in the lib, which has the same gap. A single-letter probe misses both.
+  test.each([
+    [CharacterSet.PC437_USA, 'CP437'],
+    [CharacterSet.PC851_GREEK, 'CP860'],
+  ])('warnIfNoGreek flags %s, which has Ω but not the alphabet', (
+    charset,
+    encoding
+  ) => {
+    expect(sanitizeForEncoding('Ω', encoding)).toBe('Ω');
+    expect(sanitizeForEncoding('ΑΒ', encoding)).toBe('??');
+
+    const warn = logger.warn as jest.Mock;
+    warn.mockClear();
+    warnIfNoGreek(installCharsetGuard(makePrinter(charset), charset), 'Bar');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain(encoding);
+  });
+
   test('sanitizeForPrinter sanitizes only guarded printers', () => {
     const guarded = installCharsetGuard(
       makePrinter(CharacterSet.PC737_GREEK),
