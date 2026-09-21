@@ -9,6 +9,7 @@
  */
 import iconv from 'iconv-lite';
 import { CharacterSet, printer as ThermalPrinter } from 'node-thermal-printer';
+import logger from './logger';
 
 const FALLBACK_ENCODING = 'WIN1253';
 
@@ -93,6 +94,20 @@ export const installCharsetGuard = (
       typeof text === 'string' ? sanitizeForEncoding(text, encoding) : text
     );
   return printer;
+};
+
+// A charset with no Greek (e.g. PC850) used to print Greek only because the
+// lib silently switched pages; with the guard it prints `?`. Say so at setup.
+export const warnIfNoGreek = (
+  printer: ThermalPrinter,
+  label: string
+): void => {
+  const encoding = encodings.get(printer);
+  if (encoding && !encodable('Ω', encoding)) {
+    logger.warn(
+      `Printer ${label}: charset ${encoding} cannot encode Greek, Greek text will print as ? — use a Greek charset (e.g. PC737_GREEK)`
+    );
+  }
 };
 
 // For lines whose spacing is computed from the string length before printing:

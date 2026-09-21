@@ -11,6 +11,7 @@ import {
   installCharsetGuard,
   sanitizeForEncoding,
   sanitizeForPrinter,
+  warnIfNoGreek,
 } from '../src/modules/charsetGuard';
 import {
   buildProductRow,
@@ -18,6 +19,12 @@ import {
   printOptionDetails,
   printProducts,
 } from '../src/modules/common';
+import logger from '../src/modules/logger';
+
+jest.mock('../src/modules/logger', () => ({
+  __esModule: true,
+  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+}));
 
 const SAMPLE = 'ΣΥΝΟΛΟ: 5.00 €';
 const CODE_PAGE = 7;
@@ -97,6 +104,30 @@ describe('charset guard', () => {
     // NFD 'ά' = 'α' + U+0301; the mark alone is not in CP737.
     expect(sanitizeForEncoding('ά'.normalize('NFD'), 'CP737')).toBe('α');
     expect(sanitizeForEncoding('́', 'CP737')).toBe('');
+  });
+
+  // PC850 venues printed Greek only through the lib's silent page switch;
+  // the guard turns that into `?`, so setup has to say so.
+  test('warnIfNoGreek flags a charset without Greek letters', () => {
+    const warn = logger.warn as jest.Mock;
+    warn.mockClear();
+
+    const latin = installCharsetGuard(
+      makePrinter(CharacterSet.PC850_MULTILINGUAL),
+      CharacterSet.PC850_MULTILINGUAL
+    );
+    warnIfNoGreek(latin, 'Pizza');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain('Pizza');
+    expect(warn.mock.calls[0]![0]).toContain('CP850');
+
+    warn.mockClear();
+    const greek = installCharsetGuard(
+      makePrinter(CharacterSet.PC737_GREEK),
+      CharacterSet.PC737_GREEK
+    );
+    warnIfNoGreek(greek, 'Bar');
+    expect(warn).not.toHaveBeenCalled();
   });
 
   test('sanitizeForPrinter sanitizes only guarded printers', () => {

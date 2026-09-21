@@ -38,7 +38,11 @@ import {
   buildProductRow,
 } from './common';
 import logger from './logger';
-import { installCharsetGuard, sanitizeForPrinter } from './charsetGuard';
+import {
+  installCharsetGuard,
+  sanitizeForPrinter,
+  warnIfNoGreek,
+} from './charsetGuard';
 import { resolveCopies } from './copies';
 import {
   IPrinterSettings,
@@ -416,10 +420,12 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([
-      installCharsetGuard(new ThermalPrinter(config), config.characterSet),
-      printerSettings,
-    ]);
+    const printer = installCharsetGuard(
+      new ThermalPrinter(config),
+      config.characterSet
+    );
+    warnIfNoGreek(printer, printerSettings.name || printerSettings.ip || '');
+    printers.push([printer, printerSettings]);
   });
 
   // (Re)start the WiFi keep-alive loop for the freshly configured printers.
@@ -449,7 +455,12 @@ export const setupPrinter = (settings: IPrinterSettings) => {
   config: ${JSON.stringify(config, null, 2)}\n
   settings: ${JSON.stringify(settings, null, 2)}\n`);
 
-  return installCharsetGuard(new ThermalPrinter(config), config.characterSet);
+  const printer = installCharsetGuard(
+    new ThermalPrinter(config),
+    config.characterSet
+  );
+  warnIfNoGreek(printer, settings.name || settings.ip || '');
+  return printer;
 };
 
 export const checkPrinters = async () => {
@@ -579,6 +590,7 @@ export const printTestPage = async (
     }),
     characterSet
   );
+  warnIfNoGreek(printer, device);
 
   let connected = false;
   if (ip !== '') {
