@@ -231,9 +231,7 @@ describe('handing the machine back after a capped release', () => {
   it('tells a self-protecting install from one that loops', () => {
     expect(hasBootUpdateGuard(dirs.installDir)).toBe(false);
 
-    process.chdir(builds());
-    markBootUpdateGuard();
-    process.chdir(cwd);
+    markBootUpdateGuard(builds());
 
     expect(hasBootUpdateGuard(dirs.installDir)).toBe(true);
   });

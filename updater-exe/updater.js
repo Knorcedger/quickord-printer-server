@@ -34,6 +34,10 @@ const PORT = 7810;
 // partial state (a rollback itself failed) and MUST NOT be started. A service
 // that is down is recoverable by hand; a half-swapped one silently misprints.
 const CRITICAL_EXIT = 3;
+// The update did not happen (download, stop, swap or rollback failed) but the
+// install is whole and was brought back up. Plain failure for the .bat wrapper,
+// which only special-cases CRITICAL_EXIT.
+const FAILED_EXIT = 1;
 
 // Thrown when the install is knowingly inconsistent. main() propagates it as
 // CRITICAL_EXIT and never restarts the service; the .bat wrapper skips its own
@@ -483,6 +487,7 @@ function restartService() {
 }
 
 function main() {
+  let swapped = false;
   let restarted = false;
   try {
     fs.rmSync(STAGING_DIR, { recursive: true, force: true });
@@ -508,6 +513,7 @@ function main() {
       );
     }
     swapInstall();
+    swapped = true;
     stageNewUpdater();
 
     restartService();
@@ -530,9 +536,11 @@ function main() {
       //
       // Settings first, and the marker with them: a server that boots without
       // settings.json writes defaults, and the old install would find the same
-      // newer release and try to install it again on every boot.
+      // newer release and try to install it again on every boot. Past the swap
+      // the new release *is* the install, so a start failure is not its fault.
       settingsAreSafe();
-      noteFailedRelease();
+      if (!swapped) noteFailedRelease();
+      process.exitCode = FAILED_EXIT;
       try {
         restartService();
       } catch (e) {

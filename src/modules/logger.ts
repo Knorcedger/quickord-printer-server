@@ -26,12 +26,18 @@ const enqueue = (op: () => Promise<void>): Promise<void> => {
   return writeChain;
 };
 
+// Bytes in the current log, counted here instead of a stat per line. Stat'd
+// once from disk when unknown (first write, or after init switches files).
+let logSize: number | null = null;
+
 const rotate = async () => {
-  const size = await fs
-    .stat(`${_filename}.log`)
-    .then((s) => s.size)
-    .catch(() => 0);
-  if (size < MAX_LOG_BYTES) return;
+  if (logSize === null) {
+    logSize = await fs
+      .stat(`${_filename}.log`)
+      .then((s) => s.size)
+      .catch(() => 0);
+  }
+  if (logSize < MAX_LOG_BYTES) return;
 
   await fs.rm(`${_filename}.${LOG_GENERATIONS - 1}.log`, { force: true });
   for (let i = LOG_GENERATIONS - 2; i >= 1; i -= 1) {
@@ -39,7 +45,13 @@ const rotate = async () => {
       .rename(`${_filename}.${i}.log`, `${_filename}.${i + 1}.log`)
       .catch(() => {});
   }
-  await fs.rename(`${_filename}.log`, `${_filename}.1.log`).catch(() => {});
+  // A locked file (AV) keeps growing; leave the count so the next line retries.
+  await fs.rename(`${_filename}.log`, `${_filename}.1.log`).then(
+    () => {
+      logSize = 0;
+    },
+    () => {}
+  );
 };
 
 const format = (args: unknown[]) =>
@@ -65,6 +77,7 @@ const appendLog = async (...args: unknown[]) => {
   await enqueue(async () => {
     await rotate();
     await fs.appendFile(`${_filename}.log`, line);
+    logSize = (logSize ?? 0) + Buffer.byteLength(line);
   });
 };
 
@@ -82,6 +95,7 @@ const warn = (...args: unknown[]) => {
 };
 const init = async (filename: string = 'app') => {
   _filename = filename;
+  logSize = null;
 
   await appendLog(
     `--- Log opened at ${new Date()}. OS: ${process.platform}, pid: ${process.pid} ---`

@@ -22,6 +22,7 @@ import {
   tryFetchWithFallback,
 } from '../modules/http';
 import { reportFetchFailure } from '../modules/api';
+import { isPackagedExe } from '../modules/installDir';
 import {
   flushUpdateLog,
   markUpdaterProcess,
@@ -554,9 +555,12 @@ export function suppressBootUpdates(buildsDir: string): boolean {
  * Say, in the install dir, that this build's update check honours the marker.
  * Builds older than it download and hand off before they listen.
  */
-export function markBootUpdateGuard(): void {
+export function markBootUpdateGuard(buildsDir: string): void {
   try {
-    fs.writeFileSync(BOOT_GUARD_FILE, new Date().toISOString());
+    fs.writeFileSync(
+      path.join(buildsDir, BOOT_GUARD_FILE),
+      new Date().toISOString()
+    );
   } catch (err: any) {
     updateLog('Could not write the boot-update guard:', err.message || err);
   }
@@ -650,6 +654,26 @@ export async function startServiceOrFallback(
 }
 
 /**
+ * What the watchdog launches when the service will not come up. The exe comes
+ * back bare, so a restart always means "boot + version check" — only
+ * `--noupdate` survives, or a suppressed install would re-enter the update
+ * loop. A node launch (init.bat, start:ci) gets its entry point back: bare
+ * `node.exe` is a REPL, not the server.
+ */
+export function watchdogRelaunchCommand(
+  execPath = process.execPath,
+  argv = process.argv,
+  execArgv = process.execArgv
+): string {
+  const entry = isPackagedExe(execPath) ? [] : [...execArgv, argv[1]];
+  const args = argv.slice(2).filter((arg) => arg === NO_UPDATE_ARG);
+  return [execPath, ...entry, ...args]
+    .filter(Boolean)
+    .map((arg) => `"${arg}"`)
+    .join(' ');
+}
+
+/**
  * Detached safety net for a restart: a few seconds after we exit, make sure the
  * service is up again.
  *
@@ -669,7 +693,7 @@ export function scheduleServiceStartWatchdog(): void {
   if (process.platform !== 'win32') return;
   try {
     const batPath = path.join(tmpdir(), 'quickord-restart-watchdog.bat');
-    const exe = process.execPath;
+    const relaunch = watchdogRelaunchCommand();
     fs.writeFileSync(
       batPath,
       [
@@ -680,7 +704,7 @@ export function scheduleServiceStartWatchdog(): void {
         // `sc query | find "RUNNING"` never matches on a localized Windows,
         // which would launch a second server on every restart.
         `powershell -NoProfile -NonInteractive -Command "if ((Get-Service -Name '${SERVICE_NAME}' -ErrorAction SilentlyContinue).Status -eq 'Running') { exit 0 } else { exit 1 }"`,
-        `if errorlevel 1 start "" "${exe}"`,
+        `if errorlevel 1 start "" ${relaunch}`,
         '',
       ].join('\r\n'),
       'utf-8'
@@ -795,10 +819,10 @@ interface FailedRelease {
   version: string;
 }
 
-const failedReleasePath = (buildsDir?: string) =>
-  buildsDir ? path.join(buildsDir, FAILED_RELEASE_FILE) : FAILED_RELEASE_FILE;
+const failedReleasePath = (buildsDir: string) =>
+  path.join(buildsDir, FAILED_RELEASE_FILE);
 
-export function readFailedRelease(buildsDir?: string): FailedRelease | null {
+export function readFailedRelease(buildsDir: string): FailedRelease | null {
   try {
     const raw = fs.readFileSync(failedReleasePath(buildsDir), 'utf-8');
     const { attempts, version } = JSON.parse(raw) || {};
@@ -809,7 +833,7 @@ export function readFailedRelease(buildsDir?: string): FailedRelease | null {
   }
 }
 
-export function clearFailedRelease(buildsDir?: string): void {
+export function clearFailedRelease(buildsDir: string): void {
   try {
     fs.rmSync(failedReleasePath(buildsDir), { force: true });
   } catch (err: any) {
@@ -939,9 +963,12 @@ export async function downloadLatestCode(
   // of a release that keeps failing: it retries and resets the counter.
   force = false
 ): Promise<UpdateCheckResult> {
+  // The running install: installDir.ts pinned the cwd to the exe's builds dir,
+  // and the updater writes its marker to the same `<parent>\builds`.
+  const buildsDir = process.cwd();
   // This build refuses a capped release below, so an updater handing the
   // machine back to it never has to suppress its updates.
-  markBootUpdateGuard();
+  markBootUpdateGuard(buildsDir);
 
   // Read current version
   let currentVersion = '';
@@ -965,7 +992,7 @@ export async function downloadLatestCode(
     updateLog('Update available!');
     updateLog(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
 
-    const failed = readFailedRelease();
+    const failed = readFailedRelease(buildsDir);
     if (failed?.version === latestVersion && !force) {
       if (failed.attempts >= MAX_RELEASE_ATTEMPTS) {
         const error = `Release ${latestVersion} failed to install here ${failed.attempts} times; not retrying automatically. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
@@ -977,7 +1004,7 @@ export async function downloadLatestCode(
       );
     } else if (failed) {
       // A newer release, or an explicit request: the old count is meaningless.
-      clearFailedRelease();
+      clearFailedRelease(buildsDir);
     }
   } else {
     updateLog(
@@ -1021,8 +1048,7 @@ export async function downloadLatestCode(
   updateLog('Update needed. Code ready at:', tempCodePath);
   updateLog('Updating to latest version');
   updateLog(tempCodePath);
-  const cwd = process.cwd();
-  const parentDir = path.resolve(cwd, '..');
+  const parentDir = path.resolve(buildsDir, '..');
 
   args[1] = tempCodePath;
   args[2] = '--parent';

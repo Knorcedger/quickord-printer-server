@@ -1,6 +1,6 @@
 // First, before anything reads ./config.json at import time: it pins the cwd
 // to the install dir so every relative path below is the installed one.
-import './modules/installDir';
+import { isPackagedExe } from './modules/installDir';
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import nconf from 'nconf';
@@ -9,6 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import express from 'express';
+import { spawn } from 'child_process';
 import { Request, Response } from 'express';
 import { homepage } from './homepage';
 import logger from './modules/logger';
@@ -341,26 +342,51 @@ const main = async () => {
   //
   // Instead: exit and let the SCM start us clean, with no args, so a restart
   // always means "boot + version check".
+  //
+  // `node dist/...` (init.bat, start:ci) is the exception: it is never WinSW's
+  // child, so neither the SCM nor the watchdog's `sc start` can bring it back,
+  // and the orphaning above cannot happen to it. It relaunches its own command
+  // line, as before.
   async function doRestart(): Promise<void> {
     const isDev = process.argv[1]?.endsWith('.ts');
     if (isDev) {
       process.exit(0);
     }
 
-    // A non-zero exit is only meaningful as "restart me" if WinSW is our
-    // parent. Orphaned instances exit 0 and rely on the watchdog below, which
-    // also brings them back under the SCM.
-    const managed = await isServiceManaged();
-    logger.info(
-      `Restarting (service-managed: ${managed}); the SCM will start a fresh instance`
-    );
-    scheduleServiceStartWatchdog();
+    let exitCode = 0;
+    let relaunch: (() => void) | undefined;
+    if (isPackagedExe(process.execPath)) {
+      // A non-zero exit is only meaningful as "restart me" if WinSW is our
+      // parent. Orphaned instances exit 0 and rely on the watchdog below,
+      // which also brings them back under the SCM.
+      const managed = await isServiceManaged();
+      logger.info(
+        `Restarting (service-managed: ${managed}); the SCM will start a fresh instance`
+      );
+      scheduleServiceStartWatchdog();
+      exitCode = managed ? 1 : 0;
+    } else {
+      logger.info('Restarting (node launch); relaunching the same command line');
+      relaunch = () => {
+        spawn(
+          process.execPath,
+          [...process.execArgv, ...process.argv.slice(1)],
+          {
+            detached: true,
+            stdio: 'ignore',
+            cwd: process.cwd(),
+            env: process.env,
+          }
+        ).unref();
+      };
+    }
 
     let exited = false;
     const exit = () => {
       if (exited) return;
       exited = true;
-      process.exit(managed ? 1 : 0);
+      relaunch?.();
+      process.exit(exitCode);
     };
     // Keep-alive sockets can hold server.close() open indefinitely; the port is
     // released by the exit anyway.
