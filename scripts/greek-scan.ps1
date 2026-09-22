@@ -13,7 +13,7 @@
 param(
   [string]$Ip = "192.168.88.5",
   [int]$Port = 9100,
-  [int]$MaxN = 63
+  [int]$MaxN = 47
 )
 
 $ESC = 0x1B
@@ -66,6 +66,22 @@ foreach ($cp in $encodings) {
   }
   NL
 }
+
+# --- Section 3: enlarged text (GS ! double height) on the likely Greek pages ---
+# Some firmwares swap glyph tables when the text is enlarged; this shows whether
+# the BOLD_* text options are what break Greek.
+SendAscii "-- ENLARGED (GS ! 0x10) --"; NL
+$pairs = @(@(737, 7), @(737, 14), @(869, 38), @(1253, 47), @(28597, 15))
+foreach ($p in $pairs) {
+  $enc = [System.Text.Encoding]::GetEncoding($p[0])
+  SetPage $p[1]
+  SendAscii ("enc=" + $p[0] + " t=" + $p[1] + " : ")
+  Send([byte[]]@($GS, 0x21, 0x10))
+  Send($enc.GetBytes($sample))
+  Send([byte[]]@($GS, 0x21, 0x00))
+  NL
+}
+NL
 
 # feed + cut
 Send([byte[]]@($LF, $LF, $LF, $LF))

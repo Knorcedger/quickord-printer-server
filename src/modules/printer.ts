@@ -35,9 +35,14 @@ import {
   printProductDiscount,
   getInvoiceTypeLabel,
   isUSBPrinterOnline,
-  wrapWords,
+  buildProductRow,
 } from './common';
 import logger from './logger';
+import {
+  installCharsetGuard,
+  sanitizeForPrinter,
+  warnIfNoGreek,
+} from './charsetGuard';
 import { resolveCopies } from './copies';
 import {
   IPrinterSettings,
@@ -415,7 +420,12 @@ export const setupPrinters = async (settings: ISettings) => {
       config
     );
 
-    printers.push([new ThermalPrinter(config), printerSettings]);
+    const printer = installCharsetGuard(
+      new ThermalPrinter(config),
+      config.characterSet
+    );
+    warnIfNoGreek(printer, printerSettings.name || printerSettings.ip || '');
+    printers.push([printer, printerSettings]);
   });
 
   // (Re)start the WiFi keep-alive loop for the freshly configured printers.
@@ -445,7 +455,12 @@ export const setupPrinter = (settings: IPrinterSettings) => {
   config: ${JSON.stringify(config, null, 2)}\n
   settings: ${JSON.stringify(settings, null, 2)}\n`);
 
-  return new ThermalPrinter(config);
+  const printer = installCharsetGuard(
+    new ThermalPrinter(config),
+    config.characterSet
+  );
+  warnIfNoGreek(printer, settings.name || settings.ip || '');
+  return printer;
 };
 
 export const checkPrinters = async () => {
@@ -566,11 +581,16 @@ export const printTestPage = async (
   }
 
   console.log(interfaceString);
-  const printer = new ThermalPrinter({
-    characterSet: charset || CharacterSet.WPC1253_GREEK,
-    interface: interfaceString,
-    type: PrinterTypes.EPSON,
-  });
+  const characterSet = charset || CharacterSet.WPC1253_GREEK;
+  const printer = installCharsetGuard(
+    new ThermalPrinter({
+      characterSet,
+      interface: interfaceString,
+      type: PrinterTypes.EPSON,
+    }),
+    characterSet
+  );
+  warnIfNoGreek(printer, device);
 
   let connected = false;
   if (ip !== '') {
@@ -1812,7 +1832,9 @@ const printPaymentSlip = async (
           printer.bold(true);
           sumQuantity += detail.quantity;
 
-          const name = detail.name;
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0);
           const value = (
             detail.net_value *
@@ -1821,7 +1843,7 @@ const printPaymentSlip = async (
           const vat = `${detail.tax.rate}%`; // "24%"
           sumAmount += parseFloat(value);
           printer.println(
-            name.toUpperCase().padEnd(18).substring(0, 18) + // Trim to 18 chars max
+            name.padEnd(18).substring(0, 18) + // Trim to 18 chars max
               quantity.padStart(7) +
               value.padStart(7) +
               vat.padStart(7)
@@ -2099,7 +2121,10 @@ const printPaymentReceipt = async (
         // Total covers products only (excludes tip).
         const roundedSum = Number(sumAmount).toFixed(2);
 
-        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
+        const rightText = sanitizeForPrinter(
+          printer,
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+        );
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -2341,7 +2366,10 @@ const printInvoice = async (
         // Total covers products only (excludes tip).
         const roundedSum = Number(sumAmount).toFixed(2);
 
-        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
+        const rightText = sanitizeForPrinter(
+          printer,
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+        );
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
         const spacing = ' '.repeat(Math.max(1, spaceCount));
@@ -2517,7 +2545,9 @@ const printMyPelatesReceipt = async (
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
-          const name = detail.name.toUpperCase();
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
@@ -2545,7 +2575,10 @@ const printMyPelatesReceipt = async (
         );
         const roundedSum = Number(sumAmount).toFixed(2);
 
-        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
+        const rightText = sanitizeForPrinter(
+          printer,
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+        );
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -2746,7 +2779,9 @@ const printMyPelatesInvoice = async (
         aadeInvoice?.details.forEach((detail: any) => {
           sumQuantity += detail.quantity;
 
-          const name = detail.name.toUpperCase();
+          // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
+          // append time, which would push the row past the trimmed width.
+          const name = sanitizeForPrinter(printer, detail.name.toUpperCase());
           const quantity = detail.quantity.toFixed(0); // "1,000"
           const value = (
             (detail.net_value || 0) + (detail?.tax?.value || 0)
@@ -2774,7 +2809,10 @@ const printMyPelatesInvoice = async (
         );
 
         const roundedSum = Number(sumAmount).toFixed(2);
-        const rightText = `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`;
+        const rightText = sanitizeForPrinter(
+          printer,
+          `${tr(`${translations.printOrder.sum[lang]}`, settings.transliterate)}: ${roundedSum}€`
+        );
 
         // Calculate spacing
         const spaceCount = lineWidth - leftText.length - rightText.length;
@@ -3646,30 +3684,26 @@ export const printOrder = async (
             settings.priceOnOrder === undefined ||
             settings.priceOnOrder === true
           ) {
+            // Sanitized up front: `€` may become `EUR`, and the padding below
+            // is measured from this length.
             priceStr = product.total
-              ? ` ${convertToDecimal(product.total).toFixed(2)} €`
+              ? sanitizeForPrinter(
+                  printer,
+                  ` ${convertToDecimal(product.total).toFixed(2)} €`
+                )
               : '';
           }
-          // An enlarged price takes two cells per character, so reserve twice
-          // the room for it when padding the title.
-          const enlargePrice = boldPrices && !boldProducts && !!priceStr;
-          const lineWidth = boldProducts ? 21 : 42;
-          const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
-          // Transliterate before wrapping — it rewrites Greek to Latin and
-          // trims, so measuring or padding the raw text would misalign the
-          // price column.
-          const titleLines = wrapWords(
-            tr(productLine, settings.transliterate),
-            lineWidth,
-            '   ',
-            priceCells
+          const { enlargePrice, leadingLines, paddedLine } = buildProductRow(
+            printer,
+            productLine,
+            priceStr,
+            {
+              boldPrices,
+              boldProducts,
+              transliterate: settings.transliterate,
+            }
           );
-          const lastLine = titleLines[titleLines.length - 1]!;
-          titleLines.slice(0, -1).forEach((line) => printer.println(line));
-          const paddedLine = lastLine.padEnd(
-            Math.max(0, lineWidth - priceCells),
-            ' '
-          );
+          leadingLines.forEach((line) => printer.println(line));
 
           if (enlargePrice) {
             printer.print(paddedLine);
