@@ -542,8 +542,10 @@ export function suppressBootUpdates(buildsDir: string): boolean {
     updateLogError(`Could not write ${xmlPath}:`, err.message || err);
     return false;
   }
+  // Only installs without the boot guard get here, and those predate the
+  // backend update command: force_autoupdate.bat on site is the one way out.
   updateLog(
-    `Updates suppressed in ${xmlPath}: the service now starts with ${NO_UPDATE_ARG}. force_autoupdate.bat and an update from the backend still work, and either one restores the xml.`
+    `Updates suppressed in ${xmlPath}: the service now starts with ${NO_UPDATE_ARG}. This build cannot take an update from the backend, so the install stays on its current version until a technician runs force_autoupdate.bat; the next install lays the release's own xml down again.`
   );
   return true;
 }
