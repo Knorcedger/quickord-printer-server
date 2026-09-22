@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { Request, Response } from 'express';
+import signale from 'signale';
 
 import { syncModems } from '../src/modules/modem';
 import {
@@ -122,6 +123,34 @@ describe('settings resolver — modems', () => {
     // Old builds read venueId off the modem itself, so a mirror without it
     // would break the rollback it exists for.
     expect(onDisk.modem.venueId).toBe('venue-1');
+  });
+
+  it('revives a modem that gave up, on an identical push', async () => {
+    const body = {
+      modems: [{ port: 'COM3' }],
+      printers: [],
+      venueId: 'venue-1',
+    };
+    await post(body);
+    expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
+
+    // Exhaust the reconnect attempts: past that the instance tears down its
+    // timers and nothing reopens it on its own.
+    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    dropAllFakePorts();
+    instanceFor('COM3')!.serial!.close();
+    await jest.advanceTimersByTimeAsync(2_000_000);
+    // Still registered, but with no port behind it and its timers cleared.
+    expect(instanceFor('COM3')).toBeDefined();
+    expect(instanceFor('COM3')?.serial?.isOpen).toBeFalsy();
+
+    // The device is back, but the settings did not change — re-pushing them is
+    // the only lever the venue has, so it has to reconcile the dead port.
+    useFakePorts('COM3');
+    await post(body);
+
+    expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
+    errorSpy.mockRestore();
   });
 
   it('closes every modem when the list is emptied', async () => {

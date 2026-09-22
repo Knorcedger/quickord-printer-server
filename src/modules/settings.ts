@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import { CharacterSet } from 'node-thermal-printer';
 import { z } from 'zod';
@@ -31,6 +32,30 @@ export const PrinterTextOptions = z.enum(
     required_error: 'textOptions is required.',
   }
 );
+
+// 0 normal, 1 double width, 2 double both axes, 3 triple both axes. Level 1 is
+// what the legacy BOLD_* flags have always printed. Left absent rather than
+// defaulted: a stored 0 beats a legacy BOLD_* flag on the backend's resolver.
+// An unset element arrives as null (the FE selects all six GraphQL fields), and
+// rejecting it would 400 the whole venue payload, printers and modems included.
+const textSizeLevel = z.preprocess(
+  (value) => value ?? undefined,
+  z
+    .number({ invalid_type_error: 'text size level must be a number.' })
+    .int()
+    .min(0)
+    .max(3)
+    .optional()
+);
+
+export const PrinterTextSizes = z.object({
+  categories: textSizeLevel,
+  comments: textSizeLevel,
+  orderNumber: textSizeLevel,
+  orderType: textSizeLevel,
+  prices: textSizeLevel,
+  products: textSizeLevel,
+});
 
 export const PrinterSettings = z.object({
   id: z
@@ -189,10 +214,15 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(''),
-  networkName: z.string({
-    invalid_type_error: 'printer networkName must be a string.',
-    required_error: 'printer networkName is required.',
-  }),
+  // Vestigial: nothing here reads it, and the frontend only uses it as a
+  // display fallback behind `name`. Optional because a printer saved without
+  // one must not make the whole desired payload fail to parse.
+  networkName: z
+    .string({
+      invalid_type_error: 'printer networkName must be a string.',
+    })
+    .optional()
+    .default(''),
   port: z
     .string({
       invalid_type_error: 'printer port must be a string.',
@@ -208,6 +238,12 @@ export const PrinterSettings = z.object({
     .optional()
     .default([]),
   textSize: PrinterTextSize.optional().default('NORMAL'),
+  // Per-element size levels (0-3). Accepted and round-tripped through settings.json so
+  // the BE stays the single writer; the LAN-fallback renderer here still uses
+  // textOptions, which the FE dual-writes for exactly that reason. A new value
+  // inside the closed textOptions enum would 400 the whole venue's settings,
+  // which is why this is a separate field.
+  textSizes: PrinterTextSizes.optional(),
   transliterate: z.boolean().default(false),
 });
 
@@ -239,7 +275,14 @@ export const Settings = z.object({
   modem: ModemSettings.optional(),
   modems: z.array(ModemSettings).optional().default([]),
   printers: z.array(PrinterSettings),
+  // The backend's hash of the settings it last handed us, stored verbatim and
+  // echoed on every poll. We never compute it — one canonicalization, theirs.
+  syncedHash: z.string().optional(),
   venueId: z.string().optional(),
+  // Fingerprint of the rest of this file as we wrote it. A mismatch on load
+  // means someone edited settings.json by hand, which drops syncedHash so the
+  // next poll re-delivers the venue's real settings.
+  writtenFingerprint: z.string().optional(),
   // Per-venue secret for authenticating the WS registration with the backend.
   // Synced DB -> local via the frontend's settings push, same path as venueId.
   wsSecret: z.string().optional(),
@@ -261,6 +304,16 @@ export const getModems = (s: ISettings = settings): IModemSettings[] => {
   return list.filter((m) => !!m.port);
 };
 
+// Fingerprint of everything except the two bookkeeping fields, so the check
+// doesn't depend on its own result. Also used to tell a settings push that
+// changes nothing from one that does.
+export const settingsFingerprint = (s: ISettings): string => {
+  const { syncedHash: _hash, writtenFingerprint: _fp, ...rest } = s;
+  return createHash('sha256').update(JSON.stringify(rest)).digest('hex');
+};
+
+export const getSyncedHash = (): string | undefined => settings.syncedHash;
+
 export const loadSettings = async () => {
   try {
     if (!fs.existsSync('./settings.json')) {
@@ -270,6 +323,18 @@ export const loadSettings = async () => {
     }
 
     settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
+
+    // A hand-edited file no longer matches the hash the backend knows about, so
+    // forget it and let the next poll deliver the settings the venue really has.
+    if (
+      settings.syncedHash &&
+      settings.writtenFingerprint !== settingsFingerprint(settings)
+    ) {
+      logger.warn(
+        'settings.json changed outside the sync; dropping syncedHash so the backend re-delivers'
+      );
+      settings.syncedHash = undefined;
+    }
 
     logger.info('Settings loaded:', stripSecrets(settings));
 
@@ -285,11 +350,17 @@ export const loadSettings = async () => {
   }
 };
 
-export const saveSettings = async () => {
+// Returns what stopped the write, or null when it landed: a caller that records
+// a sync hash must not acknowledge settings that never made it to disk. The
+// error is returned rather than logged because the write is retried on every
+// poll, and only the caller knows whether this one is already a known failure.
+export const saveSettings = async (): Promise<Error | null> => {
   try {
+    settings.writtenFingerprint = settingsFingerprint(settings);
     fs.writeFileSync('./settings.json', JSON.stringify(settings, null, 2));
+    return null;
   } catch (error) {
-    logger.error('Error writing settings file:', error);
+    return error instanceof Error ? error : new Error(String(error));
   }
 };
 

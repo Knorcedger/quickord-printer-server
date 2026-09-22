@@ -15,7 +15,9 @@
  */
 import { registerPreExitTask, triggerUpdate } from '../autoupdate/autoupdate';
 import { reportFetchFailure } from './api';
+import { applyDesiredSettings } from './applySettings';
 import { getBackendBaseUrl } from './backendUrl';
+import { markFirstPoll } from './bootGate';
 import { FailureEpisode } from './failureEpisode';
 import {
   curlExecJson,
@@ -34,14 +36,15 @@ import {
   getWsSecret,
   triggerRestart,
 } from './psIdentity';
+import { getSyncedHash } from './settings';
 import logger from './logger';
 
-// Poll timeout must clear the backend's 25s hold with margin, so a healthy idle
+// Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
 // poll is answered empty by the server rather than aborted here. The margin is
 // wide because this timer starts before the connection does: DNS + TCP + TLS
 // come out of it, and on a slow venue uplink they alone can eat 5s (undici's
 // own connect timeout is 10s). At 30s such a poll aborted while the backend was
-// answering normally at 25s. Nothing is lost by waiting longer: a backend that
+// still answering normally. Nothing is lost by waiting longer: a backend that
 // genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
@@ -73,6 +76,16 @@ const AUTH_RETRY_MS = 60_000;
 // Re-check cadence while venueId/wsSecret aren't provisioned yet (a /settings
 // sync will fill them in), so an un-provisioned PS doesn't hammer the backend.
 const NO_CREDS_RETRY_MS = 5_000;
+// Floor between polls while settings won't apply, and the answer time below
+// which a poll counts as un-held. Pacing is the backend's job: told we can't
+// take the settings (settingsApplyFailed in the poll body) it holds the poll
+// normally instead of answering at once, which paces the retries without ever
+// closing the channel jobs arrive on. This floor only covers a backend that
+// ignores the flag — one that predates it, or a rollback — where the two would
+// otherwise spin. Short and flat, so even then a job waits well inside the
+// backend's 25s command and 60s freshness deadlines.
+const SETTINGS_SPIN_GUARD_MS = 5_000;
+const HELD_POLL_MS = 10_000;
 
 // Raised when the backend rejects the pull channel's credentials. Two triggers:
 // (1) the HTTP status is 401 — the authoritative signal, works even against a
@@ -119,6 +132,9 @@ const pollErrorBackoffMs = (): number =>
 // A dead uplink otherwise wrote two structured fetch-failure dumps plus a
 // stack trace per poll — 18MB across one 13h outage.
 const pollFailures = new FailureEpisode('Print-job poll');
+// An unwritable settings.json fails on every poll and never recovers on its
+// own. Without an episode that is a warn plus an info every retry, forever.
+const settingsApplyFailures = new FailureEpisode('Settings apply');
 
 function alreadySeen(jobId: string): boolean {
   const now = Date.now();
@@ -281,13 +297,21 @@ function reportResult(
   })();
 }
 
-async function pollOnce(): Promise<void> {
+// Returns whether the answer carried work, so the caller can tell an idle poll
+// from one that just delivered a batch.
+async function pollOnce(): Promise<boolean> {
   const data = await postJson(
     '/print-jobs/poll',
     // Piggyback the version so the backend can surface it without depending on
-    // the WS register — the pull channel is the primary transport.
+    // the WS register — the pull channel is the primary transport. settingsHash
+    // is always present (null when we hold none): its presence is how the
+    // backend tells this build from one that can't take settings from a poll.
+    // settingsApplyFailed says the last delivery couldn't be taken, so it holds
+    // the poll instead of answering at once and re-sending on a loop.
     {
       secret: getWsSecret(),
+      settingsApplyFailed: settingsApplyFailures.active,
+      settingsHash: getSyncedHash() ?? null,
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
@@ -314,11 +338,43 @@ async function pollOnce(): Promise<void> {
       `Unexpected poll response without a jobs array: ${JSON.stringify(data)?.slice(0, 200)}`
     );
   }
+  // Settings first: jobs in this same answer must print with the config the
+  // backend just sent, not the one it already knows is stale. A failure here
+  // never costs the jobs — they print with what is on disk.
+  if (data.settings && data.settingsHash !== getSyncedHash()) {
+    let thrown: unknown;
+    try {
+      await applyDesiredSettings(data.settings, {
+        authoritative: true,
+        hash: data.settingsHash,
+        // Already inside a failing episode: its own logs would repeat the same
+        // write error on every retry, forever. The summary line carries it.
+        quiet: settingsApplyFailures.active,
+        source: 'pull channel',
+      });
+    } catch (err) {
+      thrown = err;
+    }
+    // A settings.json that can't be written doesn't throw — it just leaves the
+    // hash unacknowledged, so read the outcome instead of the exception.
+    if (getSyncedHash() !== data.settingsHash) {
+      settingsApplyFailures.fail(
+        thrown ??
+          new Error('settings applied but the hash was not acknowledged')
+      );
+    } else {
+      settingsApplyFailures.succeed();
+    }
+  }
+
   const jobs = data.jobs;
+  let dispatched = 0;
   for (const job of jobs) {
     if (!job?.jobId || alreadySeen(job.jobId)) continue;
     dispatchJob(job);
+    dispatched += 1;
   }
+  return dispatched > 0;
 }
 
 /**
@@ -441,9 +497,22 @@ async function loop(): Promise<void> {
       continue;
     }
     try {
-      await pollOnce();
+      const polledAt = Date.now();
+      const delivered = await pollOnce();
+      markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
+      // See SETTINGS_SPIN_GUARD_MS: a backend that held the poll has already
+      // paced this retry — and held it with the channel open, so jobs kept
+      // arriving. An answer that carried jobs is the venue printing, not a
+      // spin, and must not be slowed down either.
+      if (
+        settingsApplyFailures.active &&
+        !delivered &&
+        Date.now() - polledAt < HELD_POLL_MS
+      ) {
+        await sleep(SETTINGS_SPIN_GUARD_MS);
+      }
     } catch (err) {
       if (err instanceof PollRejectedError) {
         // Its own episode with its own log line — don't let it inflate the
