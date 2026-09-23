@@ -19,7 +19,10 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-const APIKEY = 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
+// Per-env like QUICKORD_API_URL: the default is the prod key, so existing
+// installs keep working, and a dev PS overrides it in config.json.
+const APIKEY =
+  nconf.get('QUICKORD_APIKEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 const APPID = 'desktop';
 
 // Null when no usable LAN IPv4 is up (DHCP not settled at boot, or only
