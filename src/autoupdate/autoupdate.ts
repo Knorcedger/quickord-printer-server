@@ -177,32 +177,60 @@ export async function copyOnlyFiles(
   await walk(srcDir);
   updateLog('🎉 Copy completed.');
 }
+
+const LAUNCH_EVENT_TIMEOUT_MS = 5_000;
+
 /**
  * `cwd` matters more than it looks: the server reads and writes its runtime
  * files relative to the working directory (`./config.json`, `version`,
  * `./settings.json`). The updater runs from %TMP%, so a launch that inherits
  * its cwd would start the installed exe pointing at the temp copy's config.
  * Callers that launch an *installed* exe must pass its own directory.
+ *
+ * Resolves false when the spawn itself failed — see the 'error' handler.
  */
 export function launchDetached(
   appPath: string,
   args: string[],
   cwd?: string
-): boolean {
-  try {
-    const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
-      cwd: cwd ?? path.dirname(appPath),
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: false,
-    });
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(ok);
+    };
 
-    child.unref();
-    return true;
-  } catch (err) {
-    updateLogError('Failed to relaunch exe:', err);
-    return false;
-  }
+    try {
+      const child = spawn('cmd.exe', ['/c', 'start', '', appPath, ...args], {
+        cwd: cwd ?? path.dirname(appPath),
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+
+      // spawn reports its failures on the 'error' event, not by throwing: a
+      // missing cwd (a staged tree that never extracted) surfaces as
+      // `spawn cmd.exe ENOENT` a tick later. The try/catch below never sees it,
+      // so without this the caller was told the launch worked and the error
+      // escaped as an uncaughtException.
+      child.once('error', (err) => {
+        updateLogError('Failed to relaunch exe:', err);
+        done(false);
+      });
+      child.once('spawn', () => done(true));
+      child.unref();
+
+      // Neither event is guaranteed on every platform; don't hang on it.
+      timer = setTimeout(() => done(true), LAUNCH_EVENT_TIMEOUT_MS);
+    } catch (err) {
+      updateLogError('Failed to relaunch exe:', err);
+      done(false);
+    }
+  });
 }
 
 // Work that must land before this process exits on the update path — the
@@ -228,17 +256,32 @@ function isExeLocked(exe: string): boolean {
   }
 }
 
+// The lock appears while node is still loading the bundle, so on its own it
+// only proves the file was opened. A build whose native modules are missing
+// dies in `require` right there and drops it again — and that is the one
+// failure where handing over is fatal, because the exe we hand over to *is*
+// the new build. Outliving this window is what "really up" means.
+const EXE_SETTLE_MS = 5_000;
+
 async function waitForExeLock(
   exe: string,
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  settleMs = EXE_SETTLE_MS
 ): Promise<boolean> {
   if (process.platform !== 'win32') return true;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (isExeLocked(exe)) return true;
+    if (isExeLocked(exe)) break;
     if (Date.now() >= deadline) return false;
     await sleep(250);
   }
+
+  const settleDeadline = Date.now() + settleMs;
+  while (Date.now() < settleDeadline) {
+    await sleep(250);
+    if (!isExeLocked(exe)) return false;
+  }
+  return true;
 }
 
 /** Relaunch and exit — returns false when the child never came up, so we stay. */
@@ -247,14 +290,14 @@ export async function relaunchExe(
   args: string[],
   exitDelayMs = 500
 ): Promise<boolean> {
-  if (!launchDetached(appPath, args)) return false;
+  if (!(await launchDetached(appPath, args))) return false;
 
   // `cmd /c start` exits 0 even when it could not launch the exe (AV lock,
   // Smart App Control, a swept temp tree). Exiting on that alone stops the
   // service with no updater to bring it back, so wait for the child's lock.
   if (!(await waitForExeLock(appPath))) {
     updateLogError(
-      `Launched ${appPath} but no process ever took it; staying up instead of exiting.`
+      `Launched ${appPath} but no process is still running it; staying up instead of exiting.`
     );
     return false;
   }
@@ -641,7 +684,7 @@ export async function startServiceOrFallback(
   updateLogError(
     `RUNNING UNMANAGED: ${SERVICE_NAME} is NOT running. The printer server was started as a plain process — it dies at logoff and nothing restarts it. Run install_printer_service.bat as administrator to repair.`
   );
-  if (!launchDetached(exe, startArgs, buildsDir)) return false;
+  if (!(await launchDetached(exe, startArgs, buildsDir))) return false;
 
   // `cmd /c start` exits 0 even when it launched nothing (AV, Smart App
   // Control). Reporting that as a start would mark the release good with the
@@ -842,20 +885,25 @@ export function clearFailedRelease(buildsDir: string): void {
 }
 
 /**
- * Count this failed install against the release being installed. The version is
- * the updater's own — it runs from the new build — and the marker goes to the
- * install we are about to restart.
+ * Count this failed install against the release being installed. The marker
+ * goes to the install we are about to restart. The updater child runs from the
+ * new build, so it can read the version out of its own cwd; the boot-time check
+ * only knows the tag it got from the releases API and passes that instead.
  */
-export function noteFailedRelease(installDir: string): void {
+export function noteFailedRelease(
+  installDir: string,
+  releaseVersion?: string
+): void {
   if (!installDir) return;
   const buildsDir = path.join(installDir, 'builds');
-  let version = '';
+  let version = releaseVersion ?? '';
   try {
-    version = fs.readFileSync('version', 'utf-8').trim();
+    if (!version) version = fs.readFileSync('version', 'utf-8').trim();
   } catch {
     updateLog('No version file in the new build; nothing to mark as failed.');
     return;
   }
+  if (!version) return;
 
   const previous = readFailedRelease(buildsDir);
   const attempts = (previous?.version === version ? previous.attempts : 0) + 1;
@@ -870,6 +918,43 @@ export function noteFailedRelease(installDir: string): void {
   } catch (err: any) {
     updateLogError('Could not write the failed-release marker:', err.message);
   }
+}
+
+/**
+ * Reason the staged release cannot be handed over to, or null when it looks
+ * installable.
+ *
+ * The updater *is* the new build: we hand over by running the staged
+ * `printerServer.exe --update`. So a release that cannot start cannot install
+ * itself either — a zip without node_modules dies in `require('serialport')`
+ * before one line of updater code runs, after this process has already agreed
+ * to step aside. updater.js validates the same things, but it only gets to run
+ * when the build it lives in works. This check is the one that has to hold.
+ */
+export function validateStagedBuild(stagedDir: string): string | null {
+  const stagedBuilds = path.join(stagedDir, 'builds');
+  for (const f of [
+    'printerServer.exe',
+    'printerServerService.exe',
+    'config.json',
+    'version',
+  ]) {
+    if (!fs.existsSync(path.join(stagedBuilds, f))) {
+      return `the release is missing builds/${f}`;
+    }
+  }
+
+  // The exe resolves its native modules from <install>/node_modules, a sibling
+  // of builds/. deploy.sh packages it into every release.
+  const stagedModules = path.join(stagedDir, 'node_modules');
+  try {
+    if (fs.readdirSync(stagedModules).length === 0) {
+      return 'the release ships an empty node_modules folder';
+    }
+  } catch {
+    return 'the release is missing its node_modules folder';
+  }
+  return null;
 }
 
 /**
@@ -1046,9 +1131,21 @@ export async function downloadLatestCode(
   await extractZip(zipBuffer, tempCodePath);
 
   updateLog('Update needed. Code ready at:', tempCodePath);
+
+  const parentDir = path.resolve(buildsDir, '..');
+
+  // Before the handoff, while staying is still an option: a broken release
+  // caught here costs a download, one caught after the handoff costs the venue.
+  const invalid = validateStagedBuild(tempCodePath);
+  if (invalid) {
+    const error = `Refusing to install ${latestVersion}: ${invalid}. Staying on ${currentVersion}.`;
+    updateLogError(error);
+    noteFailedRelease(parentDir, latestVersion);
+    return { currentVersion, error, latestVersion, state: 'failed' };
+  }
+
   updateLog('Updating to latest version');
   updateLog(tempCodePath);
-  const parentDir = path.resolve(buildsDir, '..');
 
   args[1] = tempCodePath;
   args[2] = '--parent';
@@ -1086,6 +1183,9 @@ export async function downloadLatestCode(
   // it is a one-shot report for a handoff that did not happen.
   const error = `Could not start the updater at ${path2}; staying on ${currentVersion}.`;
   updateLogError(error);
+  // Only the updater child used to count attempts, so a release that could not
+  // even start its own updater was retried from scratch on every boot.
+  noteFailedRelease(parentDir, latestVersion);
   return { currentVersion, error, latestVersion, state: 'failed' };
 }
 
