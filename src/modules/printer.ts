@@ -36,6 +36,8 @@ import {
   getInvoiceTypeLabel,
   isUSBPrinterOnline,
   buildProductRow,
+  setLineSpacing,
+  cutPaper,
 } from './common';
 import logger from './logger';
 import {
@@ -612,6 +614,7 @@ export const printTestPage = async (
   printer.clear();
 
   changeCodePage(printer, codePage ?? DEFAULT_CODE_PAGE);
+  setLineSpacing(printer);
 
   printer.alignCenter();
   printer.println(`charset: ${charset || CharacterSet.PC869_GREEK}`);
@@ -637,7 +640,7 @@ export const printTestPage = async (
   printer.println('text size 2');
   printer.setTextSize(3, 3);
   printer.println('text size 3');
-  printer.cut();
+  cutPaper(printer);
 
   try {
     await printer.execute();
@@ -746,9 +749,10 @@ const printTextFunc = async (
       try {
         printer.clear();
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
 
         await readMarkdown(text, printer, alignment, settings);
-        printer.cut();
+        cutPaper(printer);
 
         await printer.execute({
           waitForResponse: false,
@@ -956,6 +960,7 @@ const printParkingTicket = async (
       for (let copies = 0; copies < copyCount; copies += 1) {
         printer.alignCenter();
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.bold(true);
         printer.println('PARKING TICKET');
         drawLine2(printer);
@@ -992,7 +997,7 @@ const printParkingTicket = async (
         drawLine2(printer);
         printer.println('Thank you for parking with us!');
         printer.println('Keep this ticket for your records');
-        printer.cut();
+        cutPaper(printer);
       }
 
       await printer.execute({
@@ -1077,6 +1082,7 @@ const printPelatologioRecord = async (
 
       printer.alignCenter();
       changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+      setLineSpacing(printer);
       printer.bold(true);
       printer.println('PELATOLOGIO RECORD');
       printer.newLine();
@@ -1137,7 +1143,7 @@ const printPelatologioRecord = async (
       printer.alignCenter();
       printer.newLine();
       printer.println('POWERED BY MYPELATES');
-      printer.cut();
+      cutPaper(printer);
 
       await printer.execute({
         waitForResponse: false,
@@ -1614,6 +1620,7 @@ const printOrderForm = async (
         console.log(aadeInvoice);
         printer.alignCenter();
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.println(
           tr(
             `${translations.printOrder.orderForm[lang]}`,
@@ -1696,7 +1703,7 @@ const printOrderForm = async (
           tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
         );
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         await executePrinter(printer, printerIdentifier, 'order form print', {
           orderNumber,
@@ -1789,6 +1796,7 @@ const printPaymentSlip = async (
         }
         printer.alignCenter();
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.println(
           tr(
             `${translations.printOrder.paymentSlip[lang]}`,
@@ -1911,7 +1919,6 @@ const printPaymentSlip = async (
           );
         });
         drawLine2(printer);
-        printer.newLine();
         printer.alignLeft();
         printer.println(`MARK ${aadeInvoice?.mark}`);
         printer.println(`UID ${aadeInvoice?.uid}`);
@@ -1936,13 +1943,11 @@ const printPaymentSlip = async (
         printer.println(
           `${translations.printOrder.provider[lang]} ${providerUrl}`
         );
-        printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
-        printer.newLine();
         printer.println(
           tr(
             `${translations.printOrder.paymentSlipEnd[lang]}`,
@@ -1950,7 +1955,7 @@ const printPaymentSlip = async (
           )
         );
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         await executePrinter(printer, printerIdentifier, 'payment slip print', {
           orderNumber,
@@ -2055,6 +2060,7 @@ const printPaymentReceipt = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.alignCenter();
 
         // Determine invoice type label based on AADE code
@@ -2148,7 +2154,6 @@ const printPaymentReceipt = async (
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
-        printer.newLine();
         printer.println(
           tr(
             aadeInvoice?.header?.code === '11.2'
@@ -2157,9 +2162,8 @@ const printPaymentReceipt = async (
             settings.transliterate
           )
         );
-        printer.newLine();
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         const printerIdentifier =
           settings?.name ||
@@ -2292,6 +2296,7 @@ const printInvoice = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         await venueData(
           printer,
           aadeInvoice,
@@ -2386,15 +2391,13 @@ const printInvoice = async (
           settings.transliterate
         );
         printMarks(printer, aadeInvoice, lang, settings.transliterate);
-        printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(
             tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
           );
         }
-        printer.newLine();
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         const printerIdentifier =
           settings?.name ||
@@ -2502,6 +2505,7 @@ const printMyPelatesReceipt = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.alignCenter();
         printer.println(
           tr(
@@ -2591,11 +2595,9 @@ const printMyPelatesReceipt = async (
         printer.alignCenter();
         printPayments(printer, aadeInvoice, lang, settings.transliterate);
         printMarks(printer, aadeInvoice, lang, settings.transliterate);
-        printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
         }
-        printer.newLine();
         printer.println(
           tr(
             aadeInvoice?.header?.code === '11.2'
@@ -2604,9 +2606,8 @@ const printMyPelatesReceipt = async (
             settings.transliterate
           )
         );
-        printer.newLine();
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         const printerIdentifier =
           settings?.name ||
@@ -2720,6 +2721,7 @@ const printMyPelatesInvoice = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.alignCenter();
         await venueData(
           printer,
@@ -2825,13 +2827,11 @@ const printMyPelatesInvoice = async (
         printer.alignCenter();
         printPayments(printer, aadeInvoice, lang, settings.transliterate);
         printMarks(printer, aadeInvoice, lang, settings.transliterate);
-        printer.newLine();
         if (settings.poweredByQuickord) {
           printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
         }
-        printer.newLine();
         printer.alignCenter();
-        printer.cut();
+        cutPaper(printer);
 
         await executePrinter(
           printer,
@@ -2995,6 +2995,7 @@ const printDeliveryNote = async (
         // page it was left on and prints Greek as gibberish.
         printer.clear();
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         printer.alignCenter();
         await venueData(
           printer,
@@ -3097,7 +3098,7 @@ const printDeliveryNote = async (
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
-        printer.cut();
+        cutPaper(printer);
 
         await printer.execute({
           waitForResponse: false,
@@ -3323,6 +3324,7 @@ export const printOrder = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
         printer.newLine();
         printer.alignCenter();
@@ -4074,7 +4076,7 @@ export const printOrder = async (
           );
         }
 
-        printer.cut();
+        cutPaper(printer);
 
         try {
           await executePrinter(
@@ -4248,6 +4250,7 @@ export const printOrderComments = async (
           printer.clear();
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
+        setLineSpacing(printer);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
         printer.newLine();
@@ -4332,7 +4335,7 @@ export const printOrderComments = async (
           if (boldComments) printer.setTextSize(0, 0);
         }
 
-        printer.cut();
+        cutPaper(printer);
 
         try {
           await executePrinter(
