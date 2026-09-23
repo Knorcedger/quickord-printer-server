@@ -5,6 +5,7 @@ import { printer as ThermalPrinter } from 'node-thermal-printer';
 import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
 import { z } from 'zod';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
+import { sanitizeForPrinter } from './charsetGuard';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -681,8 +682,6 @@ const wrapChoices = (
   continuationIndent: string,
   lastLineReserved: number
 ): string[] => {
-  if (choices.length === 0) return [firstPrefix];
-
   const lines: string[] = [];
   let current = firstPrefix;
 
@@ -714,6 +713,31 @@ const wrapChoices = (
       if (rem.length > 0) pushCurrent();
     }
   };
+
+  // The prefix is an option label, which can be wider than the row on its own
+  // (enlarged text, or a `…` the guard turned into `...`). Wrap it through the
+  // same path instead of letting it out at full length.
+  if (firstPrefix.length > width) {
+    current = /^ */.exec(firstPrefix)![0];
+    // Split on single spaces so a run of spaces inside the label survives:
+    // each empty token is one extra space beyond the one appendWord adds.
+    firstPrefix
+      .slice(current.length)
+      .trimEnd()
+      .split(' ')
+      .forEach((word) => {
+        if (word) {
+          appendWord(word);
+          return;
+        }
+        const extra = current.endsWith(' ') ? ' ' : '  ';
+        if (current.length + extra.length <= width) current += extra;
+      });
+    // Keep the separating space the caller put at the end of the label.
+    if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
+  }
+
+  if (choices.length === 0) return [...lines, current];
 
   choices.forEach((choice, i) => {
     const sep = i === 0 ? '' : ', ';
@@ -759,6 +783,36 @@ export const wrapWords = (
 ): string[] =>
   wrapChoices([text], width, '', continuationIndent, lastLineReserved);
 
+// Lays out one product row: the wrapped title, its last line padded so the
+// price column lands where it should. Transliteration and the charset guard
+// both rewrite the text (Θ → TH, `€` → `EUR`), so both run before any
+// measuring — padding the raw string would push the price off the paper.
+export const buildProductRow = (
+  printer: ThermalPrinter,
+  productLine: string,
+  priceStr: string,
+  { boldPrices = false, boldProducts = false, transliterate = false } = {}
+) => {
+  // An enlarged price takes two cells per character, so reserve twice the room
+  // for it when padding the title.
+  const enlargePrice = boldPrices && !boldProducts && !!priceStr;
+  const lineWidth = boldProducts ? 21 : 42;
+  const priceCells = priceStr.length * (enlargePrice ? 2 : 1);
+  const lines = wrapWords(
+    sanitizeForPrinter(printer, tr(productLine, transliterate)),
+    lineWidth,
+    '   ',
+    priceCells
+  );
+  const lastLine = lines[lines.length - 1]!;
+
+  return {
+    enlargePrice,
+    leadingLines: lines.slice(0, -1),
+    paddedLine: lastLine.padEnd(Math.max(0, lineWidth - priceCells), ' '),
+  };
+};
+
 // `enlarged` tells us the caller left the text at double width (BOLD_PRODUCTS),
 // where every character costs two cells and only half the line is usable.
 export const printOptionDetails = (
@@ -771,12 +825,16 @@ export const printOptionDetails = (
   const width = enlarged ? 21 : 42;
 
   options?.forEach((option) => {
-    // Transliterate before measuring: it rewrites Greek to Latin (Θ → TH), so
-    // wrapping the raw text would size the lines against characters we never
-    // print. It also trims, hence the indent is applied after.
-    let optionLabel = tr(
-      normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
-      settings.transliterate
+    // Transliterate and sanitize before measuring: both rewrite the text
+    // (Θ → TH, `€` → `EUR`), so wrapping the raw string would size the lines
+    // against characters we never print. tr also trims, hence the indent is
+    // applied after.
+    let optionLabel = sanitizeForPrinter(
+      printer,
+      tr(
+        normalizeGreek(getTitle(option.content, lang)).toUpperCase().trim(),
+        settings.transliterate
+      )
     );
     if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
       optionLabel = `${optionLabel}: `;
@@ -794,9 +852,12 @@ export const printOptionDetails = (
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
       choiceValues.push(
-        tr(
-          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
-          settings.transliterate
+        sanitizeForPrinter(
+          printer,
+          tr(
+            `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+            settings.transliterate
+          )
         )
       );
       if (choice.price && choice.price > 0)
@@ -811,7 +872,12 @@ export const printOptionDetails = (
       totalPrice > 0 &&
       (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
     ) {
-      priceStr = `   ${(totalPrice / 100).toFixed(2)} €`;
+      // Sanitized up front: `€` may become `EUR`, and the padding below is
+      // measured from this length.
+      priceStr = sanitizeForPrinter(
+        printer,
+        `   ${(totalPrice / 100).toFixed(2)} €`
+      );
     }
     const continuationIndent = `${indent}  `;
     const lines = wrapChoices(
@@ -914,9 +980,14 @@ export const printProducts = (
     const localizedTitle =
       (matchedProduct && getTitle(matchedProduct.content, lang)) || detail.name;
 
-    const name = tr(
-      normalizeGreek(String(localizedTitle).toUpperCase()),
-      settings.transliterate
+    // Sanitize before the column maths below: the guard widens `€`/`…` at
+    // append time, which would shift the value and VAT columns.
+    const name = sanitizeForPrinter(
+      printer,
+      tr(
+        normalizeGreek(String(localizedTitle).toUpperCase()),
+        settings.transliterate
+      )
     );
 
     const quantity = signedQuantity.toFixed(0); // "-1" for credits
@@ -1327,7 +1398,11 @@ export const printDeliveryNoteProducts = (
   aadeInvoice?.details.forEach((detail: any) => {
     sumQuantity += detail.quantity;
 
-    const name = tr(normalizeGreek(detail.name.toUpperCase()), transliterate);
+    // Sanitized before the 10/14-cell name column is measured and padded.
+    const name = sanitizeForPrinter(
+      printer,
+      tr(normalizeGreek(detail.name.toUpperCase()), transliterate)
+    );
     const quantity = detail.quantity.toFixed(0);
 
     // Map unit code to Greek unit name
@@ -1524,8 +1599,9 @@ export const printDeliveryNoteVatBreakdown = (
   ];
 
   summaryLines.forEach((line) => {
-    const spacing = lineWidth - line.label.length - line.value.length;
-    printer.println(line.label + ' '.repeat(Math.max(1, spacing)) + line.value);
+    const value = sanitizeForPrinter(printer, line.value);
+    const spacing = lineWidth - line.label.length - value.length;
+    printer.println(line.label + ' '.repeat(Math.max(1, spacing)) + value);
   });
 
   drawLine2(printer);
