@@ -349,7 +349,7 @@ const printOrders = async (
   try {
     const orders = Orders.parse(req.body);
 
-    logger.info('orders to print:', orders);
+    logger.infoLocal('orders to print:', orders);
 
     const project =
       (Array.isArray(req.headers.project)
@@ -382,7 +382,7 @@ export const printFullOrders = async (
   try {
     const orders = Orders.parse(req.body);
 
-    logger.info('full orders to print:', orders);
+    logger.infoLocal('full orders to print:', orders);
 
     const project =
       (Array.isArray(req.headers.project)

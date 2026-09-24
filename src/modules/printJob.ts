@@ -87,6 +87,9 @@ async function sendToPrinter(
   data: Buffer
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    const target = `${ip}:${port || 9100}`;
+    const startedAt = Date.now();
+    const elapsed = () => `${Date.now() - startedAt}ms`;
     let settled = false;
     const settle = (fn: () => void) => {
       if (!settled) {
@@ -96,12 +99,19 @@ async function sendToPrinter(
     };
 
     const socket = net.connect({ host: ip, port: port || 9100 }, () => {
+      logger.debug(`TCP ${target} connected after ${elapsed()}`);
       socket.write(data, () => {
+        logger.debug(
+          `TCP ${target} wrote ${data.length} bytes by ${elapsed()}`
+        );
         socket.end();
       });
     });
     socket.setTimeout(SOCKET_TIMEOUT);
-    socket.on('close', () => settle(() => resolve()));
+    socket.on('close', () => {
+      logger.debug(`TCP ${target} closed after ${elapsed()}`);
+      settle(() => resolve());
+    });
     socket.on('error', (err) =>
       settle(() => {
         socket.destroy();
@@ -132,6 +142,7 @@ async function sendToLocalPrinter(
   if (deviceInterface.startsWith('\\\\')) {
     const shareName = deviceInterface.split('\\').pop() || '';
     const online = await isUSBPrinterOnline(shareName);
+    logger.debug(`Shared printer ${shareName} online check: ${online}`);
     if (!online) {
       throw new Error(`Printer offline or not found: ${deviceInterface}`);
     }
@@ -184,7 +195,11 @@ export function executePrintJob(
   // Key the queue by the physical target (ip for TCP, device path for local) so
   // jobs to the same printer serialize but different printers stay parallel.
   const queueKey = printerIp || printerPort!;
+  const queuedAt = Date.now();
   enqueuePrinterJob(queueKey, async () => {
+    logger.debug(
+      `Print job ${jobId} waited ${Date.now() - queuedAt}ms in the ${queueKey} queue`
+    );
     let target: string;
     let dispatch: Promise<unknown>;
 
