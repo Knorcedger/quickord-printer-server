@@ -245,8 +245,8 @@ export function registerPreExitTask(task: Promise<unknown>): void {
   void task.catch(() => {}).finally(() => preExitTasks.delete(task));
 }
 
-// A running .exe cannot be opened for writing on Windows — from the outside,
-// that lock is the only proof a launched process is really up.
+// A running .exe cannot be opened for writing on Windows. Only safe on an exe
+// that is already up — see isExeRunning.
 function isExeLocked(exe: string): boolean {
   try {
     fs.closeSync(fs.openSync(exe, 'r+'));
@@ -256,9 +256,20 @@ function isExeLocked(exe: string): boolean {
   }
 }
 
-// The lock appears while node is still loading the bundle, so on its own it
-// only proves the file was opened. A build whose native modules are missing
-// dies in `require` right there and drops it again — and that is the one
+// Asks the process list, not the file: probing with a write handle while the
+// exe is being launched makes CreateProcess fail with a sharing violation.
+async function isExeRunning(exe: string): Promise<boolean> {
+  const target = path.resolve(exe).replace(/'/g, "''");
+  const { code, output } = await runCmd(
+    `powershell -NoProfile -NonInteractive -Command "@(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${target}' }).Count"`,
+    10_000
+  );
+  return code === 0 && Number(output.trim().split(/\s+/)[0]) > 0;
+}
+
+// The process appears while node is still loading the bundle, so on its own it
+// only proves it was started. A build whose native modules are missing
+// dies in `require` right there and exits again — and that is the one
 // failure where handing over is fatal, because the exe we hand over to *is*
 // the new build. Outliving this window is what "really up" means.
 const EXE_SETTLE_MS = 5_000;
@@ -271,15 +282,15 @@ async function waitForExeLock(
   if (process.platform !== 'win32') return true;
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (isExeLocked(exe)) break;
+    if (await isExeRunning(exe)) break;
     if (Date.now() >= deadline) return false;
-    await sleep(250);
+    await sleep(500);
   }
 
   const settleDeadline = Date.now() + settleMs;
   while (Date.now() < settleDeadline) {
-    await sleep(250);
-    if (!isExeLocked(exe)) return false;
+    await sleep(500);
+    if (!(await isExeRunning(exe))) return false;
   }
   return true;
 }
@@ -294,7 +305,7 @@ export async function relaunchExe(
 
   // `cmd /c start` exits 0 even when it could not launch the exe (AV lock,
   // Smart App Control, a swept temp tree). Exiting on that alone stops the
-  // service with no updater to bring it back, so wait for the child's lock.
+  // service with no updater to bring it back, so wait for the child to be running.
   if (!(await waitForExeLock(appPath))) {
     updateLogError(
       `Launched ${appPath} but no process is still running it; staying up instead of exiting.`
@@ -521,11 +532,15 @@ const SERVICE_XML_FILE = 'printerServerService.xml';
 // marker, i.e. the ones that can refuse a capped release on their own.
 const BOOT_GUARD_FILE = 'honors-failed-release';
 
-/** Does this xml already start the exe with updates off? */
+/**
+ * Does this xml already start the exe with updates off? Only the first argument
+ * counts: that is the only place any build's launcher looks for it.
+ */
 export function xmlSuppressesUpdates(xml: string): boolean {
-  return new RegExp(
-    `<arguments>[^<]*${NO_UPDATE_ARG}|<argument>\\s*${NO_UPDATE_ARG}\\s*</argument>`
-  ).test(xml);
+  const list = xml.match(/<arguments>([\s\S]*?)<\/arguments>/);
+  if (list) return (list[1] ?? '').trim().split(/\s+/)[0] === NO_UPDATE_ARG;
+  const first = xml.match(/<argument>([\s\S]*?)<\/argument>/);
+  return first?.[1]?.trim() === NO_UPDATE_ARG;
 }
 
 /**
@@ -534,18 +549,18 @@ export function xmlSuppressesUpdates(xml: string): boolean {
  * which only reaches the SCM at install time.
  */
 export function serviceXmlWithNoUpdate(xml: string): string | null {
+  // First, not last: index.ts only honours `--noupdate` as argv[0].
   if (/<arguments>[\s\S]*?<\/arguments>/.test(xml)) {
     return xml.replace(
       /<arguments>([\s\S]*?)<\/arguments>/,
       (_match, inner) =>
-        `<arguments>${[inner.trim(), NO_UPDATE_ARG].filter(Boolean).join(' ')}</arguments>`
+        `<arguments>${[NO_UPDATE_ARG, inner.trim()].filter(Boolean).join(' ')}</arguments>`
     );
   }
   // WinSW's list form: keep it a list rather than mixing the two spellings.
-  const lastArgument = xml.lastIndexOf('</argument>');
-  if (lastArgument !== -1) {
-    const end = lastArgument + '</argument>'.length;
-    return `${xml.slice(0, end)}\n  <argument>${NO_UPDATE_ARG}</argument>${xml.slice(end)}`;
+  const firstArgument = xml.indexOf('<argument>');
+  if (firstArgument !== -1) {
+    return `${xml.slice(0, firstArgument)}<argument>${NO_UPDATE_ARG}</argument>\n  ${xml.slice(firstArgument)}`;
   }
   if (!xml.includes('</service>')) return null;
   return xml.replace(
@@ -698,7 +713,7 @@ export async function startServiceOrFallback(
 
   // `cmd /c start` exits 0 even when it launched nothing (AV, Smart App
   // Control). Reporting that as a start would mark the release good with the
-  // service stopped and nothing on the port, so wait for the exe's own lock.
+  // service stopped and nothing on the port, so wait for the exe to be running.
   if (await waitForExeLock(exe)) return true;
   updateLogError(
     `Fallback launch of ${exe} never took: no process is running it.`
@@ -1590,12 +1605,26 @@ export default async function autoUpdate(path: string[]) {
   if (path[0] === '--update') {
     markUpdaterProcess();
     let ok = false;
+    updaterFailureNoted = false;
     try {
       ok = await runUpdater(path);
+    } catch (err) {
+      // Swallowed on purpose: a rethrow reaches index.ts, which carries on and
+      // serves from this temp copy. Hand the machine back to the install instead.
+      updateLogError('Updater crashed:', err);
+      noteUpdaterFailure();
+      try {
+        if (destDir) await startServiceOrFallback(destDir);
+      } catch (startErr) {
+        updateLogError(
+          'Could not restart the service after the crash:',
+          startErr
+        );
+      }
     } finally {
       // Every exit path, including a throw: the runs worth reading are the ones
       // that failed. destDir is set by runUpdater before anything can throw.
-      if (!ok) noteFailedRelease(destDir);
+      if (!ok) noteUpdaterFailure();
       flushUpdateLog(destDir);
     }
     // This process is the updater, not a server: it runs from %TMP% and the
@@ -1642,6 +1671,25 @@ async function logUpdaterPreamble(): Promise<void> {
   }
 }
 
+let updaterFailureNoted = false;
+
+/** Count this run against the release, once per process. */
+function noteUpdaterFailure(): void {
+  if (updaterFailureNoted) return;
+  updaterFailureNoted = true;
+  noteFailedRelease(destDir);
+}
+
+// The marker must land before the old install starts: its boot-time check
+// reads it, and a late write lets that boot miss an attempt.
+async function restartAfterFailure(
+  options: { suppressUpdates?: boolean } = {}
+): Promise<false> {
+  noteUpdaterFailure();
+  await startServiceOrFallback(destDir, options);
+  return false;
+}
+
 /**
  * The `--update` mode: replace the install directory and hand control back to
  * the service manager. Runs from the freshly downloaded copy in %TMP%, so it is
@@ -1666,10 +1714,9 @@ async function runUpdater(path: string[]): Promise<boolean> {
     // moment it starts and exits before listening, so it goes back up with its
     // update check off. One that can refuse the release itself starts normally
     // and still takes a later release on its own.
-    await startServiceOrFallback(destDir, {
+    return restartAfterFailure({
       suppressUpdates: !hasBootUpdateGuard(destDir),
     });
-    return false;
   }
 
   const port = Number(nconf.get('PORT')) || 7810;
@@ -1682,8 +1729,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
     updateLogError(
       `Update aborted: the downloaded release at ${srcDir} is missing ${staged.join(', ')}.`
     );
-    await startServiceOrFallback(destDir);
-    return false;
+    return restartAfterFailure();
   }
 
   // Stop the service (and any orphan holding the port) BEFORE touching the
@@ -1691,8 +1737,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // far better than a half-copied directory with the service down.
   if (!(await stopServiceAndFreePort(port))) {
     updateLogError('Update aborted: could not free the install directory.');
-    await startServiceOrFallback(destDir);
-    return false;
+    return restartAfterFailure();
   }
 
   // settings.json is the only per-venue state in the install dir. Losing it
@@ -1707,8 +1752,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
         'Update aborted: failed to back up settings.json:',
         err.message || err
       );
-      await startServiceOrFallback(destDir);
-      return false;
+      return restartAfterFailure();
     }
   } else {
     updateLog(`No settings.json at ${settingsPath}, nothing to preserve.`);
@@ -1726,8 +1770,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
     updateLogError(
       'Update aborted: could not back up the current install. It was left untouched.'
     );
-    await startServiceOrFallback(destDir);
-    return false;
+    return restartAfterFailure();
   }
 
   try {
@@ -1754,8 +1797,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
     }
     updateLog('Previous install restored. Update aborted.');
     await applyServiceConfig();
-    await startServiceOrFallback(destDir);
-    return false;
+    return restartAfterFailure();
   }
 
   // Only now, with a verified new build on disk, is the backup expendable.

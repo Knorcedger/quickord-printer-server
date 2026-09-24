@@ -194,9 +194,21 @@ describe('handing the machine back after a capped release', () => {
 
     suppressBootUpdates(builds());
 
-    expect(readXml()).toContain(
-      '<arguments>--port 7810 --noupdate</arguments>'
-    );
+    const xml = readXml();
+    expect(xml).toContain('<arguments>--noupdate --port 7810</arguments>');
+    expect(xmlSuppressesUpdates(xml)).toBe(true);
+  });
+
+  // index.ts reads the flag only as argv[0], so a trailing one does nothing.
+  it('does not count a flag that is not the first argument', () => {
+    expect(
+      xmlSuppressesUpdates('<arguments>--port 7810 --noupdate</arguments>')
+    ).toBe(false);
+    expect(
+      xmlSuppressesUpdates(
+        '<argument>--port</argument><argument>--noupdate</argument>'
+      )
+    ).toBe(false);
   });
 
   it('stays with the list form when the xml uses it', () => {
@@ -210,7 +222,9 @@ describe('handing the machine back after a capped release', () => {
     suppressBootUpdates(builds());
 
     const xml = readXml();
-    expect(xml).toContain('<argument>--noupdate</argument>');
+    expect(xml).toMatch(
+      /<argument>--noupdate<\/argument>\s*<argument>--port<\/argument>/
+    );
     expect(xml).not.toContain('<arguments>');
     expect(xmlSuppressesUpdates(xml)).toBe(true);
   });
