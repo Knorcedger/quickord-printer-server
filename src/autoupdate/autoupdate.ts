@@ -649,6 +649,7 @@ export async function startServiceOrFallback(
   // One `sc start` was not enough: right after a stop the SCM can still be
   // finishing (1053/1061), and a single refusal used to drop straight to an
   // unmanaged process. Retry while the service is merely stopped.
+  let denied = false;
   for (
     let attempt = 1;
     canStartService && attempt <= START_ATTEMPTS;
@@ -666,11 +667,20 @@ export async function startServiceOrFallback(
     );
     // Denied is not a race — retrying the same call as the same user cannot
     // help, and the caller needs the fallback now.
-    if (scErrorCode(code, output) === 5) break;
+    if (scErrorCode(code, output) === 5) {
+      denied = true;
+      break;
+    }
     if (attempt < START_ATTEMPTS) await sleep(START_RETRY_MS);
   }
 
-  if (canStartService) {
+  // Denied means the SCM never got the start, so polling for Running is 45s of
+  // downtime spent proving what we already know. Go straight to the fallback.
+  if (denied) {
+    updateLogError(
+      'sc start was denied, so the service was never asked to start. Falling back to a direct launch.'
+    );
+  } else if (canStartService) {
     const state = await waitForState(['RUNNING'], 45_000);
     if (state === 'RUNNING') {
       updateLog('Service is running.');
@@ -1474,14 +1484,17 @@ export function copyWithCmd(
     const src = path.resolve(sourceFolder);
     const dest = path.resolve(destFolder);
 
-    const command = `xcopy "${src}" "${dest}" /E /I /Y`;
+    // /Q: without it xcopy names every file it copies, and node_modules is
+    // thousands of them — three copies per update buried the log that explains
+    // what went wrong. What stays is the "N File(s) copied" summary.
+    const command = `xcopy "${src}" "${dest}" /E /I /Y /Q`;
 
     exec(command, (error, stdout, stderr) => {
       if (error) {
         updateLogError(`Error: ${stderr}`);
         return reject(error);
       }
-      updateLog(stdout);
+      updateLog(stdout.trim());
       resolve(undefined);
     });
   });
