@@ -207,13 +207,19 @@ const IP_REGISTRATION_FAST_ATTEMPTS = 4;
 // the host's LAN IP genuinely lives on a vEthernet adapter.
 const VIRTUAL_IP_GRACE_MS = 5 * 60 * 1000;
 
+// Once registered, keep watching: a new DHCP lease (router reboot) used to
+// leave a stale IP in the backend until the next restart of this process, and
+// the FE silently lost its direct-LAN path. Reading the address is local and
+// free — only an actual change costs a call.
+const IP_WATCH_MS = 5 * 60 * 1000;
+
 let ipRegistrationVenueId: string | null = null;
 
-// Retries until the backend confirms once, then stops. The PS must not block on
-// this: it only enables the FE's direct-LAN fast path, while the pull channel —
-// which does the printing — needs no IP at all. At boot the service starts
-// before DHCP has a lease, so the first attempts legitimately have nothing to
-// publish.
+// Retries until the backend confirms, then re-registers whenever the address
+// changes. The PS must not block on this: it only enables the FE's direct-LAN
+// fast path, while the pull channel — which does the printing — needs no IP at
+// all. At boot the service starts before DHCP has a lease, so the first
+// attempts legitimately have nothing to publish.
 export const startPrinterServerIpRegistration = (venueId: string): void => {
   if (ipRegistrationVenueId === venueId) return;
   ipRegistrationVenueId = venueId;
@@ -222,11 +228,23 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
     const episode = new FailureEpisode('Printer server IP registration');
     const startedAt = Date.now();
     let waitingLogged = false;
+    // Only what the backend has confirmed, so a failed attempt is retried
+    // instead of being remembered as done.
+    let registeredIp: string | null = null;
+    // A virtual address is only ever acceptable as the first one published.
+    let registeredVirtual = false;
 
     while (ipRegistrationVenueId === venueId) {
-      const ip = getLocalIP({
-        allowVirtual: Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS,
-      });
+      const physicalIp = getLocalIP();
+      // The grace window covers a boot with nothing real up yet; it must not
+      // outlive the first registration, or a physical NIC that drops later gets
+      // replaced by a vEthernet/WSL address and the venue loses LAN printing.
+      const allowVirtual =
+        Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS &&
+        (registeredIp === null || registeredVirtual);
+      const ip =
+        physicalIp ??
+        (allowVirtual ? getLocalIP({ allowVirtual: true }) : null);
 
       if (!ip) {
         if (!waitingLogged) {
@@ -235,8 +253,13 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
             `No LAN IPv4 yet — deferring printer server IP registration, retrying every ${IP_REGISTRATION_RETRY_MS}ms`
           );
         }
-      } else {
+      } else if (ip !== registeredIp) {
         waitingLogged = false;
+        if (registeredIp) {
+          logger.info(
+            `LAN IP changed ${registeredIp} -> ${ip}, re-registering`
+          );
+        }
         try {
           // quiet from the second attempt on: the first failure's full dump is
           // already in the log and the episode carries the rest.
@@ -247,18 +270,24 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
             })
           ) {
             episode.succeed();
-            return;
+            registeredIp = ip;
+            registeredVirtual = ip !== physicalIp;
+          } else {
+            episode.fail(new Error('no LAN IPv4 to register'));
           }
-          episode.fail(new Error('no LAN IPv4 to register'));
         } catch (err) {
           episode.fail(err);
         }
       }
 
+      const settled = registeredIp !== null && ip === registeredIp;
       await sleep(
-        episode.failureCount >= IP_REGISTRATION_FAST_ATTEMPTS
-          ? IP_REGISTRATION_SLOW_RETRY_MS
-          : IP_REGISTRATION_RETRY_MS
+        // eslint-disable-next-line no-nested-ternary
+        settled
+          ? IP_WATCH_MS
+          : episode.failureCount >= IP_REGISTRATION_FAST_ATTEMPTS
+            ? IP_REGISTRATION_SLOW_RETRY_MS
+            : IP_REGISTRATION_RETRY_MS
       );
     }
   })();
