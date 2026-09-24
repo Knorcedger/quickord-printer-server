@@ -453,6 +453,28 @@ export const drawLine2 = (printer: ThermalPrinter) => {
   printer.println('------------------------------------------');
 };
 
+// The printer default is 1/6" — ~34 dots for a 24-dot glyph, so a quarter of
+// every line is leading. 26 still clears Greek accented capitals.
+const LINE_SPACING = 26;
+
+// Lines fed before the cut, to push the last line past the cutter above the
+// head. Measured at 4 on our mechanisms; 6 clears a deeper one.
+const CUT_FEED_LINES = 6;
+
+// ESC 3 n. Sent as raw bytes because node-thermal-printer only gained
+// setLineSpacing in 4.6.0 and this server is pinned to 4.4.x.
+export const setLineSpacing = (printer: ThermalPrinter) => {
+  printer.add(Buffer.from([0x1b, 0x33, LINE_SPACING]));
+};
+
+// Replaces the library's cut(), which feeds eight lines. ESC 2 restores the
+// default spacing first, since ESC d feeds at the current one and would clip.
+export const cutPaper = (printer: ThermalPrinter) => {
+  printer.add(Buffer.from([0x1b, 0x32]));
+  printer.add(Buffer.from([0x1b, 0x64, CUT_FEED_LINES]));
+  printer.cut({ verticalTabAmount: 0 });
+};
+
 export type ServiceType = {
   value: string;
   label_en: string;
@@ -581,7 +603,6 @@ export const printMarks = (
   lang,
   transliterate: boolean = false
 ) => {
-  printer.newLine();
   printer.alignLeft();
   printer.println(`MARK ${aadeInvoice?.mark}`);
   printer.println(`UID ${aadeInvoice?.uid}`);
@@ -608,7 +629,6 @@ export const printMarks = (
       transliterate
     )
   );
-  printer.newLine();
 };
 export const printPayments = (
   printer,
@@ -648,8 +668,10 @@ export const printPayments = (
         `${tr(`${methodDescription}     ${translations.printOrder.amount[lang]}`, transliterate)}: ${amount.toFixed(2)}€`
       );
     }
-    drawLine2(printer);
   });
+  // One separator closes the block. Drawn per method, it put a rule between
+  // the payment lines of a split order.
+  drawLine2(printer);
 };
 
 export const getTitle = (content: any[], lang: string): string => {
