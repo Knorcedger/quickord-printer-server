@@ -992,6 +992,7 @@ const printParkingTicket = async (
         printer.newLine();
         printer.println('IMPORTANT NOTICE');
         printer.bold(false);
+        printer.newLine();
         printer.println('Keep this ticket. Vehicle must exit before');
         printer.println(' closing time Overstay fees may apply');
         drawLine2(printer);
