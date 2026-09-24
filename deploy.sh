@@ -49,7 +49,6 @@ cp  force_autoupdate.bat ./builds/builds/ || { echo "Failed to copy force_autoup
 
 # Create the zip archive
 (cd builds && zip -r ../builds/quickord-cashier-server.zip .) || { echo "Failed to create zip archive"; exit 1; }
-cd ..
 
 # The venue installs this zip by running the printerServer.exe *inside it* as
 # the updater, so a zip missing a piece cannot install itself and cannot roll
