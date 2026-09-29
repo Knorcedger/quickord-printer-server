@@ -26,6 +26,15 @@ if errorlevel 1 (
     exit /b
 )
 
+REM The updater replaces this file while it runs, and cmd resumes a batch by byte
+REM offset. Chain (no `call`) to a temp copy so this file is never read again.
+if /i not "%~f0"=="%TEMP%\quickord_force_autoupdate.bat" (
+    set "QO_INSTALL_DIR=%~dp0"
+    copy /Y "%~f0" "%TEMP%\quickord_force_autoupdate.bat" >nul && "%TEMP%\quickord_force_autoupdate.bat" %*
+)
+if not defined QO_INSTALL_DIR set "QO_INSTALL_DIR=%~dp0"
+cd /d "%QO_INSTALL_DIR%"
+
 setlocal
 set SERVICE_NAME=printerServer
 set PORT=7810
@@ -130,7 +139,7 @@ if errorlevel 1 (
     echo It runs UNMANAGED - it dies at logoff and nothing restarts
     echo it. Run install_printer_service.bat as administrator to fix.
     echo ============================================================
-    start "" "%~dp0printerServer.exe"
+    start "" "%QO_INSTALL_DIR%printerServer.exe"
 )
 
 pause
