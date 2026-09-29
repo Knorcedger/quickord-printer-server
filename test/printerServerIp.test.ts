@@ -131,6 +131,42 @@ describe('startPrinterServerIpRegistration', () => {
     );
   });
 
+  it('never replaces a registered physical address with a virtual one', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-7');
+    await jest.advanceTimersByTimeAsync(10 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // The NIC drops long after the DHCP grace window; the WSL address that is
+    // left must not be published over the venue's real one.
+    ifaces({ 'vEthernet (WSL)': [['172.28.0.1']] });
+    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('still follows a virtual address it registered itself', async () => {
+    ifaces({ 'vEthernet (External)': [['192.168.1.60']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-8');
+    await jest.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // A Hyper-V external switch is the machine's only adapter, so its new
+    // lease is still the address the FE has to reach.
+    ifaces({ 'vEthernet (External)': [['192.168.1.61']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('retries until the backend confirms, then stops', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
     const { api, logger, tryFetch } = load();
@@ -150,9 +186,44 @@ describe('startPrinterServerIpRegistration', () => {
       'Printer server IP registered successfully'
     );
 
-    // Confirmed once: no further attempts for the life of the process.
+    // Confirmed: nothing more to say while the address stays the same.
     await jest.advanceTimersByTimeAsync(10 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('re-registers when the LAN IP changes', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, logger, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-5');
+    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // A new DHCP lease used to sit unpublished until the next restart.
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000);
+
+    expect(tryFetch).toHaveBeenCalledTimes(2);
+    expect(logger.info).toHaveBeenCalledWith(
+      'LAN IP changed 192.168.1.50 -> 192.168.1.77, re-registering'
+    );
+  });
+
+  it('keeps retrying a change the backend did not confirm', async () => {
+    ifaces({ Ethernet: [['192.168.1.50']] });
+    const { api, tryFetch } = load();
+    tryFetch.mockResolvedValue(okResponse as any);
+
+    api.startPrinterServerIpRegistration('venue-6');
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(tryFetch).toHaveBeenCalledTimes(1);
+
+    // The new address must not be remembered as registered until confirmed.
+    tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
+    ifaces({ Ethernet: [['192.168.1.77']] });
+    await jest.advanceTimersByTimeAsync(5 * 60_000 + 45_000);
+    expect(tryFetch.mock.calls.length).toBeGreaterThan(2);
   });
 
   it('collapses the logs of a sustained outage and backs off', async () => {

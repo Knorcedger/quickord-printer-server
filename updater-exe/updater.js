@@ -1,112 +1,567 @@
 // updater.js
+//
+// Standalone updater run by force_autoupdate.bat (compiled to updater.exe).
+// Separate process because a running server can't overwrite its own exe.
+//
+// Safety rule: nothing in the live install is touched until a full release is
+// downloaded, extracted AND validated in staging. A bad download aborts with
+// the install intact. It can't replace its own running exe, so a new
+// updater.exe is staged as updater.exe.new for the .bat to swap in.
 const { execSync, spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const AdmZip = require("adm-zip/adm-zip.js");
 
-const BUILD_DIR = path.join(__dirname, "builds");
-const SETTINGS_FILE = path.join(BUILD_DIR, "settings.json");
-const TEMP_SETTINGS = path.join(__dirname, "settings_backup.json");
-const ZIP_PATH = path.join(__dirname, "latest.zip");
+// Compiled: root = folder next to the exe. Under `node`: __dirname.
+const execName = path.basename(process.execPath).toLowerCase();
+const IS_COMPILED = execName !== "node" && execName !== "node.exe";
+const ROOT_DIR = IS_COMPILED ? path.dirname(process.execPath) : __dirname;
+const SELF_EXE = IS_COMPILED ? path.basename(process.execPath).toLowerCase() : null;
 
-// Kill process on port
-function killPort(port) {
-  try {
-    console.log(`Killing process on port ${port}...`);
-    execSync(
-      `for /f "tokens=5" %a in ('netstat -ano ^| findstr /R /C:":${port} " ^| find "LISTENING"') do taskkill /PID %a /F`
-    );
-  } catch {
-    console.warn(`No process found on port ${port}`);
+const BUILD_DIR = path.join(ROOT_DIR, "builds");
+const SETTINGS_FILE = path.join(BUILD_DIR, "settings.json");
+const CONFIG_FILE = path.join(BUILD_DIR, "config.json");
+
+// Staging on the same volume as the install (cheap rename swap); cleaned in finally.
+const STAGING_DIR = path.join(ROOT_DIR, ".update-staging");
+const ZIP_PATH = path.join(STAGING_DIR, "latest.zip");
+const EXTRACT_DIR = path.join(STAGING_DIR, "extracted");
+const SETTINGS_BACKUP = path.join(STAGING_DIR, "settings_backup.json");
+
+const PORT = 7810;
+
+// Exit code the .bat wrapper watches for: the install was left in a mixed or
+// partial state (a rollback itself failed) and MUST NOT be started. A service
+// that is down is recoverable by hand; a half-swapped one silently misprints.
+const CRITICAL_EXIT = 3;
+// The update did not happen (download, stop, swap or rollback failed) but the
+// install is whole and was brought back up. Plain failure for the .bat wrapper,
+// which only special-cases CRITICAL_EXIT.
+const FAILED_EXIT = 1;
+
+// Thrown when the install is knowingly inconsistent. main() propagates it as
+// CRITICAL_EXIT and never restarts the service; the .bat wrapper skips its own
+// service start on that code.
+class CriticalUpdateError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "CriticalUpdateError";
+    this.critical = true;
   }
 }
 
-// Backup settings.json
+// Run a rollback that, if it fails, leaves the install inconsistent. Escalate a
+// rollback failure to a critical error so the caller refuses to start it.
+function rollbackOrCritical(rollback, what) {
+  try {
+    rollback();
+  } catch (rollbackErr) {
+    throw new CriticalUpdateError(
+      `${what} rollback failed (${rollbackErr.message}); the install is left in ` +
+        `a mixed/partial state and will NOT be started. Manual restore required.`
+    );
+  }
+}
+
+// netstat's state column is localized, so `find "LISTENING"` matches nothing on
+// a non-English Windows. A listener is recognised by its wildcard foreign
+// address instead, and the output is parsed here rather than piped through find.
+function findPortHolders(port) {
+  let output = "";
+  try {
+    output = execSync("netstat -ano -p TCP", { encoding: "utf-8" });
+  } catch {
+    return [];
+  }
+  const pids = new Set();
+  for (const line of output.split(/\r?\n/)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 5) continue;
+    if (!(parts[1] || "").endsWith(`:${port}`)) continue;
+    if (parts[2] !== "0.0.0.0:0" && parts[2] !== "[::]:0") continue;
+    const pid = parseInt(parts[parts.length - 1], 10);
+    if (!Number.isFinite(pid) || pid === 0 || pid === process.pid) continue;
+    pids.add(pid);
+  }
+  return [...pids];
+}
+
+// False when the port is still held: taskkill exits 0 on a process it never
+// killed, and swapping builds\ out from under a live server is worse than not
+// updating at all.
+function killPort(port, timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const holders = findPortHolders(port);
+    if (!holders.length) {
+      console.log(`Nothing listening on port ${port}`);
+      return true;
+    }
+    if (Date.now() > deadline) {
+      console.error(
+        `⚠️ Port ${port} still held by PID(s) ${holders.join(", ")}.`
+      );
+      return false;
+    }
+    for (const pid of holders) {
+      console.log(`Killing PID ${pid} on port ${port}...`);
+      try {
+        execSync(`taskkill /PID ${pid} /F /T`, { stdio: "ignore" });
+      } catch {
+        console.warn(`Could not kill PID ${pid}`);
+      }
+    }
+    sleepSync(1);
+  }
+}
+
+// Get-Service returns an invariant .NET enum name; sc.exe's state words are
+// localized and must not be parsed.
+const SERVICE_STATUS_CMD =
+  'powershell -NoProfile -NonInteractive -Command "$s = Get-Service -Name \'printerServer\' -ErrorAction SilentlyContinue; if ($s) { $s.Status.ToString() } else { \'Absent\' }"';
+
+function getServiceStatus() {
+  try {
+    return execSync(SERVICE_STATUS_CMD, { encoding: "utf-8" }).trim();
+  } catch {
+    return "Unknown";
+  }
+}
+
+function sleepSync(seconds) {
+  try {
+    execSync(`ping -n ${seconds + 1} 127.0.0.1 >nul`, { stdio: "ignore" });
+  } catch {}
+}
+
+/**
+ * Mirror of the --update path's stopServiceAndFreePort: WinSW and its roll-mode
+ * log files live in builds\ too, so renaming that folder while the service is
+ * still shutting down fails with EPERM. The .bat's fixed 2 s wait is not enough
+ * on a slow disk; poll until the SCM actually reports Stopped.
+ */
+function stopServiceAndWait(timeoutMs = 45000) {
+  const initial = getServiceStatus();
+  console.log(`Service state before stop: ${initial}`);
+  if (initial === "Absent" || initial === "Stopped") return true;
+
+  try {
+    execSync("sc.exe stop printerServer", { stdio: "ignore" });
+  } catch {
+    // 1062 = not started; 5 = access denied. The poll below is what decides.
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = getServiceStatus();
+    if (state === "Stopped" || state === "Absent") {
+      console.log("✅ Service stopped");
+      return true;
+    }
+    if (Date.now() > deadline) {
+      console.error(`⚠️ Service did not stop (state: ${state}).`);
+      return false;
+    }
+    sleepSync(1);
+  }
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, "utf-8"));
+  } catch {
+    return {};
+  }
+}
+
+// Same URL autoupdate.ts uses; lets the manual route follow a pinned/prerelease
+// build. Falls back to GitHub latest.
+function getZipUrl(config) {
+  if (config && config.CODE_UPDATE_URL) {
+    console.log("Using CODE_UPDATE_URL from config.json");
+    return config.CODE_UPDATE_URL;
+  }
+  console.log("No CODE_UPDATE_URL in config.json; falling back to GitHub latest.");
+  const json = execSync(
+    "curl -s https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest",
+    { encoding: "utf-8" }
+  );
+  const assets = JSON.parse(json).assets || [];
+  // By name, not assets[0]: a release may also carry requirements.zip.
+  const asset =
+    assets.find((a) => /quickord-cashier-server\.zip$/i.test(a.name)) || assets[0];
+  const url = asset && asset.browser_download_url;
+  if (!url) throw new Error("No release zip found in the latest GitHub release");
+  return url;
+}
+
+function downloadLatestZip(url) {
+  console.log("⬇️ Downloading:", url);
+  try {
+    execSync(`curl -L -o "${ZIP_PATH}" "${url}"`, { stdio: "inherit" });
+  } catch {
+    throw new Error("Download failed");
+  }
+  const size = fs.existsSync(ZIP_PATH) ? fs.statSync(ZIP_PATH).size : 0;
+  if (size < 1024) throw new Error(`Downloaded zip looks truncated (${size} bytes)`);
+}
+
+// Into staging, not the install root — no chance of clobbering our own updater.exe.
+function extractZip() {
+  console.log("📦 Extracting zip to staging...");
+  new AdmZip(ZIP_PATH).extractAllTo(EXTRACT_DIR, true);
+  console.log("✅ Extraction done");
+}
+
+// A partial build must never overwrite a working install.
+function validateStaged() {
+  const stagedBuilds = path.join(EXTRACT_DIR, "builds");
+  // printerServerService.exe: without it the service cannot be started,
+  // stopped or uninstalled after the next reboot, while the running server
+  // looks fine — so a release missing it must never reach the install.
+  for (const f of ["printerServer.exe", "printerServerService.exe", "config.json"]) {
+    if (!fs.existsSync(path.join(stagedBuilds, f))) {
+      throw new Error(`Staged release is missing builds/${f}`);
+    }
+  }
+  // deploy.sh packages node_modules (native serialport etc.) into every
+  // release. A release missing it is corrupt, not a "keep existing deps" case:
+  // installing new builds against old native deps is exactly the mixed install
+  // swapInstall() guards against. Reject it here, before touching the install.
+  const stagedModules = path.join(EXTRACT_DIR, "node_modules");
+  if (!fs.existsSync(stagedModules) || fs.readdirSync(stagedModules).length === 0) {
+    throw new Error("Staged release is missing a non-empty node_modules folder");
+  }
+}
+
+// settings.json is per-venue runtime state, not in the zip — back it up before
+// replacing builds.
 function backupSettings() {
   if (fs.existsSync(SETTINGS_FILE)) {
-    fs.copyFileSync(SETTINGS_FILE, TEMP_SETTINGS);
+    fs.copyFileSync(SETTINGS_FILE, SETTINGS_BACKUP);
     console.log("✅ settings.json backed up");
   } else {
     console.log("⚠️ settings.json not found to backup");
   }
 }
 
-// Clean builds folder
-function cleanDirectories() {
-  if (fs.existsSync(BUILD_DIR))
-    fs.rmSync(BUILD_DIR, { recursive: true, force: true });
-  console.log("🧹 Cleaned builds folder");
-}
+// Latched once the venue's settings are known to be in place, so the finally
+// net can tell "restored" from "some other settings.json appeared" — a
+// restarted server writes defaults, and then an existence check alone would
+// happily throw the only backup away.
+let settingsRestored = false;
 
-// Get latest GitHub release zip URL via curl + JSON parsing
-function getLatestZipUrl() {
-  console.log("🌐 Fetching latest release URL...");
-  const json = execSync(
-    "curl -s https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest",
-    { encoding: "utf-8" }
-  );
-  const data = JSON.parse(json);
-  const url = data.assets?.[0]?.browser_download_url;
-  if (!url) throw new Error("No release zip found");
-  return url;
-}
-
-// Download zip via curl
-function downloadLatestZip(url) {
-  console.log("⬇️ Downloading:", url);
+// Idempotent: happy path + finally net. Returns false when the backup is still
+// the only copy of the venue's settings. `overwrite` is for the swap, where the
+// service is stopped: a settings.json there can only have come from the zip.
+function restoreSettings({ overwrite = false } = {}) {
+  if (settingsRestored || !fs.existsSync(SETTINGS_BACKUP)) return true;
   try {
-    execSync(`curl -L -o "${ZIP_PATH}" "${url}"`, { stdio: "inherit" });
-  } catch (err) {
-    throw new Error("Download failed");
-  }
-}
-
-// Extract zip
-function extractZip() {
-  console.log("📦 Extracting zip...");
-  const zip = new AdmZip(ZIP_PATH);
-  zip.extractAllTo(__dirname, true);
-  fs.unlinkSync(ZIP_PATH);
-  console.log("✅ Extraction done");
-}
-
-// Restore settings.json
-function restoreSettings() {
-  if (fs.existsSync(TEMP_SETTINGS)) {
-    fs.copyFileSync(TEMP_SETTINGS, SETTINGS_FILE);
-    fs.unlinkSync(TEMP_SETTINGS);
+    const backup = fs.readFileSync(SETTINGS_BACKUP, "utf8");
+    if (fs.existsSync(SETTINGS_FILE) && !overwrite) {
+      // Identical: the install we kept or rolled back already has them.
+      if (fs.readFileSync(SETTINGS_FILE, "utf8") === backup) {
+        settingsRestored = true;
+        return true;
+      }
+      // Different: defaults written by a server that booted before us. Don't
+      // overwrite a live file underneath it; keep the backup instead.
+      console.error("⚠️ settings.json exists but does not match the backup.");
+      return false;
+    }
+    fs.writeFileSync(SETTINGS_FILE, backup);
+    if (fs.readFileSync(SETTINGS_FILE, "utf8") !== backup) {
+      throw new Error("the restored settings.json does not match the backup");
+    }
+    settingsRestored = true;
     console.log("✅ settings.json restored");
+    return true;
+  } catch (err) {
+    console.error(`❌ Failed to restore settings.json: ${err.message}`);
+    return false;
   }
 }
 
-// Restart main service
+// The backup lives in the staging dir, which this run and the next one wipe. If
+// it could not be restored, move it somewhere that survives: settings.json is
+// the venue's printers and credentials, and both .old backups are gone by now.
+function preserveSettingsBackup() {
+  const kept = path.join(ROOT_DIR, "settings_backup.json");
+  try {
+    fs.copyFileSync(SETTINGS_BACKUP, kept);
+    console.error(
+      `⚠️ settings.json was NOT restored. The backup is kept at ${kept} — copy it to builds\\settings.json by hand.`
+    );
+    return true;
+  } catch (err) {
+    console.error(
+      `CRITICAL: could not preserve the settings backup (${err.message}). Keeping ${STAGING_DIR}; it holds the only copy.`
+    );
+    return false;
+  }
+}
+
+// True when the venue's settings are safe: restored, or backed up somewhere the
+// cleanup will not delete.
+function settingsAreSafe() {
+  if (restoreSettings()) return true;
+  return preserveSettingsBackup();
+}
+
+// Same marker the server's own updater writes: the release we failed to install
+// must not be retried on every boot forever. Counted per version, so a
+// transient failure still gets its retries. See noteFailedRelease() in
+// src/autoupdate/autoupdate.ts.
+function noteFailedRelease() {
+  const marker = path.join(BUILD_DIR, "failed-release.json");
+  let version = "";
+  try {
+    version = fs
+      .readFileSync(path.join(EXTRACT_DIR, "builds", "version"), "utf8")
+      .trim();
+  } catch {
+    return; // Nothing was staged; there is no release to blame.
+  }
+  let attempts = 0;
+  try {
+    const previous = JSON.parse(fs.readFileSync(marker, "utf8"));
+    if (previous.version === version) attempts = Number(previous.attempts) || 0;
+  } catch {
+    // No marker yet, or an unreadable one: start counting from scratch.
+  }
+  try {
+    fs.writeFileSync(
+      marker,
+      JSON.stringify({
+        at: new Date().toISOString(),
+        attempts: attempts + 1,
+        version,
+      })
+    );
+    console.log(`Marked ${version} as failed (attempt ${attempts + 1}).`);
+  } catch (err) {
+    console.warn(`Could not write the failed-release marker: ${err.message}`);
+  }
+}
+
+// Stage a replacement of a top-level folder from staging, keeping the old one
+// aside. Returns { commit, rollback } so multiple folders can be swapped as one
+// transaction: builds and node_modules must move together or not at all, or the
+// service restarts against a mixed (new builds / old native deps) install.
+function stageReplaceDir(name, { required }) {
+  const staged = path.join(EXTRACT_DIR, name);
+  if (!fs.existsSync(staged)) {
+    if (required) throw new Error(`Staged release has no ${name} folder`);
+    console.log(`Staged release has no ${name}; keeping the existing one.`);
+    return { commit() {}, rollback() {} };
+  }
+
+  const live = path.join(ROOT_DIR, name);
+  const backup = `${live}.old`;
+  fs.rmSync(backup, { recursive: true, force: true });
+
+  const hadLive = fs.existsSync(live);
+  if (hadLive) fs.renameSync(live, backup);
+
+  try {
+    fs.cpSync(staged, live, { recursive: true, force: true });
+  } catch (err) {
+    console.error(`Copy of ${name} failed (${err.message}); rolling back.`);
+    // If the rollback (restore of the old folder) also fails, `name` is left
+    // partial — escalate so nothing tries to start it.
+    try {
+      fs.rmSync(live, { recursive: true, force: true });
+      if (hadLive) fs.renameSync(backup, live);
+    } catch (rollbackErr) {
+      throw new CriticalUpdateError(
+        `Copy of ${name} failed and its rollback also failed ` +
+          `(${rollbackErr.message}); ${name} is left in a partial state and ` +
+          `will NOT be started. Manual restore required.`
+      );
+    }
+    throw err;
+  }
+
+  return {
+    // Drop the backup only once the whole swap is known good.
+    commit() {
+      fs.rmSync(backup, { recursive: true, force: true });
+    },
+    // Restore the old folder; safe to call any time before commit().
+    rollback() {
+      fs.rmSync(live, { recursive: true, force: true });
+      if (hadLive) fs.renameSync(backup, live);
+    },
+  };
+}
+
+function swapInstall() {
+  backupSettings();
+
+  const buildsTxn = stageReplaceDir("builds", { required: true });
+  const missing = ["printerServer.exe", "printerServerService.exe"].filter(
+    (f) => !fs.existsSync(path.join(BUILD_DIR, f))
+  );
+  if (missing.length) {
+    rollbackOrCritical(buildsTxn.rollback, "builds");
+    throw new Error(`builds was replaced but ${missing.join(", ")} is missing`);
+  }
+
+  // node_modules ships with every release (validateStaged enforces it). If it
+  // can't be swapped in, roll builds back too so the catch in main() restarts a
+  // coherent old install, never new builds on old deps.
+  let modulesTxn;
+  try {
+    modulesTxn = stageReplaceDir("node_modules", { required: true });
+  } catch (err) {
+    // node_modules already left itself partial (its own rollback failed) —
+    // don't mutate further, just propagate the critical state.
+    if (err.critical) throw err;
+    // node_modules is intact/old; builds is new. Restore builds so main()
+    // restarts a coherent old install. A failed builds rollback is critical.
+    rollbackOrCritical(buildsTxn.rollback, "builds");
+    throw err;
+  }
+
+  // settings.json is not in the zip, so the new builds arrives without it.
+  // Restore it while the backups still exist: a server started without the
+  // venue's printers and credentials writes defaults over them.
+  if (!restoreSettings({ overwrite: true })) {
+    rollbackOrCritical(modulesTxn.rollback, "node_modules");
+    rollbackOrCritical(buildsTxn.rollback, "builds");
+    throw new Error(
+      "settings.json could not be restored into the new build; rolled back"
+    );
+  }
+
+  // Everything is in place — commit (drop the backups) only now.
+  buildsTxn.commit();
+  modulesTxn.commit();
+}
+
+// Can't overwrite our own running exe; stage it for the .bat to swap in.
+function stageNewUpdater() {
+  if (!SELF_EXE) return;
+  const stagedUpdater = path.join(EXTRACT_DIR, SELF_EXE);
+  if (!fs.existsSync(stagedUpdater)) return;
+  try {
+    fs.copyFileSync(stagedUpdater, path.join(ROOT_DIR, `${SELF_EXE}.new`));
+    console.log(`Staged a new ${SELF_EXE} as ${SELF_EXE}.new.`);
+  } catch (err) {
+    console.warn(`Could not stage a new updater exe: ${err.message}`);
+  }
+}
+
 function restartService() {
   console.log("🚀 Restarting main service...");
-  const exePath = path.join(__dirname, "builds", "printerServer.exe");
-  spawn(exePath, [], {
+  // Via the SCM so the server comes back as WinSW's child. These live in the
+  // registry, not the xml, so a file-only update never reaches them; idempotent.
+  for (const cmd of [
+    "sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc",
+    "sc.exe failure printerServer reset= 86400 actions= restart/5000/restart/5000/restart/60000",
+  ]) {
+    try {
+      execSync(cmd, { stdio: "ignore" });
+    } catch (err) {
+      console.warn(`⚠️ Failed to apply service config (${cmd}):`, err.message);
+    }
+  }
+  try {
+    execSync("sc start printerServer", { stdio: "ignore" });
+  } catch {
+    // 1056 already running (ends up RUNNING below); 1060 not installed (falls through).
+  }
+  for (let i = 0; i < 6; i++) {
+    if (getServiceStatus() === "Running") {
+      console.log("✅ Service started");
+      return;
+    }
+    sleepSync(2);
+  }
+  console.warn("⚠️ Service did not start, launching the exe directly");
+  spawn(path.join(BUILD_DIR, "printerServer.exe"), [], {
     detached: true,
     stdio: "ignore",
-    cwd: path.join(__dirname, "builds"),
+    cwd: BUILD_DIR,
   }).unref();
 }
 
-// Main updater flow
 function main() {
+  let swapped = false;
+  let restarted = false;
   try {
-    killPort(7810);
-    backupSettings();
-    cleanDirectories();
+    fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+    fs.mkdirSync(EXTRACT_DIR, { recursive: true });
 
-    const zipUrl = getLatestZipUrl();
-    downloadLatestZip(zipUrl);
-
+    const config = readConfig();
+    downloadLatestZip(getZipUrl(config));
     extractZip();
-    restoreSettings();
-    restartService();
+    validateStaged();
 
+    // Everything below touches the live install; above this a failure leaves it intact.
+    // The service still holds builds\printerServerService.exe and its logs, so a
+    // swap before it is really Stopped fails on the rename. Aborting here leaves
+    // the install intact and the catch below brings it back up.
+    if (!stopServiceAndWait()) {
+      throw new Error(
+        "The service did not stop, so the install was left untouched. Reboot and run this again."
+      );
+    }
+    if (!killPort(PORT)) {
+      throw new Error(
+        `Port ${PORT} is still in use, so the install was left untouched. Reboot and run this again.`
+      );
+    }
+    swapInstall();
+    swapped = true;
+    stageNewUpdater();
+
+    restartService();
+    restarted = true;
     console.log("🎉 Update complete!");
   } catch (err) {
     console.error("❌ Updater failed:", err);
+    if (err && err.critical) {
+      // The install is knowingly mixed/partial (a rollback failed). Starting it
+      // would run a broken server; leave it down and signal the .bat wrapper so
+      // it does not start the service either. Manual restore required.
+      console.error(
+        `CRITICAL: the install is inconsistent and was NOT started (exit ${CRITICAL_EXIT}). Restore it manually.`
+      );
+      process.exitCode = CRITICAL_EXIT;
+    } else if (!restarted) {
+      // The install is coherent (never swapped, fully rolled back, or swapped
+      // and verified) but nothing has been started yet — including the case
+      // where the throw came out of restartService() itself. Bring it back up.
+      //
+      // Settings first, and the marker with them: a server that boots without
+      // settings.json writes defaults, and the old install would find the same
+      // newer release and try to install it again on every boot. Past the swap
+      // the new release *is* the install, so a start failure is not its fault.
+      settingsAreSafe();
+      if (!swapped) noteFailedRelease();
+      process.exitCode = FAILED_EXIT;
+      try {
+        restartService();
+      } catch (e) {
+        console.error("Also failed to restart the service:", e.message || e);
+      }
+    }
+  } finally {
+    // Keep the staging dir only while it holds the sole copy of the settings.
+    // Guarded: a throw here would escape main() and turn the deliberate exit
+    // code into the uncaught-exception one, which the .bat wrapper reads as
+    // "go ahead and start" for an install the updater refused to start.
+    try {
+      if (settingsAreSafe()) {
+        fs.rmSync(STAGING_DIR, { recursive: true, force: true });
+      }
+    } catch (err) {
+      console.warn(
+        `⚠️ Could not clean up ${STAGING_DIR}:`,
+        (err && err.message) || err
+      );
+    }
   }
 }
 

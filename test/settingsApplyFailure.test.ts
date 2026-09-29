@@ -1,3 +1,7 @@
+// No top-level import/export of its own, so TS would treat this as a global
+// script and collide `load` with the other pull-loop suites.
+export {};
+
 /**
  * What the pull loop does while the settings it is handed will not apply — an
  * unwritable settings.json is the case this exists for. The rule: the failure

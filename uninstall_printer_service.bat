@@ -4,21 +4,68 @@ setlocal enabledelayedexpansion
 
 :: Use the actual Windows Service name (matches printerServerService.xml <id>)
 set SERVICE_NAME=printerServer
+set SERVICE_EXE=printerServerService.exe
 set PORT=7810
 
-:: Check if port is in use and try to stop service
+:: sc stop/delete need elevation; double-clicking does not give it.
+call :iselevated
+if errorlevel 1 (
+    if /i "%~1"=="--elevated" (
+        echo.
+        echo Still not elevated after the UAC prompt - not retrying.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+        exit /b 1
+    )
+    echo Requesting administrator privileges...
+    powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '--elevated' -Verb RunAs -ErrorAction Stop } catch { exit 1 }"
+    if errorlevel 1 (
+        echo.
+        echo Administrator privileges were declined - the service cannot be removed.
+        echo Right-click this file and choose "Run as administrator".
+        pause
+    )
+    exit /b
+)
+
+:: Check if port is in use and try to stop service. netstat's state column is
+:: localized, so a listener is matched by its wildcard foreign address.
 echo Checking if port %PORT% is in use...
-netstat -ano | findstr ":%PORT%" | findstr "LISTENING" >nul 2>&1
-if %errorlevel%==0 (
+set "PORT_IN_USE="
+for /f "tokens=2,3" %%a in ('netstat -ano -p TCP ^| findstr /R /C:":%PORT% "') do (
+    if "%%b"=="0.0.0.0:0" set "PORT_IN_USE=1"
+    if "%%b"=="[::]:0" set "PORT_IN_USE=1"
+)
+if defined PORT_IN_USE (
     echo Port %PORT% is in use. Stopping service...
     sc stop "%SERVICE_NAME%" >nul 2>&1
     timeout /t 3 >nul
 )
 
-:: Always attempt uninstall
-echo Uninstalling service...
-printerServerService.exe uninstall
+:: WinSW can only uninstall while its own binary is there. If the exe was lost
+:: (an update that dropped it), drop the registration through the SCM instead -
+:: otherwise the entry can neither be removed nor reinstalled over.
+if exist "%SERVICE_EXE%" (
+    echo Uninstalling service...
+    %SERVICE_EXE% uninstall
+) else (
+    echo %SERVICE_EXE% is missing; removing the service registration directly...
+    sc delete "%SERVICE_NAME%"
+)
 
 echo.
 echo Done. Check the output above for status.
 pause
+exit /b 0
+
+:: 0 = this window holds an administrator token. Not `net session`: that also
+:: needs the Server service (LanmanServer), so on a machine where it is stopped
+:: an already elevated window would keep relaunching itself. Same check as
+:: isElevated() in autoupdate.ts, with the old one kept as a fallback for when
+:: PowerShell itself cannot run.
+:iselevated
+powershell -NoProfile -NonInteractive -Command "if ((New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { exit 0 } else { exit 1 }"
+if %errorlevel% equ 0 exit /b 0
+if %errorlevel% equ 1 exit /b 1
+net session >nul 2>&1
+exit /b %errorlevel%
