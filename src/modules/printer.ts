@@ -3364,6 +3364,13 @@ export const printOrder = async (
           ),
         ]);
 
+        // Only the order-number line is enlarged; leaking the size into the
+        // header below breaks its 42-column alignment, as in the BE formatter.
+        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          printer.setTextSize(0, 0);
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+        }
+
         const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
         const boldPrices = settings.textOptions?.includes('BOLD_PRICES');
 
