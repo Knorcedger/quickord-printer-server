@@ -759,8 +759,6 @@ const wrapChoices = (
     if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
   }
 
-  if (choices.length === 0) return [...lines, current];
-
   choices.forEach((choice, i) => {
     const sep = i === 0 ? '' : ', ';
     if (current.length + sep.length + choice.length <= width) {
@@ -781,7 +779,8 @@ const wrapChoices = (
     }
   });
 
-  if (current.trim().length > 0) lines.push(current);
+  // With no choices the label is the line, and it still needs the price check.
+  if (choices.length === 0 || current.trim().length > 0) lines.push(current);
 
   // Keep the price off a line that is already full.
   if (
@@ -873,15 +872,15 @@ export const printOptionDetails = (
       const quantityPrefix =
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
-      choiceValues.push(
-        sanitizeForPrinter(
-          printer,
-          tr(
-            `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
-            settings.transliterate
-          )
+      const value = sanitizeForPrinter(
+        printer,
+        tr(
+          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+          settings.transliterate
         )
       );
+      // A choice without a title would print as a stray `, `.
+      if (value) choiceValues.push(value);
       if (choice.price && choice.price > 0)
         totalPrice += choice.price * (Number(choice.quantity) || 1);
     });
@@ -902,10 +901,12 @@ export const printOptionDetails = (
       );
     }
     const continuationIndent = `${indent}  `;
+    // Keep the title when there are no choices, else the line is a bare `-`.
+    const hideTitle = settings.hideOptionTitles && choiceValues.length > 0;
     const lines = wrapChoices(
       choiceValues,
       width,
-      `${indent}- ${optionLabel}`,
+      `${indent}- ${hideTitle ? '' : optionLabel}`,
       continuationIndent,
       priceStr.length
     );
