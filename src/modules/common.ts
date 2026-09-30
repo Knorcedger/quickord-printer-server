@@ -759,8 +759,6 @@ const wrapChoices = (
     if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
   }
 
-  if (choices.length === 0) return [...lines, current];
-
   choices.forEach((choice, i) => {
     const sep = i === 0 ? '' : ', ';
     if (current.length + sep.length + choice.length <= width) {
@@ -781,7 +779,8 @@ const wrapChoices = (
     }
   });
 
-  if (current.trim().length > 0) lines.push(current);
+  // With no choices the label is the line, and it still needs the price check.
+  if (choices.length === 0 || current.trim().length > 0) lines.push(current);
 
   // Keep the price off a line that is already full.
   if (

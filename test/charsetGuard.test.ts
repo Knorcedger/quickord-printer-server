@@ -383,6 +383,17 @@ describe('charset guard', () => {
       lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
     });
 
+    test('BOLD_PRODUCTS: a priced untitled choice keeps the price on the row', () => {
+      const lines = renderLabel(
+        CharacterSet.PC737_GREEK,
+        'ΚΑΣΕΡΙΑ',
+        [{ content: [{ language: 'el', title: null }], price: 250 }],
+        true
+      );
+      expect(lines.join(' ')).toContain('2.50 EUR');
+      lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
+    });
+
     test('BOLD_PRODUCTS: it wraps with no choices at all', () => {
       const lines = renderLabel(CharacterSet.PC869_GREEK, LONG_LABEL, [], true);
       expect(lines.join(' ')).toContain('ΣΥΝΟΔΕΥΤΙΚΟ...');
