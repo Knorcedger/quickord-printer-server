@@ -261,6 +261,13 @@ export const Order = z.object({
     })
     .optional()
     .nullable(),
+  // Take-away buzzer assigned by staff, printed on the order-type line.
+  buzzerNumber: z
+    .number({
+      invalid_type_error: 'buzzerNumber must be a number.',
+    })
+    .optional()
+    .nullable(),
   tip: z
     .number({
       invalid_type_error: 'tip must be a number.',
