@@ -261,6 +261,25 @@ describe('charset guard', () => {
         lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(21));
       });
     });
+
+    test('hideOptionTitles keeps the title when no choice has text', () => {
+      const printer = makePrinter(CharacterSet.PC737_GREEK);
+      const lines: string[] = [];
+      (printer as any).println = (text: string) => lines.push(text);
+      printOptionDetails(
+        printer,
+        [
+          {
+            choices: [{ content: [{ language: 'en', title: null }] }],
+            content: [{ language: 'en', title: 'Cheeses' }],
+          },
+        ],
+        'en',
+        { ...settings, hideOptionTitles: true },
+        false
+      );
+      expect(lines.some((l) => l.trim() === '- CHEESES:')).toBe(true);
+    });
   });
 
   // The product row measures the title, pads it, then appends the price, so an

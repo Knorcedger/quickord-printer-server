@@ -873,15 +873,15 @@ export const printOptionDetails = (
       const quantityPrefix =
         Number(choice.quantity) > 1 ? `${choice.quantity}x ` : '';
       const title = normalizeGreek(getTitle(choice.content, lang));
-      choiceValues.push(
-        sanitizeForPrinter(
-          printer,
-          tr(
-            `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
-            settings.transliterate
-          )
+      const value = sanitizeForPrinter(
+        printer,
+        tr(
+          `${amountLevel}${amountLevel ? ' ' : ''}${quantityPrefix}${title}`.trim(),
+          settings.transliterate
         )
       );
+      // A choice without a title would print as a stray `, `.
+      if (value) choiceValues.push(value);
       if (choice.price && choice.price > 0)
         totalPrice += choice.price * (Number(choice.quantity) || 1);
     });
