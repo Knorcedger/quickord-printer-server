@@ -902,10 +902,12 @@ export const printOptionDetails = (
       );
     }
     const continuationIndent = `${indent}  `;
+    // Keep the title when there are no choices, else the line is a bare `-`.
+    const hideTitle = settings.hideOptionTitles && choiceValues.length > 0;
     const lines = wrapChoices(
       choiceValues,
       width,
-      `${indent}- ${optionLabel}`,
+      `${indent}- ${hideTitle ? '' : optionLabel}`,
       continuationIndent,
       priceStr.length
     );

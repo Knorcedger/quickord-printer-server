@@ -105,6 +105,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(false),
+  hideOptionTitles: z
+    .boolean({
+      description:
+        'Whether to print only the chosen values of a customization, without its title. Only applies when optionDetails is on.',
+      invalid_type_error: 'hideOptionTitles must be a boolean.',
+    })
+    .optional()
+    .default(false),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',

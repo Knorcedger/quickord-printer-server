@@ -275,6 +275,27 @@ describe('settings hash sync', () => {
     expect(getSettings().printers[0]?.networkName).toBe('');
   });
 
+  it('keeps hideOptionTitles from the backend and defaults it off', async () => {
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [
+          desired.printers[0],
+          {
+            ...desired.printers[0],
+            hideOptionTitles: true,
+            networkName: 'bar',
+          },
+        ],
+      },
+      { authoritative: true, hash: 'abc123', source: 'pull channel' }
+    );
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(getSettings().printers[0]?.hideOptionTitles).toBe(false);
+    expect(getSettings().printers[1]?.hideOptionTitles).toBe(true);
+  });
+
   it('accepts a printer whose fields are explicitly null', async () => {
     // A field cleared in the database arrives as null, which the schema rejects
     // outright — one such printer would fail the parse for the whole venue and
