@@ -3364,6 +3364,13 @@ export const printOrder = async (
           ),
         ]);
 
+        // Only the order-number line is enlarged; leaking the size into the
+        // header below breaks its 42-column alignment, as in the BE formatter.
+        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          printer.setTextSize(0, 0);
+          changeTextSize(printer, settings?.textSize || 'NORMAL');
+        }
+
         const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
         const boldPrices = settings.textOptions?.includes('BOLD_PRICES');
 
@@ -3476,11 +3483,12 @@ export const printOrder = async (
         printer.setTextSize(0, 0);
         changeTextSize(printer, settings?.textSize || 'NORMAL');
 
+        // boldOrderType doubles the width of the type text, as on the table line.
+        const typeWidth = boldOrderType
+          ? orderTypeText.length * 2
+          : orderTypeText.length;
+
         if (guestsText) {
-          // boldOrderType doubles the width of the type text, as on the table line.
-          const typeWidth = boldOrderType
-            ? orderTypeText.length * 2
-            : orderTypeText.length;
           // Line up with the waiter above, which each branch positions
           // differently: the bold path right-aligns it to the hardcoded 42,
           // while the plain path uses printer.table(), whose cells are split on
@@ -3495,6 +3503,17 @@ export const printOrder = async (
           printer.bold(true);
           printer.print(' '.repeat(padding));
           printer.print(guestsText);
+          printer.bold(false);
+        } else if (order.buzzerNumber) {
+          // Guests are dine-in only and buzzers never are, so they share the
+          // slot. Drops to its own line when it doesn't fit the 42 columns.
+          const buzzerText = `${translations.printOrder.buzzer[lang]}: ${order.buzzerNumber}`;
+          const padding =
+            42 - orderTypeLabel.length - typeWidth - buzzerText.length;
+          printer.bold(true);
+          if (padding >= 1) printer.print(' '.repeat(padding));
+          else printer.newLine();
+          printer.print(buzzerText);
           printer.bold(false);
         }
         printer.newLine();

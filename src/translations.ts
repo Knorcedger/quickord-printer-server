@@ -308,6 +308,10 @@ export default {
       el: 'ΑΤΟΜΑ',
       en: 'GUESTS',
     },
+    buzzer: {
+      el: 'BUZZER',
+      en: 'BUZZER',
+    },
     productComments: {
       el: 'ΣΧΟΛΙΑ ΠΡΟΙΟΝΤΟΣ',
       en: 'PRODUCT COMMENTS',
