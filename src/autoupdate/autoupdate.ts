@@ -19,6 +19,7 @@ import {
   curlExecJson,
   httpStatusError,
   HttpResult,
+  isCheapRetryableFetchError,
   tryFetchWithFallback,
 } from '../modules/http';
 import { reportFetchFailure } from '../modules/api';
@@ -1006,6 +1007,13 @@ export function overCapRelease(
   return `${version} already failed to install here ${failed.attempts} time(s). The install was left untouched. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
 }
 
+// One quick fetch retry absorbs boot-time resets (ECONNRESET) before curl and
+// a fetch-failure report; 4xx and timeouts still go straight to curl.
+const GITHUB_FETCH_RETRY = {
+  fetchRetries: 1,
+  shouldRetry: isCheapRetryableFetchError,
+};
+
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
   if (!versionUrl) {
@@ -1019,6 +1027,7 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
     const result = await tryFetchWithFallback<{ tag_name?: string }>({
       url: versionUrl,
       method: 'GET',
+      ...GITHUB_FETCH_RETRY,
       fetchFn: async () => {
         const response = await fetch(versionUrl, {
           redirect: 'follow',
@@ -1137,6 +1146,7 @@ export async function downloadLatestCode(
   const downloadResult = await tryFetchWithFallback<void>({
     url,
     method: 'GET',
+    ...GITHUB_FETCH_RETRY,
     fetchFn: async () => {
       const response = await fetch(url, { redirect: 'follow' });
       if (!response.ok || !response.body) throw httpStatusError(response);
