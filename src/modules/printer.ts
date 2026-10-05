@@ -3291,6 +3291,8 @@ export const printOrder = async (
       }
       const isEdit = order?.isEdit || false;
       const isReprint = order?.isReprint || false;
+      const isPartialReprint =
+        isReprint && order?.trigger === 'reprint:order-actions-partial';
       if (!isFull && isEdit === true) {
         productsToPrint = productsToPrint.filter((product) => {
           const editStatus = getEditStatus(product);
@@ -3334,9 +3336,11 @@ export const printOrder = async (
             `${
               isFull
                 ? translations.printOrder.fullOrderTitle[lang]
-                : isReprint
-                  ? translations.printOrder.reprintTitle[lang]
-                  : translations.printOrder.orderFormOrder[lang]
+                : isPartialReprint
+                  ? translations.printOrder.partialReprintTitle[lang]
+                  : isReprint
+                    ? translations.printOrder.reprintTitle[lang]
+                    : translations.printOrder.orderFormOrder[lang]
             }`,
             settings.transliterate
           )

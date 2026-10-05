@@ -86,6 +86,10 @@ export default {
       el: 'ΠΑΡΑΓΓΕΛΙΑ',
       en: 'ORDER',
     },
+    partialReprintTitle: {
+      el: 'ΕΠΙΛΕΚΤΙΚΗ ΕΠΑΝΕΚΤΥΠΩΣΗ',
+      en: 'PARTIAL REPRINT',
+    },
     reprintTitle: {
       el: 'ΕΠΑΝΕΚΤΥΠΩΣΗ ΠΑΡΑΓΓΕΛΙΑΣ',
       en: 'ORDER REPRINT',

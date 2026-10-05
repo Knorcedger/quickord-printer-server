@@ -319,6 +319,8 @@ export const Order = z.object({
       required_error: 'isReprint is required.',
     })
     .optional(),
+  // FE print trigger; only used to title partial reprints.
+  trigger: z.string().optional(),
   waiterName: z
     .string({
       invalid_type_error: 'waiterName must be a string.',
