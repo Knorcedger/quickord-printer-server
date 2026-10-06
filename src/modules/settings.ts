@@ -11,12 +11,6 @@ const CharacterSetEnum = z.nativeEnum(CharacterSet, {
   required_error: 'characterSet is required.',
 });
 
-export const PrinterTextSize = z.enum(['NORMAL', 'ONE', 'TWO', 'THREE'], {
-  description: 'The text size to use for the printer. Defaults to NORMAL.',
-  invalid_type_error: 'textSize must be a valid PrinterTextSize.',
-  required_error: 'textSize is required.',
-});
-
 export const PrinterTextOptions = z.enum(
   [
     'BOLD_PRODUCTS',
@@ -245,7 +239,6 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
-  textSize: PrinterTextSize.optional().default('NORMAL'),
   // Per-element size levels (0-3). Accepted and round-tripped through settings.json so
   // the BE stays the single writer; the LAN-fallback renderer here still uses
   // textOptions, which the FE dual-writes for exactly that reason. A new value

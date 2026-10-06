@@ -2,8 +2,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
-import { PrinterTextSize, shouldPrintOptionDetails } from './settings';
-import { z } from 'zod';
+import { shouldPrintOptionDetails } from './settings';
 import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
 import { sanitizeForPrinter } from './charsetGuard';
 import { SupportedLanguages, translations } from './translations';
@@ -59,26 +58,6 @@ export const tr = (text: string, execute: boolean): string => {
     return text;
   } catch {
     return text;
-  }
-};
-
-export const changeTextSize = (
-  printer: ThermalPrinter,
-  size: z.infer<typeof PrinterTextSize>
-) => {
-  switch (size) {
-    case 'ONE':
-      printer.setTextSize(1, 1);
-      return;
-    case 'TWO':
-      printer.setTextSize(2, 2);
-      return;
-    case 'THREE':
-      printer.setTextSize(3, 3);
-      return;
-    case 'NORMAL':
-    default:
-      printer.setTextNormal();
   }
 };
 
@@ -383,7 +362,7 @@ export const readMarkdown = async (
           if (tag === 'b') formatting.bold = false;
           if (tag === 'u') formatting.underline = false;
           if (tag === 's1' || tag === 's2' || tag === 's3') {
-            changeTextSize(printer, 'NORMAL');
+            printer.setTextNormal();
           }
         } else {
           // Opening tag
