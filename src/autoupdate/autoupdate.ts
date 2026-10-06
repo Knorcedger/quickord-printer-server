@@ -1061,9 +1061,30 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
   }
 }
 
+// Stable reason for a failed update, so the backend and the admin page need not
+// parse `error`, which stays free text for the logs.
+export type UpdateErrorCode =
+  | 'DOWNLOAD_FAILED'
+  | 'INVALID_BUILD'
+  | 'NO_LATEST_VERSION'
+  | 'NOT_WINDOWS'
+  | 'REPEATED_FAILURE'
+  | 'UPDATE_FAILED'
+  | 'UPDATER_NOT_STARTED';
+
+// Still thrown, so the boot path is unchanged; triggerUpdate maps it to
+// DOWNLOAD_FAILED, which usually means the venue's internet.
+export class DownloadError extends Error {
+  constructor(message: string) {
+    super(`Download failed: ${message}`);
+    this.name = 'DownloadError';
+  }
+}
+
 export interface UpdateCheckResult {
   currentVersion?: string;
   error?: string;
+  errorCode?: UpdateErrorCode;
   latestVersion?: string;
   state: 'already-latest' | 'updating' | 'failed';
 }
@@ -1116,7 +1137,13 @@ export async function downloadLatestCode(
       if (failed.attempts >= MAX_RELEASE_ATTEMPTS) {
         const error = `Release ${latestVersion} failed to install here ${failed.attempts} times; not retrying automatically. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
         updateLogError(error);
-        return { currentVersion, error, latestVersion, state: 'failed' };
+        return {
+          currentVersion,
+          error,
+          errorCode: 'REPEATED_FAILURE',
+          latestVersion,
+          state: 'failed',
+        };
       }
       updateLog(
         `Release ${latestVersion} failed ${failed.attempts}/${MAX_RELEASE_ATTEMPTS} time(s) here; retrying.`
@@ -1132,6 +1159,7 @@ export async function downloadLatestCode(
     return {
       currentVersion,
       error: 'Could not fetch the latest version',
+      errorCode: 'NO_LATEST_VERSION',
       state: 'failed',
     };
   }
@@ -1143,20 +1171,25 @@ export async function downloadLatestCode(
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  const downloadResult = await tryFetchWithFallback<void>({
-    url,
-    method: 'GET',
-    ...GITHUB_FETCH_RETRY,
-    fetchFn: async () => {
-      const response = await fetch(url, { redirect: 'follow' });
-      if (!response.ok || !response.body) throw httpStatusError(response);
-      await pipeline(response.body, createWriteStream(zipPath));
-      return { data: undefined as void };
-    },
-    curlFn: async () => {
-      await curlExec(`curl -L "${url}" -o "${zipPath}"`);
-    },
-  });
+  let downloadResult: HttpResult<void>;
+  try {
+    downloadResult = await tryFetchWithFallback<void>({
+      url,
+      method: 'GET',
+      ...GITHUB_FETCH_RETRY,
+      fetchFn: async () => {
+        const response = await fetch(url, { redirect: 'follow' });
+        if (!response.ok || !response.body) throw httpStatusError(response);
+        await pipeline(response.body, createWriteStream(zipPath));
+        return { data: undefined as void };
+      },
+      curlFn: async () => {
+        await curlExec(`curl -L "${url}" -o "${zipPath}"`);
+      },
+    });
+  } catch (err: any) {
+    throw new DownloadError(err?.message || String(err));
+  }
   reportIfViaFallback(downloadResult);
 
   // Extract zip
@@ -1176,7 +1209,13 @@ export async function downloadLatestCode(
     const error = `Refusing to install ${latestVersion}: ${invalid}. Staying on ${currentVersion}.`;
     updateLogError(error);
     noteFailedRelease(parentDir, latestVersion);
-    return { currentVersion, error, latestVersion, state: 'failed' };
+    return {
+      currentVersion,
+      error,
+      errorCode: 'INVALID_BUILD',
+      latestVersion,
+      state: 'failed',
+    };
   }
 
   updateLog('Updating to latest version');
@@ -1221,7 +1260,13 @@ export async function downloadLatestCode(
   // Only the updater child used to count attempts, so a release that could not
   // even start its own updater was retried from scratch on every boot.
   noteFailedRelease(parentDir, latestVersion);
-  return { currentVersion, error, latestVersion, state: 'failed' };
+  return {
+    currentVersion,
+    error,
+    errorCode: 'UPDATER_NOT_STARTED',
+    latestVersion,
+    state: 'failed',
+  };
 }
 
 // Update trigger registered by index.ts, mirroring setRestartHandler. Lets the
@@ -1249,7 +1294,11 @@ export async function triggerUpdate(
   beforeHandoff?: BeforeHandoff
 ): Promise<UpdateCheckResult> {
   if (!updateHandler) {
-    return { error: 'No update handler registered', state: 'failed' };
+    return {
+      error: 'No update handler registered',
+      errorCode: 'UPDATE_FAILED',
+      state: 'failed',
+    };
   }
   if (updateInFlight) {
     updateLog('An update is already in flight; reusing its result.');
@@ -1259,7 +1308,12 @@ export async function triggerUpdate(
     try {
       return await updateHandler!(beforeHandoff);
     } catch (err: any) {
-      return { error: err?.message || String(err), state: 'failed' as const };
+      return {
+        error: err?.message || String(err),
+        errorCode:
+          err instanceof DownloadError ? 'DOWNLOAD_FAILED' : 'UPDATE_FAILED',
+        state: 'failed' as const,
+      };
     }
   })();
   try {
@@ -1270,7 +1324,11 @@ export async function triggerUpdate(
     return result;
   } catch {
     updateInFlight = null;
-    return { error: 'Update failed', state: 'failed' };
+    return {
+      error: 'Update failed',
+      errorCode: 'UPDATE_FAILED',
+      state: 'failed',
+    };
   }
 }
 

@@ -411,6 +411,7 @@ const main = async () => {
     if (process.platform !== 'win32') {
       return {
         error: 'Auto-update is only supported on Windows',
+        errorCode: 'NOT_WINDOWS' as const,
         state: 'failed' as const,
       };
     }
