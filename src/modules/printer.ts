@@ -3356,23 +3356,45 @@ export const printOrder = async (
         drawLine2(printer);
 
         if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
-          printer.setTextSize(1, 0);
-        }
-
-        printer.table([
-          `${date}`,
-          `${time}`,
-          tr(
-            `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+          // Only `#number` is enlarged, as on the order-type line; date and
+          // time stay normal. Mirrors printOrderNumberLine in the BE formatter.
+          const label = tr(
+            `${translations.printOrder.orderNumber[lang]}:`,
             settings.transliterate
-          ),
-        ]);
+          );
+          const numberText = `#${order.number}`;
+          const slack =
+            42 -
+            date.length -
+            time.length -
+            label.length -
+            numberText.length * 2;
 
-        // Only the order-number line is enlarged; leaking the size into the
-        // header below breaks its 42-column alignment, as in the BE formatter.
-        if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
+          if (slack >= 2) {
+            const firstGap = Math.ceil(slack / 2);
+            printer.print(
+              `${date}${' '.repeat(firstGap)}${time}${' '.repeat(slack - firstGap)}`
+            );
+          } else {
+            printer.println(`${date} ${time}`);
+          }
+          printer.bold(true);
+          printer.print(label);
+          printer.setTextSize(1, 0);
+          printer.print(numberText);
           printer.setTextSize(0, 0);
           changeTextSize(printer, settings?.textSize || 'NORMAL');
+          printer.bold(false);
+          printer.newLine();
+        } else {
+          printer.table([
+            `${date}`,
+            `${time}`,
+            tr(
+              `${translations.printOrder.orderNumber[lang]}:#${order.number}`,
+              settings.transliterate
+            ),
+          ]);
         }
 
         const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
@@ -3729,6 +3751,8 @@ export const printOrder = async (
               transliterate: settings.transliterate,
             }
           );
+          // BOLD_PRODUCTS bolds the title, its options and their prices.
+          if (boldProducts) printer.bold(true);
           leadingLines.forEach((line) => printer.println(line));
 
           if (enlargePrice) {
@@ -3754,6 +3778,7 @@ export const printOrder = async (
               boldProducts
             );
           }
+          if (boldProducts) printer.bold(false);
           // Comments (if any)
           if (product.comments) {
             printer.println(
@@ -3843,6 +3868,7 @@ export const printOrder = async (
             settings.priceOnOrder === true
           ) {
             printer.alignRight();
+            if (boldProducts) printer.bold(true);
             printBoldPrice(
               () =>
                 printer.println(
@@ -3850,6 +3876,7 @@ export const printOrder = async (
                 ),
               boldProducts
             );
+            if (boldProducts) printer.bold(false);
           }
           printer.alignLeft();
 
