@@ -14,7 +14,6 @@ import {
   convertToDecimal,
   tr,
   normalizeGreek,
-  changeTextSize,
   PaymentMethod,
   readMarkdown,
   formatToGreek,
@@ -3328,7 +3327,7 @@ export const printOrder = async (
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         setLineSpacing(printer);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        printer.setTextNormal();
         printer.newLine();
         printer.alignCenter();
         printer.println(
@@ -3383,7 +3382,7 @@ export const printOrder = async (
           printer.setTextSize(1, 0);
           printer.print(numberText);
           printer.setTextSize(0, 0);
-          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          printer.setTextNormal();
           printer.bold(false);
           printer.newLine();
         } else {
@@ -3411,7 +3410,7 @@ export const printOrder = async (
           print();
           if (enlarge) {
             printer.setTextSize(0, 0);
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.setTextNormal();
           }
         };
 
@@ -3446,7 +3445,7 @@ export const printOrder = async (
               printer.setTextSize(1, 0);
               printer.print(numberText);
               printer.setTextSize(0, 0);
-              changeTextSize(printer, settings?.textSize || 'NORMAL');
+              printer.setTextNormal();
               printer.bold(true);
 
               if (waiterText) {
@@ -3507,7 +3506,7 @@ export const printOrder = async (
         printer.print(orderTypeText);
         printer.bold(false);
         printer.setTextSize(0, 0);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        printer.setTextNormal();
 
         // boldOrderType doubles the width of the type text, as on the table line.
         const typeWidth = boldOrderType
@@ -3659,7 +3658,7 @@ export const printOrder = async (
           printer.bold(false);
           if (boldCategories) {
             printer.setTextSize(0, 0);
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.setTextNormal();
           }
         };
 
@@ -3710,7 +3709,7 @@ export const printOrder = async (
           if (boldProducts) {
             printer.setTextSize(1, 0);
           } else {
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.setTextNormal();
           }
 
           // Pad title and amount for alignment
@@ -3760,7 +3759,7 @@ export const printOrder = async (
             printer.setTextSize(1, 0);
             printer.print(priceStr);
             printer.setTextSize(0, 0);
-            changeTextSize(printer, settings?.textSize || 'NORMAL');
+            printer.setTextNormal();
             printer.newLine();
           } else {
             printer.println(`${paddedLine}${priceStr}`);
@@ -3881,7 +3880,7 @@ export const printOrder = async (
           printer.alignLeft();
 
           // Reset text size after bold
-          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          printer.setTextNormal();
 
           // Draw separator
           drawLine2(printer);
@@ -3941,7 +3940,7 @@ export const printOrder = async (
           (settings.vatAnalysis === true || settings.vatAnalysis === undefined)
         ) {
           console.log('vatBreakdown', vatBreakdown);
-          changeTextSize(printer, settings?.textSize || 'NORMAL');
+          printer.setTextNormal();
           // Print section headers
           printer.alignCenter();
           printer.println(
@@ -3994,7 +3993,7 @@ export const printOrder = async (
           if (boldComments) printer.setTextSize(0, 0);
         }
 
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        printer.setTextNormal();
 
         if (order.tip && settings.priceOnOrder) {
           const tip = order.tip;
@@ -4302,7 +4301,7 @@ export const printOrderComments = async (
         }
         changeCodePage(printer, settings?.codePage ?? DEFAULT_CODE_PAGE);
         setLineSpacing(printer);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        printer.setTextNormal();
 
         printer.newLine();
         printer.alignCenter();
@@ -4358,7 +4357,7 @@ export const printOrderComments = async (
         );
         printer.bold(false);
         printer.setTextSize(0, 0);
-        changeTextSize(printer, settings?.textSize || 'NORMAL');
+        printer.setTextNormal();
         drawLine2(printer);
 
         if (order.waiterComment) {

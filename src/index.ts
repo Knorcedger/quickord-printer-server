@@ -28,7 +28,6 @@ import {
   getSettings,
   loadSettings,
   PrinterTextOptions,
-  PrinterTextSize,
 } from './modules/settings';
 import { bootGate, startBootGate } from './modules/bootGate';
 import { dedup } from './modules/dedup';
@@ -493,7 +492,6 @@ const main = async () => {
       res.status(200).send({
         charset: Object.values(CharacterSet),
         textOptions: Object.values(PrinterTextOptions.Values),
-        textSize: Object.values(PrinterTextSize.Values),
       });
     });
 
