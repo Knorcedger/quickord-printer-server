@@ -1184,7 +1184,8 @@ export async function downloadLatestCode(
         return { data: undefined as void };
       },
       curlFn: async () => {
-        await curlExec(`curl -L "${url}" -o "${zipPath}"`);
+        // --fail: else an HTTP error page is saved as the zip and fails at unzip.
+        await curlExec(`curl -sS -L --fail "${url}" -o "${zipPath}"`);
       },
     });
   } catch (err: any) {
