@@ -37,6 +37,7 @@ import {
   buildProductRow,
   setLineSpacing,
   cutPaper,
+  printFooterText,
 } from './common';
 import logger from './logger';
 import {
@@ -1703,6 +1704,7 @@ const printOrderForm = async (
           tr(`FOR A VALID TAX RECEIPT/INVOICE`, settings.transliterate)
         );
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         await executePrinter(printer, printerIdentifier, 'order form print', {
@@ -1955,6 +1957,7 @@ const printPaymentSlip = async (
           )
         );
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         await executePrinter(printer, printerIdentifier, 'payment slip print', {
@@ -2163,6 +2166,7 @@ const printPaymentReceipt = async (
           )
         );
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         const printerIdentifier =
@@ -2397,6 +2401,7 @@ const printInvoice = async (
           );
         }
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         const printerIdentifier =
@@ -2607,6 +2612,7 @@ const printMyPelatesReceipt = async (
           )
         );
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         const printerIdentifier =
@@ -2831,6 +2837,7 @@ const printMyPelatesInvoice = async (
           printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
         }
         printer.alignCenter();
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         await executePrinter(
@@ -3098,6 +3105,7 @@ const printDeliveryNote = async (
         printer.println(
           tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
         );
+        printFooterText(printer, settings);
         cutPaper(printer);
 
         await printer.execute({

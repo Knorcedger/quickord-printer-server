@@ -576,6 +576,26 @@ export const DISCOUNTTYPES: Record<string, ServiceType> = {
   },
 };
 
+// The printer's free-text footer, centered at the very end of an AADE document.
+// Never called for orders. Transliterate before wrapping, it changes the length.
+export const printFooterText = (
+  printer: ThermalPrinter,
+  settings: { receiptFooterText?: string; transliterate?: boolean }
+) => {
+  const text = settings.receiptFooterText?.trim();
+
+  if (!text) {
+    return;
+  }
+
+  printer.alignCenter();
+  printer.newLine();
+  text
+    .split(/\r?\n/)
+    .flatMap((line) => wrapWords(tr(line, settings.transliterate === true), 42))
+    .forEach((line) => printer.println(line));
+};
+
 export const printMarks = (
   printer,
   aadeInvoice,

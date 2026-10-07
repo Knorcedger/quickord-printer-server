@@ -91,6 +91,13 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(false),
+  receiptFooterText: z
+    .string({
+      description:
+        'Free text printed at the very bottom of AADE documents. Never printed on orders. Empty prints nothing.',
+      invalid_type_error: 'receiptFooterText must be a string.',
+    })
+    .optional(),
   groupByCategory: z
     .boolean({
       description:
