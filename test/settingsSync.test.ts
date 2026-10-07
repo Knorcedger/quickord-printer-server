@@ -296,6 +296,27 @@ describe('settings hash sync', () => {
     expect(getSettings().printers[1]?.hideOptionTitles).toBe(true);
   });
 
+  it('keeps receiptFooterText from the backend and leaves it absent otherwise', async () => {
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [
+          desired.printers[0],
+          {
+            ...desired.printers[0],
+            networkName: 'bar',
+            receiptFooterText: 'Ευχαριστούμε!',
+          },
+        ],
+      },
+      { authoritative: true, hash: 'abc123', source: 'pull channel' }
+    );
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(getSettings().printers[0]?.receiptFooterText).toBeUndefined();
+    expect(getSettings().printers[1]?.receiptFooterText).toBe('Ευχαριστούμε!');
+  });
+
   it('accepts a printer whose fields are explicitly null', async () => {
     // A field cleared in the database arrives as null, which the schema rejects
     // outright — one such printer would fail the parse for the whole venue and
