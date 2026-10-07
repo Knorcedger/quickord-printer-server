@@ -81,6 +81,46 @@ describe('triggerUpdate handoff', () => {
 
     expect(runs).toBe(2);
   });
+
+  it('codes a failed download as DOWNLOAD_FAILED', async () => {
+    const { DownloadError, setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    setUpdateHandler(async () => {
+      throw new DownloadError('fetch failed');
+    });
+
+    const result = await triggerUpdate();
+
+    expect(result).toEqual({
+      error: 'Download failed: fetch failed',
+      errorCode: 'DOWNLOAD_FAILED',
+      state: 'failed',
+    });
+  });
+
+  it('codes any other crash as UPDATE_FAILED', async () => {
+    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    setUpdateHandler(async () => {
+      throw new Error('EPERM');
+    });
+
+    const result = await triggerUpdate();
+
+    expect(result).toMatchObject({
+      errorCode: 'UPDATE_FAILED',
+      state: 'failed',
+    });
+  });
+
+  it('codes a missing handler as UPDATE_FAILED', async () => {
+    const { triggerUpdate } = loadAutoUpdate();
+
+    const result = await triggerUpdate();
+
+    expect(result).toMatchObject({
+      errorCode: 'UPDATE_FAILED',
+      state: 'failed',
+    });
+  });
 });
 
 describe('sc.exe error codes', () => {
