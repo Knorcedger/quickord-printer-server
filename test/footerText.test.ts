@@ -43,6 +43,12 @@ describe('printFooterText', () => {
     ]);
   });
 
+  test('keeps a blank line between paragraphs', () => {
+    expect(
+      render({ receiptFooterText: 'Thank you\n\nVisit again' }).lines
+    ).toEqual(['', 'Thank you', '', 'Visit again']);
+  });
+
   test('wraps a long footer to the 42-column line', () => {
     const text = `${'word '.repeat(20)}end`;
     const lines = render({ receiptFooterText: text }).lines.slice(1);

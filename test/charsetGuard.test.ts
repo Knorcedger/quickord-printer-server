@@ -16,6 +16,7 @@ import {
 import {
   buildProductRow,
   printDeliveryNoteProducts,
+  printFooterText,
   printOptionDetails,
   printProducts,
 } from '../src/modules/common';
@@ -509,5 +510,24 @@ describe('charset guard', () => {
       expect(row(expanding.lines).startsWith('ΚΑΦΕΣ...')).toBe(true);
       expect(row(expanding.lines).length).toBe(row(plain.lines).length);
     });
+  });
+
+  // The footer is wrapped by length, so `€` → `EUR` has to happen first.
+  test('footer lines with expanding characters stay within 42 cells', () => {
+    const characterSet = CharacterSet.PC737_GREEK;
+    const printer = installCharsetGuard(
+      makePrinter(characterSet),
+      characterSet
+    );
+    const println = jest.spyOn(printer, 'println');
+    // 42 characters before the guard, 44 after.
+    const text = `${'ΚΑΦΕΣ '.repeat(6)}ΤΟΣ 5€`;
+    expect(text.length).toBe(42);
+
+    printFooterText(printer, { receiptFooterText: text });
+
+    const lines = println.mock.calls.map(([line]) => line as string);
+    expect(lines.join(' ')).toContain('5EUR');
+    lines.forEach((l) => expect(l.length).toBeLessThanOrEqual(42));
   });
 });
