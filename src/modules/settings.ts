@@ -330,7 +330,22 @@ export const loadSettings = async () => {
       return;
     }
 
-    settings = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync('./settings.json', 'utf8'));
+
+    // Valid JSON of the wrong shape (e.g. `null`) would replace the defaults and
+    // crash later reads and saves, so keep the defaults instead.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      logger.error('settings.json is not an object; keeping default settings');
+      return;
+    }
+    settings = parsed;
+
+    // Partial syncs merge onto settings.printers; without it each one throws.
+    // Done before the fingerprint check so the backend re-delivers in full.
+    if (!Array.isArray(settings.printers)) {
+      logger.warn('settings.json has no printers array; starting with none');
+      settings.printers = [];
+    }
 
     // A hand-edited file no longer matches the hash the backend knows about, so
     // forget it and let the next poll deliver the settings the venue really has.

@@ -46,6 +46,7 @@ import {
   warnIfNoGreek,
 } from './charsetGuard';
 import { resolveCopies } from './copies';
+import { runOnPrinterQueue } from './printerQueue';
 import {
   IPrinterSettings,
   ISettings,
@@ -345,9 +346,29 @@ export const changeCodePage = (printer: ThermalPrinter, codePage: number) => {
   printer.add(Buffer.from([0x1b, 0x74, codePage]));
 };
 
+// Same key printJob.ts uses (ip, else device path), so LAN fallback prints
+// queue behind pull jobs to the same printer instead of colliding with them.
+const printerQueueKey = (settings?: Pick<IPrinterSettings, 'ip' | 'port'>) =>
+  settings?.ip || settings?.port || '';
+
+// Snapshot the buffer before queueing: the printer instance is shared across
+// requests, so another one may clear() it while this job waits its turn.
+const sendQueued = async (
+  printer: ThermalPrinter,
+  key: string
+): Promise<void> => {
+  const data = Buffer.from(printer.getBuffer() ?? []);
+  if (!key) {
+    await printer.raw(data);
+    return;
+  }
+  await runOnPrinterQueue(key, () => printer.raw(data));
+};
+
 // Helper function to execute printer with proper error handling
 const executePrinter = async (
   printer: ThermalPrinter,
+  settings: IPrinterSettings | undefined,
   printerIdentifier: string,
   operation: string,
   context?: Record<string, any>
@@ -356,7 +377,7 @@ const executePrinter = async (
   // single-socket printer mid-job; markPrinterIdle also starts the cooldown.
   markPrinterBusy(printer);
   try {
-    await printer.execute({ waitForResponse: false });
+    await sendQueued(printer, printerQueueKey(settings));
     printer?.clear();
     logger.info(
       `Successfully executed ${operation} on ${printerIdentifier}`,
@@ -643,7 +664,7 @@ export const printTestPage = async (
   cutPaper(printer);
 
   try {
-    await printer.execute();
+    await sendQueued(printer, printerQueueKey({ ip, port }));
     logger.info(`Printed test page to ${device}`);
 
     return 'success';
@@ -754,9 +775,7 @@ const printTextFunc = async (
         await readMarkdown(text, printer, alignment, settings);
         cutPaper(printer);
 
-        await printer.execute({
-          waitForResponse: false,
-        });
+        await sendQueued(printer, printerQueueKey(settings));
 
         logger.info(`Successfully printed text to ${printerIdentifier}`, {
           copy: j + 1,
@@ -1001,9 +1020,7 @@ const printParkingTicket = async (
         cutPaper(printer);
       }
 
-      await printer.execute({
-        waitForResponse: false,
-      });
+      await sendQueued(printer, printerQueueKey(settings));
 
       printer?.clear();
       logger.info(
@@ -1146,9 +1163,7 @@ const printPelatologioRecord = async (
       printer.println('POWERED BY MYPELATES');
       cutPaper(printer);
 
-      await printer.execute({
-        waitForResponse: false,
-      });
+      await sendQueued(printer, printerQueueKey(settings));
 
       printer?.clear();
       logger.info(
@@ -1707,7 +1722,7 @@ const printOrderForm = async (
         printFooterText(printer, settings);
         cutPaper(printer);
 
-        await executePrinter(printer, printerIdentifier, 'order form print', {
+        await executePrinter(printer, settings, printerIdentifier, 'order form print', {
           orderNumber,
           tableNumber,
         });
@@ -1960,7 +1975,7 @@ const printPaymentSlip = async (
         printFooterText(printer, settings);
         cutPaper(printer);
 
-        await executePrinter(printer, printerIdentifier, 'payment slip print', {
+        await executePrinter(printer, settings, printerIdentifier, 'payment slip print', {
           orderNumber,
           mark: aadeInvoice?.mark,
         });
@@ -2178,6 +2193,7 @@ const printPaymentReceipt = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'payment receipt print',
           {
@@ -2411,7 +2427,7 @@ const printInvoice = async (
           settings?.port ||
           `printer-${i}`;
 
-        await executePrinter(printer, printerIdentifier, 'invoice print', {
+        await executePrinter(printer, settings, printerIdentifier, 'invoice print', {
           orderNumber,
           mark: aadeInvoice?.mark,
           copy: copies + 1,
@@ -2624,6 +2640,7 @@ const printMyPelatesReceipt = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'MyPelates receipt print',
           {
@@ -2842,6 +2859,7 @@ const printMyPelatesInvoice = async (
 
         await executePrinter(
           printer,
+          settings,
           printerIdentifier,
           'MyPelates invoice print',
           {
@@ -3108,9 +3126,7 @@ const printDeliveryNote = async (
         printFooterText(printer, settings);
         cutPaper(printer);
 
-        await printer.execute({
-          waitForResponse: false,
-        });
+        await sendQueued(printer, printerQueueKey(settings));
 
         printer?.clear();
         logger.info(`Successfull delivery note to ${printerIdentifier}`);
@@ -4139,6 +4155,7 @@ export const printOrder = async (
         try {
           await executePrinter(
             printer,
+            settings,
             printerIdentifier,
             `order print copy ${copies + 1}/${copyCount}`,
             {
@@ -4398,6 +4415,7 @@ export const printOrderComments = async (
         try {
           await executePrinter(
             printer,
+            settings,
             printerIdentifier,
             `order comments print copy ${copies + 1}/${copyCount}`,
             {
