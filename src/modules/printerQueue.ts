@@ -38,6 +38,11 @@ export function enqueuePrinterJob(
   });
 }
 
+// True while a job for `key` is running or waiting (incl. the inter-job pause).
+export function hasPendingPrinterJob(key: string): boolean {
+  return printerQueues.has(key);
+}
+
 // Awaitable variant: queues `task` and settles with its own outcome.
 export function runOnPrinterQueue<T>(
   key: string,

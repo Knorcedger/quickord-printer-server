@@ -1,6 +1,7 @@
 import { printer as ThermalPrinter } from 'node-thermal-printer';
 import * as common from '../src/modules/common';
 import {
+  checkPrinters,
   printOrdersComments,
   printText,
   setupPrinters,
@@ -143,5 +144,51 @@ describe('LAN prints sharing a printer buffer', () => {
     expect(sent[0]).toContain('B-NOTE');
     expect(sent).toHaveLength(2);
     expect(sent[1]).toContain('A-TEXT');
+  });
+
+  it('reports a refused socket on a text print as a connection failure', async () => {
+    await setupPrinters({
+      printers: [
+        {
+          characterSet: 'PC737_GREEK',
+          documentsToPrint: ['TEXT'],
+          id: 'p1',
+          ip: '10.0.0.1',
+          name: 'p1',
+        },
+      ],
+    } as any);
+    jest.spyOn(common, 'readMarkdown').mockResolvedValue(undefined);
+    jest
+      .mocked(ThermalPrinter.prototype.raw)
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.0.1:9100'));
+
+    const res = { send: jest.fn(), status: jest.fn() };
+    res.status.mockReturnValue(res);
+    await printText({ body: { text: 'x' } } as any, res as any);
+
+    expect(res.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error: expect.stringContaining('Failed to connect to printer: p1'),
+      })
+    );
+  });
+
+  it('reuses the last status instead of probing a printer mid-job', async () => {
+    const probe = jest
+      .spyOn(ThermalPrinter.prototype, 'isPrinterConnected')
+      .mockResolvedValue(true);
+    await checkPrinters();
+    expect(probe).toHaveBeenCalledTimes(1);
+
+    const job = deferred();
+    enqueuePrinterJob('10.0.0.1', () => job.promise);
+    probe.mockClear();
+    const results = await checkPrinters();
+    job.resolve();
+
+    expect(probe).not.toHaveBeenCalled();
+    expect(results).toEqual([{ id: 'p1', connected: true }]);
   });
 });

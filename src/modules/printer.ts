@@ -46,7 +46,11 @@ import {
   warnIfNoGreek,
 } from './charsetGuard';
 import { resolveCopies } from './copies';
-import { lockPrinterBuffer, runOnPrinterQueue } from './printerQueue';
+import {
+  hasPendingPrinterJob,
+  lockPrinterBuffer,
+  runOnPrinterQueue,
+} from './printerQueue';
 import {
   IPrinterSettings,
   ISettings,
@@ -269,7 +273,11 @@ const runKeepaliveCycle = async () => {
     if (!printer || !settings || settings.ip === '') {
       continue;
     }
-    if (!isPrinterFreeForKeepalive(printer)) {
+    // Pull jobs bypass the busy flag, so also skip while the queue is active.
+    if (
+      !isPrinterFreeForKeepalive(printer) ||
+      hasPendingPrinterJob(printerQueueKey(settings))
+    ) {
       continue;
     }
 
@@ -513,6 +521,18 @@ export const checkPrinters = async () => {
 
       const printerId = settings?.id || '';
 
+      // Probing mid-job could break a single-socket print; reuse the last state.
+      const lastState = lastConnectedState.get(printerId);
+      if (
+        lastState !== undefined &&
+        hasPendingPrinterJob(printerQueueKey(settings))
+      ) {
+        logger.info(
+          `Printer ${printerIdentifier} has a job in progress, reporting last state`
+        );
+        return { id: printerId, connected: lastState };
+      }
+
       // Hold off keep-alive while this status check probes the same socket.
       markPrinterBusy(printer);
       try {
@@ -560,8 +580,7 @@ export const checkPrinters = async () => {
           return { id: printerId, connected: true };
         }
         lastConnectedState.set(printerId, false);
-        printer?.clear();
-        logger.warn(`Printer ${printerIdentifier} is offline, clearing buffer`);
+        logger.warn(`Printer ${printerIdentifier} is offline`);
         return { id: printerId, connected: false };
       } catch (error) {
         logger.error(
@@ -778,7 +797,12 @@ const printTextFunc = async (
           await readMarkdown(text, printer, alignment, settings);
           cutPaper(printer);
 
-          await sendQueued(printer, printerQueueKey(settings));
+          await executePrinter(
+            printer,
+            settings,
+            printerIdentifier,
+            'text print'
+          );
 
           logger.info(`Successfully printed text to ${printerIdentifier}`, {
             copy: j + 1,
@@ -1029,9 +1053,12 @@ const printParkingTicket = async (
           cutPaper(printer);
         }
 
-        await sendQueued(printer, printerQueueKey(settings));
-
-        printer?.clear();
+        await executePrinter(
+          printer,
+          settings,
+          printerIdentifier,
+          'parking ticket print'
+        );
         logger.info(
           `Successfully printed parking ticket to ${printerIdentifier}`,
           { license }
@@ -1184,9 +1211,12 @@ const printPelatologioRecord = async (
         printer.println('POWERED BY MYPELATES');
         cutPaper(printer);
 
-        await sendQueued(printer, printerQueueKey(settings));
-
-        printer?.clear();
+        await executePrinter(
+          printer,
+          settings,
+          printerIdentifier,
+          'pelatologio record print'
+        );
         logger.info(
           `Successfully printed pelatologio record to ${printerIdentifier}`,
           { dclId: pelatologioRecord.dclId }
@@ -3234,9 +3264,12 @@ const printDeliveryNote = async (
           printFooterText(printer, settings);
           cutPaper(printer);
 
-          await sendQueued(printer, printerQueueKey(settings));
-
-          printer?.clear();
+          await executePrinter(
+            printer,
+            settings,
+            printerIdentifier,
+            'delivery note print'
+          );
           logger.info(`Successfull delivery note to ${printerIdentifier}`);
           successCount++;
           if (copies === 0) {

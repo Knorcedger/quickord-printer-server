@@ -1,5 +1,6 @@
 import {
   enqueuePrinterJob,
+  hasPendingPrinterJob,
   lockPrinterBuffer,
   runOnPrinterQueue,
 } from '../src/modules/printerQueue';
@@ -62,6 +63,24 @@ describe('printer queue', () => {
     await expect(
       runOnPrinterQueue('10.0.0.8', async () => 'next')
     ).resolves.toBe('next');
+  });
+});
+
+describe('hasPendingPrinterJob', () => {
+  it('is true while a job runs and false once the queue drains', async () => {
+    jest.useFakeTimers();
+    try {
+      const job = deferred();
+      enqueuePrinterJob('10.0.0.7', () => job.promise);
+      expect(hasPendingPrinterJob('10.0.0.7')).toBe(true);
+      expect(hasPendingPrinterJob('10.0.0.8')).toBe(false);
+
+      job.resolve();
+      await jest.runAllTimersAsync();
+      expect(hasPendingPrinterJob('10.0.0.7')).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
 
