@@ -50,6 +50,7 @@ export function runOnPrinterQueue<T>(
 
 // LAN requests share one ThermalPrinter buffer per printer, so each holds this
 // lock from its first clear() to its last, or one request wipes another's bytes.
+// Take it only after the skip checks, so a skipped printer never stalls a request.
 const bufferLocks = new WeakMap<object, Promise<void>>();
 
 export async function lockPrinterBuffer(

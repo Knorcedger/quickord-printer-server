@@ -740,7 +740,7 @@ const printTextFunc = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       if (!settings || !printer) {
         logger.warn(
@@ -764,6 +764,7 @@ const printTextFunc = async (
         continue;
       }
 
+      releaseBuffer = await lockPrinterBuffer(printer);
       for (let j = 0; j < copies; j += 1) {
         logger.info(
           `Printing text copy ${j + 1} of ${copies} on ${printerIdentifier}`
@@ -962,7 +963,7 @@ const printParkingTicket = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
         if (!settings || !printer) {
@@ -981,6 +982,7 @@ const printParkingTicket = async (
           venueName,
         });
 
+        releaseBuffer = await lockPrinterBuffer(printer);
         printer.clear();
         const copyCount = resolveCopies(settings, 'PARKING-TICKET');
         for (let copies = 0; copies < copyCount; copies += 1) {
@@ -1090,7 +1092,7 @@ const printPelatologioRecord = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
         if (!settings || !printer) {
@@ -1104,6 +1106,7 @@ const printPelatologioRecord = async (
           continue;
         }
 
+        releaseBuffer = await lockPrinterBuffer(printer);
         printer.clear();
         logger.info(`Printing pelatologio record to ${printerIdentifier}`, {
           dclId: pelatologioRecord.dclId,
@@ -1628,10 +1631,9 @@ const printOrderForm = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
-        printer?.clear();
         if (!settings || !printer) {
           errors.push({
             printerIdentifier,
@@ -1649,6 +1651,8 @@ const printOrderForm = async (
             continue;
           }
         }
+        releaseBuffer = await lockPrinterBuffer(printer);
+        printer.clear();
         const copyCount = resolveCopies(settings, 'ORDERFORM');
         for (let copies = 0; copies < copyCount; copies += 1) {
           if (copies > 0) {
@@ -1825,10 +1829,9 @@ const printPaymentSlip = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
-        printer?.clear();
         if (!settings || !printer) {
           errors.push({
             printerIdentifier,
@@ -1847,6 +1850,8 @@ const printPaymentSlip = async (
           }
         }
 
+        releaseBuffer = await lockPrinterBuffer(printer);
+        printer.clear();
         const copyCount = resolveCopies(settings, 'PAYMENT-SLIP');
         for (let copies = 0; copies < copyCount; copies += 1) {
           if (copies > 0) {
@@ -2098,9 +2103,8 @@ const printPaymentReceipt = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
-      printer?.clear();
       if (!settings || !printer) {
         skipped.push({
           printerIdentifier,
@@ -2125,6 +2129,8 @@ const printPaymentReceipt = async (
         skipped.push({ printerIdentifier, reason: kioskSkip });
         continue;
       }
+      releaseBuffer = await lockPrinterBuffer(printer);
+      printer.clear();
       console.log('Printing ALP');
       const copyCount = resolveCopies(settings, 'ALP');
       for (let copies = 0; copies < copyCount; copies += 1) {
@@ -2344,9 +2350,8 @@ const printInvoice = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
-      printer?.clear();
       if (!settings || !printer) {
         skipped.push({
           printerIdentifier,
@@ -2374,6 +2379,8 @@ const printInvoice = async (
         continue;
       }
 
+      releaseBuffer = await lockPrinterBuffer(printer);
+      printer.clear();
       console.log('Printing invoice');
       const copyCount = resolveCopies(settings, 'ALP');
       for (let copies = 0; copies < copyCount; copies += 1) {
@@ -2581,9 +2588,8 @@ const printMyPelatesReceipt = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
-      printer?.clear();
       if (!settings || !printer) {
         skipped.push({
           printerIdentifier,
@@ -2601,6 +2607,8 @@ const printMyPelatesReceipt = async (
           continue;
         }
       }
+      releaseBuffer = await lockPrinterBuffer(printer);
+      printer.clear();
       const copyCount = resolveCopies(settings, 'ALP');
       for (let copies = 0; copies < copyCount; copies += 1) {
         console.log('print copies: ', copies);
@@ -2804,9 +2812,8 @@ const printMyPelatesInvoice = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
-      printer?.clear();
       if (!settings || !printer) {
         skipped.push({
           printerIdentifier,
@@ -2824,6 +2831,8 @@ const printMyPelatesInvoice = async (
           continue;
         }
       }
+      releaseBuffer = await lockPrinterBuffer(printer);
+      printer.clear();
       const copyCount = resolveCopies(settings, 'ALP');
       for (let copies = 0; copies < copyCount; copies += 1) {
         console.log('print copies: ', copies);
@@ -3093,7 +3102,7 @@ const printDeliveryNote = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
         if (!settings || !printer) {
@@ -3103,6 +3112,7 @@ const printDeliveryNote = async (
           });
           continue;
         }
+        releaseBuffer = await lockPrinterBuffer(printer);
         // A delivery note is an ALP-family document; it follows the ALP copies.
         const copyCount = resolveCopies(settings, 'ALP');
         for (let copies = 0; copies < copyCount; copies += 1) {
@@ -3327,12 +3337,10 @@ export const printOrder = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
-        printer?.clear();
         if (!settings || !printer) {
-          printer?.clear();
           skipped.push({
             printerIdentifier,
             reason: 'Printer not configured or missing settings',
@@ -3376,8 +3384,6 @@ export const printOrder = async (
 
         console.log(productsToPrint);
         if (!productsToPrint?.length) {
-          printer?.clear();
-
           // Find which categories caused the filtering
           if (
             settings.categoriesToPrint !== undefined &&
@@ -3431,7 +3437,6 @@ export const printOrder = async (
             return editStatus === 'NEW' || editStatus === 'UPDATED';
           });
           if (!productsToPrint?.length) {
-            printer?.clear();
             skipped.push({
               printerIdentifier,
               reason: 'No NEW or UPDATED products to print for this edit order',
@@ -3450,6 +3455,7 @@ export const printOrder = async (
           minute: '2-digit',
         });
 
+        releaseBuffer = await lockPrinterBuffer(printer);
         printer.clear();
 
         let copyExecError: unknown = null;
@@ -4410,10 +4416,9 @@ export const printOrderComments = async (
       settings?.port ||
       `printer-${i}`;
 
-    const releaseBuffer = await lockPrinterBuffer(printer);
+    let releaseBuffer = () => {};
     try {
       try {
-        printer?.clear();
         if (!settings || !printer) {
           skipped.push({
             printerIdentifier,
@@ -4453,6 +4458,8 @@ export const printOrderComments = async (
         const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
         const boldOrderType = settings.textOptions?.includes('BOLD_ORDER_TYPE');
 
+        releaseBuffer = await lockPrinterBuffer(printer);
+        printer.clear();
         let copyExecError: unknown = null;
         const copyCount = resolveCopies(settings, 'COMMENTS');
         for (let copies = 0; copies < copyCount; copies += 1) {

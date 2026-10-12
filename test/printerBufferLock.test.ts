@@ -91,4 +91,57 @@ describe('LAN prints sharing a printer buffer', () => {
     expect(sent[1]).toContain('B-HEADER');
     expect(sent[1]).toContain('B-BODY');
   });
+
+  it('does not wait on a busy printer it is going to skip', async () => {
+    await setupPrinters({
+      printers: [
+        {
+          characterSet: 'PC737_GREEK',
+          documentsToPrint: ['TEXT'],
+          ip: '10.0.0.1',
+          name: 'p1',
+        },
+        {
+          characterSet: 'PC737_GREEK',
+          documentsToPrint: ['COMMENTS'],
+          ip: '10.0.0.2',
+          name: 'p2',
+        },
+      ],
+    } as any);
+    sent.length = 0;
+    const image = deferred();
+    jest
+      .spyOn(common, 'readMarkdown')
+      .mockImplementation(async (_text, printer) => {
+        printer.println('A-TEXT');
+        await image.promise;
+      });
+
+    // A holds p1 mid-render; B's comments only go to p2.
+    const res = { send: jest.fn(), status: jest.fn() };
+    res.status.mockReturnValue(res);
+    const a = printText({ body: { text: 'x' } } as any, res as any);
+    await flush();
+    const b = printOrdersComments([
+      {
+        _id: 'b',
+        createdAt: new Date().toISOString(),
+        number: 2,
+        orderType: 'DELIVERY',
+        waiterComment: 'B-NOTE',
+      } as any,
+    ]);
+    const bFinishedFirst = await Promise.race([
+      b.then(() => true),
+      new Promise<boolean>((r) => setTimeout(() => r(false), 1000)),
+    ]);
+    image.resolve();
+    await Promise.all([a, b]);
+
+    expect(bFinishedFirst).toBe(true);
+    expect(sent[0]).toContain('B-NOTE');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toContain('A-TEXT');
+  });
 });
