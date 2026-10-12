@@ -380,4 +380,38 @@ describe('settings hash sync', () => {
     expect(getSyncedHash()).toBeUndefined();
     expect(getSettings().printers[0]?.copies).toBe(3);
   });
+
+  it('keeps the current settings when settings.json is valid JSON but not an object', async () => {
+    fs.writeFileSync(path.join(tmpDir, 'settings.json'), 'null');
+
+    await loadSettings();
+
+    expect(getSettings().printers).toEqual([]);
+    await expect(
+      applyDesiredSettings(desired, { source: 'test' })
+    ).resolves.toBeDefined();
+  });
+
+  it('defaults a missing printers array and keeps the rest of the file', async () => {
+    fs.writeFileSync(
+      path.join(tmpDir, 'settings.json'),
+      JSON.stringify({
+        syncedHash: 'abc123',
+        venueId: 'venue-1',
+        writtenFingerprint: 'stale',
+        wsSecret: 'secret-1',
+      })
+    );
+
+    await loadSettings();
+
+    expect(getSettings().printers).toEqual([]);
+    expect(getSettings().wsSecret).toBe('secret-1');
+    expect(getSyncedHash()).toBeUndefined();
+    // A partial push merges onto settings.printers, which used to throw here.
+    await expect(
+      applyDesiredSettings(desired, { source: 'test' })
+    ).resolves.toBeDefined();
+    expect(getSettings().printers).toHaveLength(1);
+  });
 });

@@ -4,8 +4,8 @@
  * Takes a base64 ESC/POS payload the backend already formatted and sends it to a
  * local printer over TCP (network printers) or a device path (shared/USB/serial
  * printers, e.g. \\localhost\POS-80 on Windows). Drives the long-poll pull
- * client's print path; the per-printer serialization and error classification
- * live here so every job goes out the same way.
+ * client's print path; error classification lives here so every job goes out
+ * the same way, per-printer serialization in printerQueue.ts.
  */
 import * as net from 'node:net';
 import {
@@ -14,43 +14,9 @@ import {
 } from 'node-thermal-printer';
 import { isUSBPrinterOnline } from './common';
 import logger from './logger';
+import { enqueuePrinterJob } from './printerQueue';
 
 const SOCKET_TIMEOUT = 5000;
-
-// Per-printer job queue. Thermal printers accept a single connection at a time,
-// so two overlapping jobs to one device (copies, or two independent print
-// requests at once) collide and only one ticket comes out. Chaining each job
-// onto the previous one for that printer serializes them; distinct printers
-// still print in parallel. The backend also serializes copies within a single
-// request — this is the authoritative guard regardless of how jobs arrive.
-const printerQueues = new Map<string, Promise<void>>();
-
-// Pause between chained jobs to the same printer, giving it time to finish
-// cutting/feeding before the next connection opens — sendToPrinter resolves on
-// socket close, not print completion, so back-to-back connects would hit some
-// printer models mid-cut. Parity with the backend push path's
-// INTER_COPY_DELAY_MS, which paced copies before they moved to the pull channel.
-const INTER_JOB_DELAY_MS = 500;
-
-function enqueuePrinterJob(key: string, task: () => Promise<void>): void {
-  const prev = printerQueues.get(key) ?? Promise.resolve();
-  const next = prev
-    .catch(() => {})
-    .then(task)
-    .catch((err) => {
-      // executePrintJob has its own try/catch and reports failures via its
-      // callback, so a rejection surfacing here is an unexpected fault (e.g. a
-      // bug before that try/catch). Log it once and keep the per-printer chain
-      // alive for the jobs queued behind it.
-      logger.error(`Unexpected error in printer queue for ${key}:`, err);
-    })
-    .then(() => new Promise<void>((r) => setTimeout(r, INTER_JOB_DELAY_MS)));
-  printerQueues.set(key, next);
-  // Drop the entry once it settles, unless a newer job has already chained on.
-  void next.finally(() => {
-    if (printerQueues.get(key) === next) printerQueues.delete(key);
-  });
-}
 
 // Collapse the various ways an unreachable printer fails into a single stable
 // code the frontend can translate. EHOSTDOWN/EHOSTUNREACH/ENETUNREACH (host or
@@ -181,8 +147,8 @@ export function executePrintJob(
 
   const buffer = Buffer.from(data, 'base64');
 
-  // Key the queue by the physical target (ip for TCP, device path for local) so
-  // jobs to the same printer serialize but different printers stay parallel.
+  // Key the queue by the physical target (ip for TCP, device path for local);
+  // printerQueueKey in printer.ts must match so LAN fallback prints share it.
   const queueKey = printerIp || printerPort!;
   enqueuePrinterJob(queueKey, async () => {
     let target: string;
