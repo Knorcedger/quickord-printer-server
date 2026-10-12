@@ -1,4 +1,8 @@
-import { enqueuePrinterJob, runOnPrinterQueue } from '../src/modules/printerQueue';
+import {
+  enqueuePrinterJob,
+  lockPrinterBuffer,
+  runOnPrinterQueue,
+} from '../src/modules/printerQueue';
 
 jest.mock('../src/modules/logger', () => ({
   __esModule: true,
@@ -55,8 +59,33 @@ describe('printer queue', () => {
       })
     ).rejects.toThrow('Socket timeout');
 
-    await expect(runOnPrinterQueue('10.0.0.8', async () => 'next')).resolves.toBe(
-      'next'
-    );
+    await expect(
+      runOnPrinterQueue('10.0.0.8', async () => 'next')
+    ).resolves.toBe('next');
+  });
+});
+
+describe('printer buffer lock', () => {
+  it('hands the buffer to the next holder only after release', async () => {
+    const printer = {};
+    const order: string[] = [];
+
+    const releaseA = await lockPrinterBuffer(printer);
+    const b = lockPrinterBuffer(printer).then((release) => {
+      order.push('b');
+      release();
+    });
+
+    await new Promise((r) => setImmediate(r));
+    expect(order).toEqual([]);
+
+    releaseA();
+    await b;
+    expect(order).toEqual(['b']);
+  });
+
+  it('does not hold up a different printer', async () => {
+    await lockPrinterBuffer({});
+    await expect(lockPrinterBuffer({})).resolves.toEqual(expect.any(Function));
   });
 });

@@ -47,3 +47,25 @@ export function runOnPrinterQueue<T>(
     enqueuePrinterJob(key, () => task().then(resolve, reject));
   });
 }
+
+// LAN requests share one ThermalPrinter buffer per printer, so each holds this
+// lock from its first clear() to its last, or one request wipes another's bytes.
+const bufferLocks = new WeakMap<object, Promise<void>>();
+
+export async function lockPrinterBuffer(
+  owner: object | undefined
+): Promise<() => void> {
+  if (!owner) return () => {};
+  const prev = bufferLocks.get(owner) ?? Promise.resolve();
+  let release!: () => void;
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  const tail = prev.then(() => held);
+  bufferLocks.set(owner, tail);
+  await prev;
+  return () => {
+    release();
+    if (bufferLocks.get(owner) === tail) bufferLocks.delete(owner);
+  };
+}
