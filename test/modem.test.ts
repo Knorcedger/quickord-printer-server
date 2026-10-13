@@ -1,6 +1,7 @@
 import signale from 'signale';
 
 import { apiCall } from '../src/modules/api';
+import logger from '../src/modules/logger';
 import {
   __setInitDelayMs,
   __setInitTimings,
@@ -367,6 +368,63 @@ describe('modem registry', () => {
     ).toBe(true);
 
     warnSpy.mockRestore();
+  });
+
+  describe('caller number privacy in shipped lines', () => {
+    const NUMBER = '6976641604';
+    let shipped: string[];
+    let stopListening: () => void;
+
+    beforeEach(() => {
+      shipped = [];
+      stopListening = logger.onLine((line) => shipped.push(line.message));
+    });
+
+    afterEach(() => stopListening());
+
+    // Every digit the shipper saw, minus the port tags, in arrival order.
+    const shippedDigits = () =>
+      shipped
+        .map((m) => m.replace(/\[modem [^\]]*\]/, '').replace(/\D/g, ''))
+        .join('');
+
+    it('P1: a call during the init drain ships no part of the number', async () => {
+      __setInitTimings({ drainMs: 100 });
+      await syncModems([modem('COM3')]);
+
+      ring('COM3', NUMBER);
+      await jest.advanceTimersByTimeAsync(200);
+      await settleInit();
+
+      expect(shipped.some((m) => m.includes('drained pre-init output'))).toBe(
+        true
+      );
+      expect(shippedDigits()).not.toContain(NUMBER.slice(0, 7));
+      expect(shipped).toContain('[modem COM3] Phone call detected: ***604');
+    });
+
+    it('P2: a number split across short chunks ships no part of it', async () => {
+      await syncModems([modem('COM3')]);
+
+      // One serial read each, as a slow UART would deliver them.
+      for (const c of [
+        'RING\r\nNMBR = ',
+        '697',
+        '664',
+        '160',
+        '4\r\nRING\r\n',
+      ]) {
+        emit('COM3', c);
+        // eslint-disable-next-line no-await-in-loop
+        await settle();
+      }
+
+      expect(numbersSentToBE()).toEqual([NUMBER]);
+      expect(shipped.filter((m) => m.includes(' raw ')).length).toBeGreaterThan(
+        4
+      );
+      expect(shippedDigits()).not.toContain(NUMBER.slice(0, 7));
+    });
   });
 });
 

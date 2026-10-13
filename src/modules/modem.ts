@@ -129,8 +129,8 @@ const detachPort = (inst: ModemInstance) => {
 // Caller numbers are customer data: shipped lines carry only the last 3 digits.
 const maskNumber = (phoneNumber: string) =>
   phoneNumber.length > 3 ? `***${phoneNumber.slice(-3)}` : '***';
-const maskDigits = (text: string) =>
-  text.replace(/\d{4,}/g, (d) => maskNumber(d));
+// Raw serial traffic can split a number across any chunks, so hide every digit.
+const redactDigits = (text: string) => text.replace(/\d/g, '#');
 
 const onPhoneNumber = async (inst: ModemInstance, phoneNumber: string) => {
   const masked = maskNumber(phoneNumber);
@@ -361,7 +361,7 @@ const runInit = async (
   const drained = await collect(timings.drainMs);
   if (drained.length) {
     logger.info(
-      `${tag(inst)} drained pre-init output: ${JSON.stringify(drained.slice(0, 256))}`
+      `${tag(inst)} drained pre-init output: ${redactDigits(JSON.stringify(drained.slice(0, 256)))}`
     );
   }
   if (!alive()) return;
@@ -434,7 +434,7 @@ const openPort = async (inst: ModemInstance) => {
   // the data handler is attached: it is what feeds them their replies.
   serial.on('data', (d: Buffer) => {
     const chunk = d.toString();
-    logger.debug(`${tag(inst)} raw ${maskDigits(JSON.stringify(chunk))}`);
+    logger.debug(`${tag(inst)} raw ${redactDigits(JSON.stringify(chunk))}`);
 
     inst.initListener?.(chunk);
     watchRingWithoutCid(inst, chunk);
@@ -444,7 +444,7 @@ const openPort = async (inst: ModemInstance) => {
 
     if (result.overflowed) {
       logger.warn(
-        `${tag(inst)} Buffer overflow, clearing. Content: ${maskDigits(JSON.stringify(result.overflowed))}`
+        `${tag(inst)} Buffer overflow, clearing. Content: ${redactDigits(JSON.stringify(result.overflowed))}`
       );
     }
 
