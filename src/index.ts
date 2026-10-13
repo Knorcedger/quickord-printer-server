@@ -193,7 +193,7 @@ const main = async () => {
   }
 
   if (args[0] !== '--noupdate') {
-    console.log('Arguments:', args);
+    logger.info('Arguments:', args);
 
     // Clear out the temp trees left by previous updates. Done before the
     // version check so a failed update never accumulates copies of the build.
@@ -203,7 +203,7 @@ const main = async () => {
       logger.error('Failed to sweep temp update folders:', err);
     }
 
-    console.log('Update path:', process.argv);
+    logger.info('Update path:', process.argv);
     // autoUpdate's normal-boot download reports fetch failures via
     // reportFetchFailure(), which attributes the incident to a venueId resolved
     // from the in-memory settings. Load them now on the normal-boot branch only (empty args);
@@ -269,7 +269,7 @@ const main = async () => {
       const version = fs.readFileSync(versionFilePath, 'utf-8').trim();
       return version;
     } catch (error) {
-      console.error('Error reading version file:', error);
+      logger.error('Error reading version file:', error);
       return 'unknown';
     }
   }
@@ -300,7 +300,7 @@ const main = async () => {
       });
       return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
-      console.error('fetch failed:', err);
+      logger.warn('Latest-version fetch from GitHub failed:', err);
       return 'unknown';
     }
   }
@@ -320,7 +320,7 @@ const main = async () => {
       const version = await fetchLatestVersion();
       res.status(200).json({ version });
     } catch (err) {
-      console.error('Error fetching version:', err);
+      logger.error('Error fetching version:', err);
       res.status(500).json({ version: 'unknown' });
     }
   });

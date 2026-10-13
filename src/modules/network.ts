@@ -1,6 +1,8 @@
 import * as net from 'net';
 import * as os from 'os';
 
+import logger from './logger';
+
 function getSubnetFromGateway(): string | null {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
@@ -78,13 +80,13 @@ export default async function scanNetworkForConnections(): Promise<
 > {
   const subnet = getSubnetFromGateway();
   if (!subnet) {
-    console.warn(
+    logger.warn(
       '⚠️ No active IPv4 network interface found, skipping network scan'
     );
     return [];
   }
 
-  console.log(`🔍 Scanning ${subnet}.0/24 for devices...`);
+  logger.info(`🔍 Scanning ${subnet}.0/24 for devices...`);
 
   const targets: { ip: string; port: number }[] = [];
   for (let i = 1; i < 255; i++) {
@@ -101,12 +103,12 @@ export default async function scanNetworkForConnections(): Promise<
   for (const result of portResults) {
     if (result.open) {
       printers.push({ ip: result.ip, port: result.port });
-      console.log(
+      logger.debug(
         `🖨️ Printer (or device) found at ${result.ip}:${result.port}`
       );
     }
   }
 
-  console.log('✅ Finished scanning! Found printers:', printers);
+  logger.info('✅ Finished scanning! Found printers:', printers);
   return printers;
 }
