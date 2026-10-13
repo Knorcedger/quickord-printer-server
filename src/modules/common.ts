@@ -12,6 +12,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { curlExecBuffer, httpStatusError, tryFetchWithFallback } from './http';
 import { reportFetchFailure } from './api';
+import logger from './logger';
 
 const execAsync = promisify(exec);
 
@@ -101,7 +102,7 @@ const getCachedImage = (url: string): Buffer | null => {
       fs.unlinkSync(cachePath);
     }
   } catch (err) {
-    console.error('Error reading cache:', err);
+    logger.warn('Error reading cache:', err);
   }
   return null;
 };
@@ -119,7 +120,7 @@ const saveCachedImage = (url: string, buffer: Buffer): void => {
     fs.renameSync(tmpPath, cachePath);
     console.log(`Cached image for: ${url}`);
   } catch (err) {
-    console.error('Error saving cache:', err);
+    logger.warn('Error saving cache:', err);
   }
 };
 
@@ -228,7 +229,7 @@ const downloadAndProcessImage = async (
 
     return processedImage;
   } catch (err: any) {
-    console.error('Failed to download or process image:', err.message || err);
+    logger.error('Failed to download or process image:', err.message || err);
     throw new Error('Image download or processing failed');
   }
 };
@@ -296,7 +297,7 @@ export const readMarkdown = async (
           // the rest of the receipt and can be dropped from the buffer.
           await printer.printImageBuffer(processedImageBuffer);
         } catch (error) {
-          console.error(
+          logger.error(
             `Failed to download/process image from ${imageUrl}:`,
             error
           );
@@ -332,7 +333,7 @@ export const readMarkdown = async (
             correction: 'Q',
           });
         } catch (error) {
-          console.error(`Failed to print QR code for ${qrUrl}:`, error);
+          logger.error(`Failed to print QR code for ${qrUrl}:`, error);
         }
 
         index += qrMatch[0].length;
@@ -1244,7 +1245,7 @@ export const printLogo = async (printer, logoUrl: string) => {
     printer.alignCenter(); // raster print resets justification to left
     printer.newLine();
   } catch (error) {
-    console.error(`Failed to print venue logo from ${logoUrl}:`, error);
+    logger.error(`Failed to print venue logo from ${logoUrl}:`, error);
   }
 };
 

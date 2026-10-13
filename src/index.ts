@@ -53,6 +53,7 @@ import autoUpdate, {
   sweepTempUpdateDirs,
 } from './autoupdate/autoupdate';
 import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
+import { shipNewUpdateLogLines } from './autoupdate/shipUpdateLog';
 import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
 import {
   curlExecJson,
@@ -61,6 +62,7 @@ import {
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
 import { initPullClient } from './modules/pullClient';
+import { initLogShipper } from './modules/logShipper';
 import { setRestartHandler } from './modules/psIdentity';
 
 // A bind failure repeats on every restart until whatever holds the port is
@@ -172,11 +174,16 @@ async function handleBindFailure(
   process.exit(1);
 }
 
+// Second pass at the update log, once the updater has surely flushed it.
+const UPDATE_LOG_RESHIP_MS = 2 * 60_000;
+
 const main = async () => {
   const SERVER_PORT =
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
 
   await logger.init();
+  // Right after the log file exists, so boot and update lines are shipped too.
+  await initLogShipper();
   const args = process.argv.slice(2); // Get arguments after the script name
 
   // An updater that died before it could flush left its log in %TEMP%; it is
@@ -187,10 +194,17 @@ const main = async () => {
     } catch (err) {
       logger.error('Failed to absorb stray update logs:', err);
     }
+    // Again later: the updater flushes its log after it has started us.
+    const shipUpdateLog = () =>
+      shipNewUpdateLogLines().catch((err) =>
+        logger.warn('Could not ship the update log:', err)
+      );
+    void shipUpdateLog();
+    setTimeout(shipUpdateLog, UPDATE_LOG_RESHIP_MS).unref();
   }
 
   if (args[0] !== '--noupdate') {
-    console.log('Arguments:', args);
+    logger.info('Arguments:', args);
 
     // Clear out the temp trees left by previous updates. Done before the
     // version check so a failed update never accumulates copies of the build.
@@ -200,7 +214,7 @@ const main = async () => {
       logger.error('Failed to sweep temp update folders:', err);
     }
 
-    console.log('Update path:', process.argv);
+    logger.info('Update path:', process.argv);
     // autoUpdate's normal-boot download reports fetch failures via
     // reportFetchFailure(), which attributes the incident to a venueId resolved
     // from the in-memory settings. Load them now on the normal-boot branch only (empty args);
@@ -266,7 +280,7 @@ const main = async () => {
       const version = fs.readFileSync(versionFilePath, 'utf-8').trim();
       return version;
     } catch (error) {
-      console.error('Error reading version file:', error);
+      logger.error('Error reading version file:', error);
       return 'unknown';
     }
   }
@@ -297,7 +311,7 @@ const main = async () => {
       });
       return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
-      console.error('fetch failed:', err);
+      logger.warn('Latest-version fetch from GitHub failed:', err);
       return 'unknown';
     }
   }
@@ -317,7 +331,7 @@ const main = async () => {
       const version = await fetchLatestVersion();
       res.status(200).json({ version });
     } catch (err) {
-      console.error('Error fetching version:', err);
+      logger.error('Error fetching version:', err);
       res.status(500).json({ version: 'unknown' });
     }
   });

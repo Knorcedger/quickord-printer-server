@@ -642,12 +642,12 @@ export const printTestPage = async (
       const shareName = interfaceString.split('\\').pop() || '';
       connected = await isUSBPrinterOnline(shareName);
     } catch (error) {
-      console.error('Error checking printer connection:', error);
+      logger.error('Error checking printer connection:', error);
       connected = false;
     }
   }
   if (!connected) {
-    console.log('Printer not connected');
+    logger.warn(`Test print: printer not connected (${device})`);
     printer?.clear();
     return 'Printer not connected';
   }

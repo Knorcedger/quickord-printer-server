@@ -33,7 +33,7 @@ const printOrderComments = async (
   try {
     const orders = Orders.parse(req.body);
 
-    logger.info('orders to print (comments only):', orders);
+    logger.infoLocal('orders to print (comments only):', orders);
 
     const result = await printerPrintOrdersComments(orders);
 
