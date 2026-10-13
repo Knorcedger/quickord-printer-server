@@ -53,6 +53,7 @@ import autoUpdate, {
   sweepTempUpdateDirs,
 } from './autoupdate/autoupdate';
 import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
+import { shipNewUpdateLogLines } from './autoupdate/shipUpdateLog';
 import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
 import {
   curlExecJson,
@@ -173,6 +174,9 @@ async function handleBindFailure(
   process.exit(1);
 }
 
+// Second pass at the update log, once the updater has surely flushed it.
+const UPDATE_LOG_RESHIP_MS = 2 * 60_000;
+
 const main = async () => {
   const SERVER_PORT =
     nconf.argv().env().file({ file: './config.json' }).get('PORT') || 7810;
@@ -190,6 +194,13 @@ const main = async () => {
     } catch (err) {
       logger.error('Failed to absorb stray update logs:', err);
     }
+    // Again later: the updater flushes its log after it has started us.
+    const shipUpdateLog = () =>
+      shipNewUpdateLogLines().catch((err) =>
+        logger.warn('Could not ship the update log:', err)
+      );
+    void shipUpdateLog();
+    setTimeout(shipUpdateLog, UPDATE_LOG_RESHIP_MS).unref();
   }
 
   if (args[0] !== '--noupdate') {

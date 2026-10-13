@@ -13,3 +13,4 @@ testcode
 .image-cache
 .claude
 log-spool.jsonl*
+autoupdate.shipped

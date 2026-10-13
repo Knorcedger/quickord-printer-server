@@ -353,6 +353,16 @@ const schedule = (ms: number): void => {
  * Apply the backend's verbose-logs switch, read off each poll answer (absent
  * means off). Turning it on ships the kept verbose lines right away.
  */
+/**
+ * Spool lines that were not logged in this process (the updater's log), with
+ * their original timestamps. Returns false before initLogShipper.
+ */
+export function enqueueLines(lines: LogLine[]): boolean {
+  if (!started) return false;
+  lines.forEach(enqueue);
+  return true;
+}
+
 export function setVerboseUntil(iso: unknown): void {
   const parsed = typeof iso === 'string' ? Date.parse(iso) : NaN;
   const next = Number.isFinite(parsed) ? parsed : 0;
