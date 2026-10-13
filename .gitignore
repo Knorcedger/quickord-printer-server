@@ -11,4 +11,5 @@ data-dir
 testcode
 .DS_Store
 .image-cache
-.claudelog-spool.jsonl*
+.claude
+log-spool.jsonl*
