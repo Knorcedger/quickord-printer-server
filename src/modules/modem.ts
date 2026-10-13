@@ -300,7 +300,7 @@ const sendInitCommand = (
         () =>
           finish(
             new Error(
-              `timeout waiting for reply to ${cmd} (got: ${JSON.stringify(buf)})`
+              `timeout waiting for reply to ${cmd} (got: ${redactDigits(JSON.stringify(buf))})`
             )
           ),
         timings.timeoutMs

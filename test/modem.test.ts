@@ -425,6 +425,22 @@ describe('modem registry', () => {
       );
       expect(shippedDigits()).not.toContain(NUMBER.slice(0, 7));
     });
+
+    it('P3: a call during a pending init command ships no part of it on timeout', async () => {
+      __setInitTimings({ timeoutMs: 100 });
+      await syncModems([modem('COM3')]);
+
+      // 'AT' is now waiting for an OK the mock never sends.
+      await jest.advanceTimersByTimeAsync(10);
+      ring('COM3', NUMBER);
+      await jest.advanceTimersByTimeAsync(1_000);
+      await instanceFor('COM3')?.initPromise;
+
+      expect(
+        shipped.some((m) => m.includes('timeout waiting for reply to AT ('))
+      ).toBe(true);
+      expect(shippedDigits()).not.toContain(NUMBER.slice(0, 7));
+    });
   });
 });
 
