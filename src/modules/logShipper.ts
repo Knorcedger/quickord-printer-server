@@ -26,9 +26,10 @@ export const MAX_SPOOL_BYTES = 2 * 1024 * 1024;
 // Stack traces and settings dumps: the head carries the diagnosis.
 export const MAX_LINE_CHARS = 2_000;
 
-// Per-upload caps: well under the backend's 1mb body limit, fine on weak 4G.
+// Per-upload caps. Small enough that a backlog drain on a slow venue uplink
+// never holds the line long enough to delay the print-job poll.
 export const BATCH_MAX_ENTRIES = 300;
-export const BATCH_MAX_BYTES = 256 * 1024;
+export const BATCH_MAX_BYTES = 64 * 1024;
 
 // Verbose lines kept for when staff switch verbose on mid-incident.
 export const DEBUG_KEEP_MS = 30 * 60_000;
@@ -83,14 +84,18 @@ const entryBytes = (entry: SpoolEntry): number =>
 const jittered = (ms: number): number =>
   Math.round(ms * (1 + SHIP_JITTER * (Math.random() * 2 - 1)));
 
-const withFile = (op: () => Promise<void>): Promise<void> => {
-  fileChain = fileChain.then(op).catch(() => {
-    // Only costs durability across a restart; the in-memory queue still ships.
-  });
-  return fileChain;
+// Resolves false when the write failed. That only costs durability across a
+// restart; the in-memory queue still ships.
+const withFile = (op: () => Promise<void>): Promise<boolean> => {
+  const done = fileChain.then(op).then(
+    () => true,
+    () => false
+  );
+  fileChain = done.then(() => undefined);
+  return done;
 };
 
-const rewriteSpool = (): Promise<void> =>
+const rewriteSpool = (): Promise<boolean> =>
   withFile(async () => {
     const body = queue.map((e) => `${JSON.stringify(e)}\n`).join('');
     const tmp = `${SPOOL_FILE}.tmp`;
@@ -138,9 +143,10 @@ const trimToCaps = (): void => {
   }
 };
 
-const enqueue = (line: LogLine): void => {
+// Resolves once the line is on disk (false if that write failed).
+const enqueue = (line: LogLine): Promise<boolean> => {
   // Our own transport lines carry the URL; shipping them would feed back.
-  if (line.message.includes(SHIP_PATH)) return;
+  if (line.message.includes(SHIP_PATH)) return Promise.resolve(true);
 
   const msg =
     line.message.length > MAX_LINE_CHARS
@@ -160,13 +166,10 @@ const enqueue = (line: LogLine): void => {
   trimToCaps();
 
   appendedBytes += bytes;
-  if (appendedBytes > MAX_SPOOL_BYTES * 2) {
-    void rewriteSpool();
-  } else {
-    void withFile(() =>
-      fs.appendFile(SPOOL_FILE, `${JSON.stringify(entry)}\n`)
-    );
-  }
+  if (appendedBytes > MAX_SPOOL_BYTES * 2) return rewriteSpool();
+  return withFile(() =>
+    fs.appendFile(SPOOL_FILE, `${JSON.stringify(entry)}\n`)
+  );
 };
 
 const loadSpool = async (): Promise<void> => {
@@ -355,12 +358,13 @@ const schedule = (ms: number): void => {
  */
 /**
  * Spool lines that were not logged in this process (the updater's log), with
- * their original timestamps. Returns false before initLogShipper.
+ * their original timestamps. Resolves true once all of them are on disk; false
+ * before initLogShipper or when a spool write failed.
  */
-export function enqueueLines(lines: LogLine[]): boolean {
+export async function enqueueLines(lines: LogLine[]): Promise<boolean> {
   if (!started) return false;
-  lines.forEach(enqueue);
-  return true;
+  const written = await Promise.all(lines.map(enqueue));
+  return written.every(Boolean);
 }
 
 export function setVerboseUntil(iso: unknown): void {

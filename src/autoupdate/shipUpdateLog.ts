@@ -56,7 +56,9 @@ export async function shipNewUpdateLogLines(): Promise<number> {
   const fresh = contents.flatMap(parse).filter((l) => l.ts > since);
   if (fresh.length === 0) return 0;
 
-  if (!enqueueLines(fresh.slice(-MAX_LINES_PER_PASS))) return 0;
+  // The marker only moves once the lines are on disk; a failed write retries
+  // them next pass rather than losing them.
+  if (!(await enqueueLines(fresh.slice(-MAX_LINES_PER_PASS)))) return 0;
   const newest = fresh.reduce((max, l) => (l.ts > max ? l.ts : max), since);
   await fs.writeFile(SHIPPED_MARKER, newest);
   return fresh.length;

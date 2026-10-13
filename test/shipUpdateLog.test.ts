@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { LogLine } from '../src/modules/logger';
 
-const enqueueLines = jest.fn((_lines: LogLine[]) => true);
+const enqueueLines = jest.fn(async (_lines: LogLine[]) => true);
 jest.mock('../src/modules/logShipper', () => ({
   __esModule: true,
   enqueueLines: (lines: LogLine[]) => enqueueLines(lines),
@@ -28,7 +28,7 @@ describe('shipNewUpdateLogLines', () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-shipupdatelog-'));
     process.chdir(dir);
     enqueueLines.mockClear();
-    enqueueLines.mockImplementation(() => true);
+    enqueueLines.mockImplementation(async () => true);
   });
 
   afterEach(() => {
@@ -117,7 +117,7 @@ describe('shipNewUpdateLogLines', () => {
   });
 
   test('no marker is written when the shipper is not running', async () => {
-    enqueueLines.mockImplementation(() => false);
+    enqueueLines.mockImplementation(async () => false);
     fs.writeFileSync('autoupdate.log', `${ago(1_000)} run\n`);
 
     await expect(shipNewUpdateLogLines()).resolves.toBe(0);

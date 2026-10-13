@@ -34,19 +34,23 @@ jest.mock('../src/modules/http', () => ({
 type Shipper = typeof import('../src/modules/logShipper');
 type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
+type UpdateLog = typeof import('../src/autoupdate/shipUpdateLog');
 
 const load = () => {
   let shipper!: Shipper;
   let http!: Http;
   let logger!: Logger;
+  let updateLog!: UpdateLog;
   jest.isolateModules(() => {
     shipper = require('../src/modules/logShipper');
     http = require('../src/modules/http');
     logger = require('../src/modules/logger').default;
+    updateLog = require('../src/autoupdate/shipUpdateLog');
   });
   return {
     logger,
     shipper,
+    updateLog,
     tryFetch: http.tryFetchWithFallback as jest.MockedFunction<
       typeof http.tryFetchWithFallback
     >,
@@ -168,6 +172,30 @@ describe('logShipper', () => {
       true
     );
     expect(entry!.msg).toContain('[truncated 50 chars]');
+  });
+
+  it('keeps each upload under the byte cap and leaves the rest queued', async () => {
+    const { logger, shipper, tryFetch } = loaded;
+    await shipper.initLogShipper();
+    for (let i = 0; i < 100; i++) {
+      logger.info(`${i} ${'x'.repeat(shipper.MAX_LINE_CHARS)}`);
+    }
+
+    tryFetch.mockResolvedValueOnce({
+      data: { ok: true },
+      fetchAttempts: 1,
+      viaFallback: false,
+    });
+    await shipper.shipOnce();
+
+    const { entries } = await sentBody(tryFetch as any);
+    const bytes = entries.reduce(
+      (sum: number, e: any) => sum + Buffer.byteLength(JSON.stringify(e)) + 1,
+      0
+    );
+    expect(entries.length).toBeGreaterThan(0);
+    expect(bytes).toBeLessThanOrEqual(shipper.BATCH_MAX_BYTES);
+    expect(shipper.getQueueForTests()).toHaveLength(100 - entries.length);
   });
 
   it('drops the oldest lines past the cap and reports how many', async () => {
@@ -309,6 +337,83 @@ describe('logShipper', () => {
       expect(queue[0]!.msg).toBe('kept info');
       expect(queue[1]!.msg).toBe('detail 2');
       expect(shipper.getDroppedForTests()).toBe(0);
+    });
+  });
+  describe('update-log lines', () => {
+    const fsp =
+      require('node:fs/promises') as typeof import('node:fs/promises');
+    const realAppend = fsp.appendFile;
+    const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+    // Spool appends wait for `gate`, or fail while `failSpool` is set.
+    let gate: Promise<void> | null;
+    let failSpool: boolean;
+
+    beforeEach(() => {
+      gate = null;
+      failSpool = false;
+      jest.spyOn(fsp, 'appendFile').mockImplementation((async (
+        file: any,
+        data: any
+      ) => {
+        if (file === loaded.shipper.SPOOL_FILE) {
+          if (gate) await gate;
+          if (failSpool) throw new Error('EBUSY');
+        }
+        return realAppend(file, data);
+      }) as any);
+    });
+
+    const restart = async () => {
+      await loaded.shipper.resetLogShipperForTests();
+      await flush();
+      loaded = load();
+      await loaded.shipper.initLogShipper();
+      return loaded.shipper.getQueueForTests().map((e) => e.msg);
+    };
+
+    it('moves the marker only after the lines are on disk', async () => {
+      const { shipper, updateLog } = loaded;
+      await shipper.initLogShipper();
+      fs.writeFileSync(
+        'autoupdate.log',
+        `${ago(3_000)} one\n${ago(2_000)} two\n${ago(1_000)} three\n`
+      );
+
+      let release!: () => void;
+      gate = new Promise((r) => {
+        release = r;
+      });
+      const pass = updateLog.shipNewUpdateLogLines();
+      // Long enough for a marker write that does not wait on the spool.
+      await new Promise((r) => setTimeout(r, 100));
+      // A crash here must leave the lines unmarked, so the next boot re-reads them.
+      expect(fs.existsSync(updateLog.SHIPPED_MARKER)).toBe(false);
+
+      release();
+      await expect(pass).resolves.toBe(3);
+      expect(fs.existsSync(updateLog.SHIPPED_MARKER)).toBe(true);
+      expect(await restart()).toEqual([
+        '[autoupdate] one',
+        '[autoupdate] two',
+        '[autoupdate] three',
+      ]);
+    });
+
+    it('keeps the marker back when a spool write fails, and retries', async () => {
+      const { shipper, updateLog } = loaded;
+      await shipper.initLogShipper();
+      fs.writeFileSync('autoupdate.log', `${ago(1_000)} lost?\n`);
+
+      failSpool = true;
+      await expect(updateLog.shipNewUpdateLogLines()).resolves.toBe(0);
+      expect(fs.existsSync(updateLog.SHIPPED_MARKER)).toBe(false);
+
+      // The failed write never reached disk; the next boot spools it again.
+      failSpool = false;
+      expect(await restart()).toEqual([]);
+      await expect(loaded.updateLog.shipNewUpdateLogLines()).resolves.toBe(1);
+      expect(await restart()).toEqual(['[autoupdate] lost?']);
     });
   });
 });
