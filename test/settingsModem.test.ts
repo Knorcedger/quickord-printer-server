@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { Request, Response } from 'express';
 import signale from 'signale';
 
+import { applyDesiredSettings } from '../src/modules/applySettings';
 import { syncModems } from '../src/modules/modem';
 import {
   getModems,
@@ -15,7 +16,11 @@ import {
 } from '../src/modules/settings';
 import settingsResolver from '../src/resolvers/settings';
 
-import { dropAllFakePorts, instanceFor, useFakePorts } from './helpers/fakeModem';
+import {
+  dropAllFakePorts,
+  instanceFor,
+  useFakePorts,
+} from './helpers/fakeModem';
 
 jest.mock('../src/modules/api', () => ({
   apiCall: jest.fn().mockResolvedValue({ data: {} }),
@@ -39,10 +44,14 @@ const post = async (body: Record<string, unknown>) => {
   return res;
 };
 
+// Modems reach the PS only over the pull channel; the LAN POST is identity-only.
+const pull = (body: Record<string, unknown>) =>
+  applyDesiredSettings(body, { authoritative: true, source: 'pull channel' });
+
 const readSettingsFile = () =>
   JSON.parse(fs.readFileSync(path.join(tmpDir, 'settings.json'), 'utf8'));
 
-describe('settings resolver — modems', () => {
+describe('settings — modems', () => {
   beforeAll(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-settings-'));
     process.chdir(tmpDir);
@@ -91,7 +100,7 @@ describe('settings resolver — modems', () => {
   });
 
   it('opens the modem of a legacy payload', async () => {
-    await post({
+    await pull({
       modem: { port: 'COM3', venueId: 'venue-1' },
       printers: [],
       venueId: 'venue-1',
@@ -102,7 +111,7 @@ describe('settings resolver — modems', () => {
   });
 
   it('opens both modems and writes canonical + legacy mirror', async () => {
-    await post({
+    await pull({
       modems: [
         { label: 'Κύρια', port: 'COM3' },
         { label: 'Δευτερεύουσα', port: 'COM4' },
@@ -131,7 +140,7 @@ describe('settings resolver — modems', () => {
       printers: [],
       venueId: 'venue-1',
     };
-    await post(body);
+    await pull(body);
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
 
     // Exhaust the reconnect attempts: past that the instance tears down its
@@ -147,20 +156,36 @@ describe('settings resolver — modems', () => {
     // The device is back, but the settings did not change — re-pushing them is
     // the only lever the venue has, so it has to reconcile the dead port.
     useFakePorts('COM3');
-    await post(body);
+    await pull(body);
 
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
     errorSpy.mockRestore();
   });
 
   it('closes every modem when the list is emptied', async () => {
-    await post({ modems: [{ port: 'COM3' }], printers: [], venueId: 'venue-1' });
+    await pull({
+      modems: [{ port: 'COM3' }],
+      printers: [],
+      venueId: 'venue-1',
+    });
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
 
-    await post({ modems: [], printers: [], venueId: 'venue-1' });
+    await pull({ modems: [], printers: [], venueId: 'venue-1' });
 
     expect(instanceFor('COM3')).toBeUndefined();
     expect(getSettings().modem).toBeUndefined();
+  });
+
+  it('never opens modems from a LAN push', async () => {
+    const res = await post({
+      modems: [{ port: 'COM3' }],
+      printers: [],
+      venueId: 'venue-1',
+    });
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(instanceFor('COM3')).toBeUndefined();
+    expect(getModems()).toEqual([]);
   });
 
   it('keeps saving settings when a modem entry has no port', async () => {

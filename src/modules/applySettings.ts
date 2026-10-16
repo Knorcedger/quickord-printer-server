@@ -71,6 +71,40 @@ export class VenueMismatchError extends Error {
 }
 
 /**
+ * The LAN POST /settings: take only the venue identity and secret a PS needs
+ * before it can poll. Printers and modems are ignored and arrive over pull, so
+ * an old FE that still sends the full state can neither change them nor fail.
+ * Another venue's push is rejected; the first one claims an unclaimed PS.
+ */
+export const applyBootstrapIdentity = async (incoming: {
+  venueId?: unknown;
+  wsSecret?: unknown;
+}): Promise<{ isFirstClaim: boolean; venueId: string }> => {
+  const oldSettings = getSettings();
+  const ownVenueId = oldSettings.venueId || getModems(oldSettings)[0]?.venueId;
+  const incomingVenueId =
+    typeof incoming.venueId === 'string' ? incoming.venueId : '';
+
+  if (!incomingVenueId) throw new Error('venueId is required');
+  if (ownVenueId && incomingVenueId !== ownVenueId) {
+    throw new VenueMismatchError(ownVenueId, incomingVenueId);
+  }
+
+  const venueId = ownVenueId || incomingVenueId;
+  // A push without a secret must not wipe the one already on disk.
+  const wsSecret =
+    (typeof incoming.wsSecret === 'string' && incoming.wsSecret) ||
+    oldSettings.wsSecret;
+
+  if (venueId !== oldSettings.venueId || wsSecret !== oldSettings.wsSecret) {
+    updateSettings(Settings.parse({ ...oldSettings, venueId, wsSecret }));
+    await persist(false);
+  }
+
+  return { isFirstClaim: !ownVenueId, venueId };
+};
+
+/**
  * Merge a settings payload into what is on disk and put it into effect.
  * `hash` is the backend's, stored verbatim for the next poll to echo; without
  * one (a LAN push) the stored hash is dropped so the backend re-delivers —

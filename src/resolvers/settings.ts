@@ -2,37 +2,31 @@ import { Request, Response } from 'express';
 
 import { startPrinterServerIpRegistration } from '../modules/api';
 import {
-  applyDesiredSettings,
+  applyBootstrapIdentity,
   VenueMismatchError,
 } from '../modules/applySettings';
 import logger from '../modules/logger';
-import { stripSecrets } from '../modules/settings';
 
+// LAN bootstrap only: the venue identity and wsSecret a PS needs before it can
+// poll. Printers and modems come over the pull channel, never from here.
 const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
   try {
-    logger.info('Updating settings:', stripSecrets(req.body));
+    const { isFirstClaim, venueId } = await applyBootstrapIdentity(
+      req.body ?? {}
+    );
 
-    // No hash: a LAN push is not the backend's desired state, so anything it
-    // actually changes drops the stored hash and the next poll re-delivers.
-    const { isFirstClaim, newSettings } = await applyDesiredSettings(req.body, {
-      source: 'LAN POST /settings',
+    // Never log or echo wsSecret.
+    logger.info('Bootstrap identity accepted over the LAN', {
+      isFirstClaim,
+      venueId,
     });
 
-    // Never echo or log wsSecret: the FE already holds the value it pushed,
-    // and the response/logs must not expose the credential.
-    const safeSettings = stripSecrets(newSettings);
+    res.status(200).send({ status: 'updated', venueId });
 
-    logger.info('Settings updated:', safeSettings);
-
-    res.status(200).send({ newSettings: safeSettings, status: 'updated' });
-
-    if (isFirstClaim && newSettings.venueId) {
-      startPrinterServerIpRegistration(newSettings.venueId);
-    }
+    if (isFirstClaim) startPrinterServerIpRegistration(venueId);
 
     // No explicit reconnect needed: the pull loop re-reads creds every iteration
-    // and retries every NO_CREDS_RETRY_MS, so a secret sync takes effect on its
-    // own without a process restart.
+    // and retries every NO_CREDS_RETRY_MS, so the secret takes effect on its own.
   } catch (error) {
     if (error instanceof VenueMismatchError) {
       logger.warn(error.message);
@@ -42,7 +36,7 @@ const settings = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
       return;
     }
 
-    logger.error('Error updating settings:', error);
+    logger.error('Error applying bootstrap identity:', error);
     res.status(400).send({ error: error.message });
   }
 };

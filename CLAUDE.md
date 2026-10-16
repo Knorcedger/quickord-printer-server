@@ -6,7 +6,7 @@ Node.js/TypeScript Express server (port 7810) that bridges the Quickord restaura
 
 ### Backend channel
 
-The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. There is no WebSocket client — it was removed in favor of pull, which survives half-open connections. When the pull channel is down the backend returns `PS_OFFLINE` and the frontend falls back to a direct LAN HTTP call to this server's `/print-*` endpoints.
+The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. When the pull channel is down the backend returns `PS_OFFLINE_NO_FALLBACK` and nothing prints; only venues on the backend's `LAN_FALLBACK_VENUE_IDS` get `PS_OFFLINE`, where the frontend falls back to a direct LAN HTTP call to this server's `/print-*` endpoints.
 
 ## Tech Stack
 
@@ -107,25 +107,25 @@ On customer machines the server runs as a Windows service via **WinSW**:
 - `printerServerService.xml` - WinSW config (id, executable, start mode, dependencies). Read only at `install` time — changes are NOT auto-applied to existing installations.
 - `install_printer_service.bat` / `uninstall_printer_service.bat` / `start_printer_service.bat` / `stop_printer_service.bat` - wrappers around `printerServerService.exe install/uninstall/start/stop`.
 
-The handoff is the dangerous moment: the updater *is* the new build, launched as `<staged>/builds/printerServer.exe --update`. A release that cannot start cannot install itself or roll itself back — a zip missing `node_modules` dies in `require('serialport')` before any updater code runs, and the server that agreed to step aside is already gone. So `validateStagedBuild()` checks the staged tree *before* the handoff, `waitForExeLock()` requires the child to still hold the exe after a settle window rather than merely to have opened it, and `deploy.sh` refuses to ship a zip that is missing any of those pieces.
+The handoff is the dangerous moment: the updater _is_ the new build, launched as `<staged>/builds/printerServer.exe --update`. A release that cannot start cannot install itself or roll itself back — a zip missing `node_modules` dies in `require('serialport')` before any updater code runs, and the server that agreed to step aside is already gone. So `validateStagedBuild()` checks the staged tree _before_ the handoff, `waitForExeLock()` requires the child to still hold the exe after a settle window rather than merely to have opened it, and `deploy.sh` refuses to ship a zip that is missing any of those pieces.
 
 `builds/failed-release.json` is written by both updaters when an install fails, and counts the attempts for that release tag. The boot-time check writes it too, for the failures that happen before the child exists (a staged build that will not validate or will not start) — passing the tag explicitly, since there is no new build to read a version out of. After `MAX_RELEASE_ATTEMPTS` (3) the boot-time check stops downloading that release, so a rollback cannot loop forever without the server ever reaching `app.listen()`. The `--update` child repeats the check (`overCapRelease()`) before it stops the service, because a rollback restarts an install that may predate the boot-time check; there the loop costs a download instead of a stop-copy-rollback cycle. A newer tag, or any explicit update (remote command, `force_autoupdate.bat`), clears it — an explicit update passes `--force` down to the child so both checks stand aside.
 
-When the `--update` child aborts on the cap it also has to hand the machine back to something that *serves*. An install older than the boot-time check downloads the same release before it listens, so starting it plainly would just feed the loop; the child adds `<arguments>--noupdate</arguments>` to that install's `printerServerService.xml` (WinSW reads it on every start) and, if that edit fails, launches the exe directly with `--noupdate` rather than starting the service. Installs that do read the marker are started normally, so a later release still reaches them on their own — the update check writes `builds/honors-failed-release` to advertise that. The next successful install lays the release's own xml down and undoes the suppression.
+When the `--update` child aborts on the cap it also has to hand the machine back to something that _serves_. An install older than the boot-time check downloads the same release before it listens, so starting it plainly would just feed the loop; the child adds `<arguments>--noupdate</arguments>` to that install's `printerServerService.xml` (WinSW reads it on every start) and, if that edit fails, launches the exe directly with `--noupdate` rather than starting the service. Installs that do read the marker are started normally, so a later release still reaches them on their own — the update check writes `builds/honors-failed-release` to advertise that. The next successful install lays the release's own xml down and undoes the suppression.
 
 To change service config (start mode, dependencies, failure actions) on already-installed machines, either reinstall the service or run `sc.exe config` / `sc.exe failure printerServer ...`. `applyServiceConfig()` in `autoupdate.ts` applies both on every `--update` phase (idempotent) — that is how existing installs get the `<onfailure>` restart policy, since copying a newer xml does not.
 
 ## Code Style
 
 - **Never add a `Co-Authored-By:` trailer to commit messages.**
-- **Keep comments short.** One or two lines. Explain the non-obvious *why*, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
+- **Keep comments short.** One or two lines. Explain the non-obvious _why_, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
 
 ## Key Patterns
 
 - **Transliteration**: All printed text passes through `tr(text, settings.transliterate)` from `common.ts`. When enabled, converts Greek → Latin characters. Every `printer.println()` / `printer.print()` call with translatable text must use this wrapper.
 - **Settings are per-printer**: Each printer in the `settings.json` array has its own configuration (categories, character set, transliterate, etc.)
-- **Settings are saved in two places**: locally in `settings.json` AND in the Quickord database via the frontend's GraphQL mutation. The frontend's `syncPrinterSettings` feature pushes DB settings → local server on page load.
-- **Remote settings sync**: When settings are edited remotely (server offline), they're saved to the DB. The backend emits a `printerSettingsUpdated` WebSocket event. Any frontend client on the venue's local network receives it, fetches the new settings from DB, and pushes them to the printer server via HTTP POST `/settings`.
+- **Settings come from the backend**: the database is the source of truth. Each poll echoes `syncedHash`; when it differs, the poll answer carries the full desired settings, applied by `applyDesiredSettings` and cached in `settings.json`.
+- **LAN `/settings` is bootstrap-only**: `POST /settings` takes only `venueId` + `wsSecret` (`applyBootstrapIdentity`); printers/modems in the body are ignored. Another venue's push gets 403. `GET /settings` returns only `{ venueId, claimed, settingsHash, version }`.
 
 ## Related Repos
 
