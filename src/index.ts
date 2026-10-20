@@ -257,7 +257,14 @@ const main = async () => {
     .route('/settings')
     .post(settings)
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      res.status(200).send(getPublicSettings());
+      // Identity only: settings come from the backend, so the LAN never needs them.
+      const { syncedHash, venueId } = getPublicSettings();
+      res.status(200).send({
+        claimed: !!venueId,
+        settingsHash: syncedHash ?? null,
+        venueId: venueId ?? null,
+        version: getPrinterVersion(),
+      });
     });
 
   function getPrinterVersion(): string {
@@ -365,7 +372,9 @@ const main = async () => {
       scheduleServiceStartWatchdog();
       exitCode = managed ? 1 : 0;
     } else {
-      logger.info('Restarting (node launch); relaunching the same command line');
+      logger.info(
+        'Restarting (node launch); relaunching the same command line'
+      );
       relaunch = () => {
         spawn(
           process.execPath,
