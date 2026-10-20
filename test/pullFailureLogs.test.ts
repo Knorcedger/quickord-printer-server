@@ -1,6 +1,11 @@
 jest.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: {
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  },
 }));
 
 jest.mock('../src/modules/api', () => ({ reportFetchFailure: jest.fn() }));

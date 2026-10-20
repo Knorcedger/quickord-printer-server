@@ -64,7 +64,8 @@ export function updateLogError(...args: unknown[]): void {
     logger.error(...args);
     return;
   }
-  const line = format(args);
+  // ERROR marks the level for shipUpdateLog, which reads this file back.
+  const line = format(['ERROR', ...args]);
   write(line);
   console.error(line.trimEnd());
 }

@@ -1648,7 +1648,13 @@ async function preserveLogs(installDir: string, stagingDir: string) {
     return;
   }
 
-  const logs = names.filter((n) => /^(app|autoupdate)(\.\d+)?\.log$/.test(n));
+  // Plus the unsent log spool and its update-log marker.
+  const logs = names.filter(
+    (n) =>
+      /^(app|autoupdate)(\.\d+)?\.log$/.test(n) ||
+      n === 'log-spool.jsonl' ||
+      n === 'autoupdate.shipped'
+  );
   for (const name of logs) {
     try {
       await fsp.copyFile(path.join(from, name), path.join(to, name));

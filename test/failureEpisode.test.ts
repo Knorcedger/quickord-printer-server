@@ -3,7 +3,12 @@ import logger from '../src/modules/logger';
 
 jest.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: {
+    debug: jest.fn(),
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  },
 }));
 
 const mockedLogger = logger as jest.Mocked<typeof logger>;

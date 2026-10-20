@@ -28,6 +28,7 @@ import {
   withTempJsonPayload,
 } from './http';
 import scanNetworkForConnections from './network';
+import { setVerboseUntil } from './logShipper';
 import { checkPrinters } from './printer';
 import { executePrintJob } from './printJob';
 import {
@@ -210,6 +211,10 @@ async function postJson(
   }
 
   if (result.viaFallback && result.fetchFailure) {
+    logger.debug(
+      `${path}: fetch failed, curl fallback answered`,
+      result.fetchFailure
+    );
     // A 401 is an auth rejection, not the transient fetch/proxy failure the
     // curl fallback exists to paper over — curl just re-fetches the same 401,
     // and on a backend that predates the poll endpoint the 401 body carries no
@@ -300,6 +305,7 @@ function reportResult(
 // Returns whether the answer carried work, so the caller can tell an idle poll
 // from one that just delivered a batch.
 async function pollOnce(): Promise<boolean> {
+  const startedAt = Date.now();
   const data = await postJson(
     '/print-jobs/poll',
     // Piggyback the version so the backend can surface it without depending on
@@ -338,6 +344,10 @@ async function pollOnce(): Promise<boolean> {
       `Unexpected poll response without a jobs array: ${JSON.stringify(data)?.slice(0, 200)}`
     );
   }
+  setVerboseUntil(data.verboseLogsUntil);
+  logger.debug(
+    `Poll answered in ${Date.now() - startedAt}ms: ${data.jobs.length} job(s)${data.settings ? ', settings' : ''}`
+  );
   // Settings first: jobs in this same answer must print with the config the
   // backend just sent, not the one it already knows is stale. A failure here
   // never costs the jobs — they print with what is on disk.
@@ -527,6 +537,7 @@ async function loop(): Promise<void> {
         await sleep(AUTH_RETRY_MS);
         continue;
       }
+      logger.debug('Print-job poll failed:', err);
       pollFailures.fail(err);
       await sleep(pollErrorBackoffMs());
     }

@@ -12,3 +12,5 @@ testcode
 .DS_Store
 .image-cache
 .claude
+log-spool.jsonl*
+autoupdate.shipped
