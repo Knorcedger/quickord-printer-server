@@ -1014,6 +1014,12 @@ const GITHUB_FETCH_RETRY = {
   shouldRetry: isCheapRetryableFetchError,
 };
 
+// Without a cap a stalled connection hangs the check forever and, with it, any
+// later update; a venue once sat 13h on one.
+const VERSION_CHECK_TIMEOUT_S = 20;
+const DOWNLOAD_TIMEOUT_S = 600;
+const CURL_CONNECT_TIMEOUT_S = 15;
+
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
   if (!versionUrl) {
@@ -1032,13 +1038,14 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
         const response = await fetch(versionUrl, {
           redirect: 'follow',
           headers: { 'User-Agent': 'quickord-printer-server' },
+          signal: AbortSignal.timeout(VERSION_CHECK_TIMEOUT_S * 1000),
         });
         if (!response.ok) throw httpStatusError(response);
         return { data: (await response.json()) as { tag_name?: string } };
       },
       curlFn: () =>
         curlExecJson(
-          `curl -L -H "User-Agent: quickord-printer-server" "${versionUrl}"`
+          `curl -L --connect-timeout ${CURL_CONNECT_TIMEOUT_S} --max-time ${VERSION_CHECK_TIMEOUT_S} -H "User-Agent: quickord-printer-server" "${versionUrl}"`
         ),
     });
     reportIfViaFallback(result);
@@ -1178,14 +1185,19 @@ export async function downloadLatestCode(
       method: 'GET',
       ...GITHUB_FETCH_RETRY,
       fetchFn: async () => {
-        const response = await fetch(url, { redirect: 'follow' });
+        const response = await fetch(url, {
+          redirect: 'follow',
+          signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_S * 1000),
+        });
         if (!response.ok || !response.body) throw httpStatusError(response);
         await pipeline(response.body, createWriteStream(zipPath));
         return { data: undefined as void };
       },
       curlFn: async () => {
         // --fail: else an HTTP error page is saved as the zip and fails at unzip.
-        await curlExec(`curl -sS -L --fail "${url}" -o "${zipPath}"`);
+        await curlExec(
+          `curl -sS -L --fail --connect-timeout ${CURL_CONNECT_TIMEOUT_S} --max-time ${DOWNLOAD_TIMEOUT_S} "${url}" -o "${zipPath}"`
+        );
       },
     });
   } catch (err: any) {
@@ -1274,7 +1286,8 @@ export async function downloadLatestCode(
 // WS/pull control channels ask for an explicit version check without going
 // through a restart — when there is nothing new, the server keeps running.
 type UpdateHandler = (
-  beforeHandoff?: BeforeHandoff
+  beforeHandoff?: BeforeHandoff,
+  force?: boolean
 ) => Promise<UpdateCheckResult>;
 
 let updateHandler: UpdateHandler | null = null;
@@ -1292,7 +1305,9 @@ export function setUpdateHandler(fn: UpdateHandler): void {
 let updateInFlight: Promise<UpdateCheckResult> | null = null;
 
 export async function triggerUpdate(
-  beforeHandoff?: BeforeHandoff
+  beforeHandoff?: BeforeHandoff,
+  // Only the boot-time check passes false, so it respects the failed-release cap.
+  force = true
 ): Promise<UpdateCheckResult> {
   if (!updateHandler) {
     return {
@@ -1307,7 +1322,7 @@ export async function triggerUpdate(
   }
   updateInFlight = (async () => {
     try {
-      return await updateHandler!(beforeHandoff);
+      return await updateHandler!(beforeHandoff, force);
     } catch (err: any) {
       return {
         error: err?.message || String(err),
@@ -1608,7 +1623,9 @@ function runServiceConfigCmd(cmd: string): Promise<void> {
  */
 function applyServiceConfig(): Promise<void> {
   const cmds = [
-    'sc.exe config printerServer start= delayed-auto depend= Tcpip/Dnscache/NlaSvc',
+    // Not delayed-auto: that held the PS back ~2 min after every reboot while
+    // the venue's stations were already up. The dependencies cover the network.
+    'sc.exe config printerServer start= auto depend= Tcpip/Dnscache/NlaSvc',
     // Mirrors <onfailure action="restart" delay="5 sec"/>. Without this the SCM
     // reads a non-zero exit as "service finished" and leaves the venue down.
     'sc.exe failure printerServer reset= 86400 actions= restart/5000/restart/5000/restart/60000',

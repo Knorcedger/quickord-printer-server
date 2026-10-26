@@ -88,4 +88,36 @@ describe('release download over the curl fallback', () => {
       state: 'failed',
     });
   });
+
+  // A stalled connection once hung a venue's boot for 13h.
+  it('caps the version check and the download in time', async () => {
+    curlExec.mockRejectedValue(new Error('curl failed'));
+    const { setUpdateHandler, triggerUpdate, downloadLatestCode } =
+      loadAutoUpdate();
+    setUpdateHandler((beforeHandoff) => downloadLatestCode(0, beforeHandoff));
+
+    await triggerUpdate();
+
+    for (const [, init] of (global.fetch as jest.Mock).mock.calls) {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+    expect(curlExec).toHaveBeenCalledWith(
+      expect.stringMatching(/--connect-timeout \d+ --max-time \d+/)
+    );
+  });
+
+  it('lets only the boot-time check respect the failed-release cap', async () => {
+    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const handler = jest.fn(
+      async (_beforeHandoff?: unknown, _force?: boolean) => ({
+        state: 'already-latest' as const,
+      })
+    );
+    setUpdateHandler(handler);
+
+    await triggerUpdate();
+    await triggerUpdate(undefined, false);
+
+    expect(handler.mock.calls.map((c) => c[1])).toEqual([true, false]);
+  });
 });
