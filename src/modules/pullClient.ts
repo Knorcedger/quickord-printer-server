@@ -119,6 +119,9 @@ const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
 let consecutiveFetchFallbacks = 0;
 
 let running = false;
+let loopDone: Promise<void> | null = null;
+// Claimed prints until their result report settles; an update drains these.
+const printsInFlight = new Set<Promise<void>>();
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -407,7 +410,7 @@ function dispatchJob(job: {
     case undefined:
     case 'printRaw':
     case 'testPrint':
-      executePrintJob(job, reportResult);
+      runPrint(job);
       return;
     case 'checkPrinters':
       runCommand(job.jobId, async () =>
@@ -477,6 +480,18 @@ function dispatchJob(job: {
   }
 }
 
+function runPrint(job: Parameters<typeof executePrintJob>[0]): void {
+  let settle!: () => void;
+  const done = new Promise<void>((resolve) => {
+    settle = resolve;
+  });
+  printsInFlight.add(done);
+  void done.then(() => printsInFlight.delete(done));
+  executePrintJob(job, (jobId, status, error) => {
+    void reportResult(jobId, status, error).finally(settle);
+  });
+}
+
 /**
  * Run a control command's async body detached from the poll loop, reporting a
  * failed result if it throws. Keeps the loop dispatching subsequent jobs while
@@ -544,10 +559,37 @@ async function loop(): Promise<void> {
   }
 }
 
+function startLoop(): void {
+  loopDone = loop().finally(() => {
+    loopDone = null;
+    // Resumed while this loop was already on its way out.
+    if (running) startLoop();
+  });
+}
+
 // Start the pull loop. Idempotent — a second call while already running no-ops.
+// Also resumes after pausePullClient(); a loop still finishing its held poll
+// just carries on.
 export function initPullClient(): void {
   if (running) return;
   running = true;
   logger.info('Starting print-job pull loop');
-  void loop();
+  if (!loopDone) startLoop();
+}
+
+/**
+ * Stop claiming jobs, then wait for the held poll to come back and for every
+ * claimed print to reach paper and report, so stopping the service cuts none.
+ * Capped, so a dead printer cannot hold an update back. Resolves true when
+ * everything drained.
+ */
+export async function pausePullClient(capMs: number): Promise<boolean> {
+  running = false;
+  const drained = (async () => {
+    // The held poll may still bring jobs, and they must be counted too.
+    await loopDone;
+    await Promise.all(printsInFlight);
+    return true;
+  })();
+  return Promise.race([drained, sleep(capMs).then(() => false)]);
 }

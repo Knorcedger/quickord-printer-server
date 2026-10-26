@@ -62,7 +62,7 @@ import {
   tryFetchWithFallback,
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { initPullClient } from './modules/pullClient';
+import { initPullClient, pausePullClient } from './modules/pullClient';
 import { initLogShipper } from './modules/logShipper';
 import { setRestartHandler } from './modules/psIdentity';
 
@@ -179,6 +179,8 @@ async function handleBindFailure(
 const UPDATE_LOG_RESHIP_MS = 2 * 60_000;
 // When a boot-time release check could not reach GitHub.
 const BOOT_UPDATE_RETRY_MS = 2 * 60_000;
+// A held poll (~20s) plus a print or two; past this a stuck printer loses.
+const HANDOFF_DRAIN_CAP_MS = 45_000;
 
 const main = async () => {
   const SERVER_PORT =
@@ -435,7 +437,10 @@ const main = async () => {
       };
     }
     // force: an explicit request also clears a release that failed on boot.
-    return downloadLatestCode(3000, beforeHandoff, force);
+    return downloadLatestCode(3000, beforeHandoff, force, {
+      pause: () => pausePullClient(HANDOFF_DRAIN_CAP_MS),
+      resume: initPullClient,
+    });
   });
 
   app.post('/restart', (req: Request, res: Response) => {

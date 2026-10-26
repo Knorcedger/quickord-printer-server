@@ -1103,12 +1103,19 @@ export interface UpdateCheckResult {
  */
 export type BeforeHandoff = (result: UpdateCheckResult) => Promise<unknown>;
 
+/** Stops the server taking print jobs before the handoff; resume undoes it. */
+export interface HandoffDrain {
+  pause: () => Promise<boolean>;
+  resume: () => void;
+}
+
 export async function downloadLatestCode(
   relaunchDelayMs = 500,
   beforeHandoff?: BeforeHandoff,
   // An explicit update request (technician, or a remote command) is the way out
   // of a release that keeps failing: it retries and resets the counter.
-  force = false
+  force = false,
+  drain?: HandoffDrain
 ): Promise<UpdateCheckResult> {
   // The running install: installDir.ts pinned the cwd to the exe's builds dir,
   // and the updater writes its marker to the same `<parent>\builds`.
@@ -1261,7 +1268,20 @@ export async function downloadLatestCode(
     ]);
   }
 
+  // After the report, which the backend is waiting on; the drain can take a
+  // whole held poll.
+  if (drain) {
+    updateLog('Waiting for claimed print jobs before handing off...');
+    const drained = await drain.pause();
+    updateLog(
+      drained
+        ? 'Print jobs drained.'
+        : 'Print jobs still running at the drain cap; handing off anyway.'
+    );
+  }
+
   if (await relaunchExe(path2, args, relaunchDelayMs)) return result;
+  drain?.resume();
 
   // The updater never started, so nothing is stopping the service and we are
   // still here. Returning 'failed' is what corrects the 'updating' just reported
