@@ -51,6 +51,7 @@ import autoUpdate, {
   SERVICE_NAME,
   setUpdateHandler,
   sweepTempUpdateDirs,
+  triggerUpdate,
 } from './autoupdate/autoupdate';
 import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
 import { shipNewUpdateLogLines } from './autoupdate/shipUpdateLog';
@@ -61,7 +62,7 @@ import {
   tryFetchWithFallback,
 } from './modules/http';
 import { paymentMyPelatesReceipt } from './modules/printer';
-import { initPullClient } from './modules/pullClient';
+import { initPullClient, pausePullClient } from './modules/pullClient';
 import { initLogShipper } from './modules/logShipper';
 import { setRestartHandler } from './modules/psIdentity';
 
@@ -176,6 +177,10 @@ async function handleBindFailure(
 
 // Second pass at the update log, once the updater has surely flushed it.
 const UPDATE_LOG_RESHIP_MS = 2 * 60_000;
+// When a boot-time release check could not reach GitHub.
+const BOOT_UPDATE_RETRY_MS = 2 * 60_000;
+// A held poll (~20s) plus a print or two; past this a stuck printer loses.
+const HANDOFF_DRAIN_CAP_MS = 45_000;
 
 const main = async () => {
   const SERVER_PORT =
@@ -215,21 +220,14 @@ const main = async () => {
     }
 
     logger.info('Update path:', process.argv);
-    // autoUpdate's normal-boot download reports fetch failures via
-    // reportFetchFailure(), which attributes the incident to a venueId resolved
-    // from the in-memory settings. Load them now on the normal-boot branch only (empty args);
-    // the --update/--remove branches chdir and relaunch and must not read/create
-    // settings here, and they never hit the reporting path anyway.
-    if (args.length === 0) {
-      await loadSettings();
-    }
-    try {
-      await autoUpdate(args);
-    } catch (err) {
-      logger.error(
-        'Auto-update failed (network not ready?), continuing startup:',
-        err
-      );
+    // A normal boot checks for a release only once it serves (see
+    // app.listen), so a slow or hung check never keeps prints waiting.
+    if (args.length > 0) {
+      try {
+        await autoUpdate(args);
+      } catch (err) {
+        logger.error('Auto-update failed, continuing startup:', err);
+      }
     }
   }
 
@@ -430,7 +428,7 @@ const main = async () => {
   // newer the server keeps serving, and the caller gets told so. When there is,
   // downloadLatestCode hands over to the update chain and this process exits —
   // beforeHandoff is the caller's last chance to be heard before that.
-  setUpdateHandler(async (beforeHandoff) => {
+  setUpdateHandler(async (beforeHandoff, force) => {
     if (process.platform !== 'win32') {
       return {
         error: 'Auto-update is only supported on Windows',
@@ -439,7 +437,10 @@ const main = async () => {
       };
     }
     // force: an explicit request also clears a release that failed on boot.
-    return downloadLatestCode(3000, beforeHandoff, true);
+    return downloadLatestCode(3000, beforeHandoff, force, {
+      pause: () => pausePullClient(HANDOFF_DRAIN_CAP_MS),
+      resume: initPullClient,
+    });
   });
 
   app.post('/restart', (req: Request, res: Response) => {
@@ -586,6 +587,19 @@ const main = async () => {
     // carries liveness, control ops (check/scan/restart/update), test prints, and
     // version reporting.
     initPullClient();
+
+    // Same path as a remote update, so the two share one in-flight run. The
+    // service no longer waits for the network, so a check that can't reach
+    // GitHub gets one later try.
+    if (args.length === 0) {
+      void triggerUpdate(undefined, false).then((result) => {
+        if (result.errorCode !== 'NO_LATEST_VERSION') return;
+        setTimeout(
+          () => void triggerUpdate(undefined, false),
+          BOOT_UPDATE_RETRY_MS
+        ).unref();
+      });
+    }
   });
 
   // Without this, a failed bind is swallowed and the service reports itself as

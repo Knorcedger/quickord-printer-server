@@ -14,7 +14,6 @@
        there. -->
   <onfailure action="restart" delay="5 sec"/>
   <startmode>Automatic</startmode>
-  <delayedAutoStart/>
   <depend>Tcpip</depend>
   <depend>Dnscache</depend>
   <depend>NlaSvc</depend>
