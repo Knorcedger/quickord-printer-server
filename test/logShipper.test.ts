@@ -92,10 +92,14 @@ describe('logShipper', () => {
   });
 
   afterEach(async () => {
-    await loaded.shipper.resetLogShipperForTests();
-    process.chdir(cwd);
-    fs.rmSync(dir, { force: true, recursive: true });
-    jest.restoreAllMocks();
+    // Restore cwd first: a stuck reset must not leave the worker in `dir`.
+    try {
+      await loaded.shipper.resetLogShipperForTests();
+    } finally {
+      process.chdir(cwd);
+      fs.rmSync(dir, { force: true, recursive: true });
+      jest.restoreAllMocks();
+    }
   });
 
   it('ships captured lines with identity and drops them on ack', async () => {
@@ -348,20 +352,31 @@ describe('logShipper', () => {
     // Spool appends wait for `gate`, or fail while `failSpool` is set.
     let gate: Promise<void> | null;
     let failSpool: boolean;
+    // Opens every gate on teardown, so a test that fails before release()
+    // doesn't hang the reset in afterEach.
+    let openAll: () => void;
+    let teardown: Promise<void>;
 
     beforeEach(() => {
       gate = null;
       failSpool = false;
+      teardown = new Promise((r) => {
+        openAll = r;
+      });
       jest.spyOn(fsp, 'appendFile').mockImplementation((async (
         file: any,
         data: any
       ) => {
         if (file === loaded.shipper.SPOOL_FILE) {
-          if (gate) await gate;
+          if (gate) await Promise.race([gate, teardown]);
           if (failSpool) throw new Error('EBUSY');
         }
         return realAppend(file, data);
       }) as any);
+    });
+
+    afterEach(() => {
+      openAll();
     });
 
     const restart = async () => {
