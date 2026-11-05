@@ -49,17 +49,20 @@ import logger from './logger';
 // genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
-const RESULT_TIMEOUT_MS = 10_000;
+// A slow venue uplink needs 11–18s per request; 10s cut every attempt short.
+// curl gets what the fetch left of the attempt budget, not a fresh timer.
+const RESULT_FETCH_TIMEOUT_MS = 20_000;
+const RESULT_ATTEMPT_BUDGET_MS = 30_000;
+const MIN_CURL_TIMEOUT_MS = 5_000;
 // Extra fetch attempts before curl: a retry that succeeds was a blip, all-fail
 // + curl-works is fetch-specific. Only cheap failures are retried (seconds).
 // Poll-only: a result report races the backend's 120s claim-result timeout.
 const POLL_FETCH_RETRIES = 2;
 const FETCH_RETRY_DELAY_MS = 500;
-// A result report that fails gets retried on this schedule (fresh creds each
-// attempt). The sum stays far below the backend's claim-result timeout, so a
-// report that eventually lands still beats the sweep that would otherwise
-// broadcast a false venue-wide failure for paper that actually printed.
-const RESULT_RETRY_DELAYS_MS = [2_000, 10_000, 30_000];
+// Retry schedule for a failed result report (fresh creds each attempt). Worst
+// case is 3×30s + 7s = 97s, inside the backend's 120s claim-result sweep: a
+// later report is ignored and the venue sees a false failure toast.
+const RESULT_RETRY_DELAYS_MS = [2_000, 5_000];
 // Back-off before retrying after a failed poll (uplink down, backend 5xx), so a
 // hard outage doesn't spin the loop. A successful poll re-polls immediately.
 const POLL_ERROR_BACKOFF_MS = 3_000;
@@ -162,9 +165,19 @@ async function postJson(
   timeoutMs: number,
   fetchRetries = 0,
   trackFallbackStreak = false,
-  suppressFailureLogs = false
+  suppressFailureLogs = false,
+  // Total for fetch + curl; curl gets the remainder. Unset: curl gets timeoutMs.
+  attemptBudgetMs?: number
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
+  const startedAt = Date.now();
+  const curlTimeoutMs = (): number =>
+    attemptBudgetMs === undefined
+      ? timeoutMs
+      : Math.max(
+          MIN_CURL_TIMEOUT_MS,
+          attemptBudgetMs - (Date.now() - startedAt)
+        );
   const result = await tryFetchWithFallback<any>({
     fetchRetries,
     retryDelayMs: FETCH_RETRY_DELAY_MS,
@@ -173,7 +186,7 @@ async function postJson(
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
-          `curl -s -m ${Math.ceil(timeoutMs / 1000)} -X POST "${url}" -H "Content-Type: application/json" --data-binary "@${tempFilePath}"`
+          `curl -s -m ${Math.ceil(curlTimeoutMs() / 1000)} -X POST "${url}" -H "Content-Type: application/json" --data-binary "@${tempFilePath}"`
         )
       ),
     fetchFn: async () => {
@@ -281,7 +294,11 @@ function reportResult(
             status,
             venueId: getVenueId(),
           },
-          RESULT_TIMEOUT_MS
+          RESULT_FETCH_TIMEOUT_MS,
+          0,
+          false,
+          false,
+          RESULT_ATTEMPT_BUDGET_MS
         );
         // The curl fallback surfaces HTTP errors as parsed bodies, so a 4xx
         // arrives here as data without ok — treat anything unacknowledged as
