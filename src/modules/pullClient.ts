@@ -43,15 +43,15 @@ import logger from './logger';
 // Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
 // poll is answered empty by the server rather than aborted here. The margin is
 // wide because this timer starts before the connection does: DNS + TCP + TLS
-// come out of it, and on a slow venue uplink they alone can eat 5s (undici's
-// own connect timeout is 10s). At 30s such a poll aborted while the backend was
+// come out of it, and on a slow venue uplink they alone can eat 5s (the connect
+// timeout is 30s, see fetchAgent.ts). At 30s such a poll aborted while the backend was
 // still answering normally. Nothing is lost by waiting longer: a backend that
 // genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
 // A slow venue uplink needs 11–18s per request; 10s cut every attempt short.
 // curl gets what the fetch left of the attempt budget, not a fresh timer.
-const RESULT_FETCH_TIMEOUT_MS = 20_000;
+const RESULT_FETCH_TIMEOUT_MS = 25_000;
 const RESULT_ATTEMPT_BUDGET_MS = 30_000;
 const MIN_CURL_TIMEOUT_MS = 5_000;
 // Extra fetch attempts before curl: a retry that succeeds was a blip, all-fail

@@ -168,7 +168,7 @@ const CHEAP_RETRYABLE_CODES = new Set([
   'UND_ERR_SOCKET',
   'EAI_AGAIN',
   'ENOTFOUND',
-  'UND_ERR_CONNECT_TIMEOUT',
+  // Not UND_ERR_CONNECT_TIMEOUT: it costs the full 30s connect timeout.
   'ETIMEDOUT',
   'EPIPE',
 ]);

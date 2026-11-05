@@ -1,6 +1,8 @@
 // First, before anything reads ./config.json at import time: it pins the cwd
 // to the install dir so every relative path below is the installed one.
 import { isPackagedExe } from './modules/installDir';
+// Before any fetch: raises Node's 10s connect timeout.
+import './modules/fetchAgent';
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import nconf from 'nconf';
