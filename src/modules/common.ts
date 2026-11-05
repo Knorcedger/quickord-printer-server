@@ -10,9 +10,16 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { curlExecBuffer, httpStatusError, tryFetchWithFallback } from './http';
-import { reportFetchFailure } from './api';
+import {
+  CURL_CONNECT_TIMEOUT_S,
+  curlExecBuffer,
+  httpStatusError,
+  tryFetchWithFallback,
+} from './http';
 import logger from './logger';
+
+// Per attempt, fetch and curl alike: slow venue uplinks need 11–18s a request.
+const IMAGE_DOWNLOAD_TIMEOUT_S = 30;
 
 const execAsync = promisify(exec);
 
@@ -142,6 +149,7 @@ const downloadAndProcessImage = async (
       method: 'GET',
       fetchFn: async () => {
         const response = await fetch(url, {
+          signal: AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_S * 1000),
           redirect: 'follow',
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -157,13 +165,9 @@ const downloadAndProcessImage = async (
         // -A = custom User-Agent
         // --fail = exit non-zero if HTTP error
         curlExecBuffer(
-          `curl -s -L --fail -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`
+          `curl -s -L --fail --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${IMAGE_DOWNLOAD_TIMEOUT_S} -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" "${url}"`
         ),
     });
-
-    if (result.viaFallback && result.fetchFailure) {
-      reportFetchFailure(result.fetchFailure).catch(() => {});
-    }
 
     // Bayer 8x8 ordered-dither matrix, normalized to 0-255
     const BAYER_8 = [

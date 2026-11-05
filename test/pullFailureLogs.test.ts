@@ -29,10 +29,10 @@ jest.mock('../src/modules/psIdentity', () => psIdentity);
 
 jest.mock('../src/modules/http', () => ({
   __esModule: true,
+  CURL_CONNECT_TIMEOUT_S: 20,
   curlExecJson: jest.fn(),
   httpStatusError: jest.fn(),
   isCheapRetryableFetchError: () => true,
-  isRecoveredFetchNoise: () => false,
   tryFetchWithFallback: jest.fn(),
   withTempJsonPayload: jest.fn(),
 }));

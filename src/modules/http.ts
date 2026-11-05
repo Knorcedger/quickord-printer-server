@@ -168,8 +168,7 @@ const CHEAP_RETRYABLE_CODES = new Set([
   'UND_ERR_SOCKET',
   'EAI_AGAIN',
   'ENOTFOUND',
-  // Not UND_ERR_CONNECT_TIMEOUT: it costs the full 30s connect timeout.
-  'ETIMEDOUT',
+  // Not UND_ERR_CONNECT_TIMEOUT or ETIMEDOUT: each costs ~20s before it fires.
   'EPIPE',
 ]);
 
@@ -183,11 +182,99 @@ export const isCheapRetryableFetchError = (err: any): boolean => {
   return CHEAP_RETRYABLE_CODES.has(extractErrorCode(err) ?? '');
 };
 
-// Measured as frequent and always curl-recovered, so no action attached. Gates
-// the result path, which can't use the poll's streak. AbortError is absent: on
-// its 10s timeout it's a real signal, unlike the poll's 45s budget.
-export const isRecoveredFetchNoise = (f: FetchFailureDetails): boolean =>
-  f.fetchErrorCode === 'UND_ERR_CONNECT_TIMEOUT';
+// Same connect cap as fetch (fetchAgent.ts), so the two fail alike.
+export const CURL_CONNECT_TIMEOUT_S = 20;
+
+// ---------- fetch vs curl stats (one log line per window) ----------
+
+// How often fetch fails and curl saves it, per endpoint: the data that says
+// whether curl can ever be dropped. Shipped to the backend by logShipper.
+export const FETCH_STATS_INTERVAL_MS = 15 * 60 * 1000;
+// Image URLs are open-ended; past this, new paths fold into their host.
+const MAX_STATS_ENDPOINTS = 25;
+
+interface EndpointStats {
+  fetchOk: number;
+  fetchOkAfterRetry: number;
+  curlRecovered: number;
+  // Curl-first requests (fetch known broken here), so no fetch was tried.
+  curlOnly: number;
+  failed: number;
+  // Per failed fetch attempt, keyed by error code / HTTP status.
+  fetchErrors: Record<string, number>;
+}
+
+type FetchOutcome = Exclude<keyof EndpointStats, 'fetchErrors'>;
+
+let fetchStats = new Map<string, EndpointStats>();
+let fetchStatsTimer: ReturnType<typeof setInterval> | undefined;
+
+const statsEndpoint = (method: string, url: string): string => {
+  try {
+    const u = new URL(url);
+    const key = `${method} ${u.host}${u.pathname}`;
+    if (fetchStats.has(key) || fetchStats.size < MAX_STATS_ENDPOINTS) {
+      return key;
+    }
+    return `${method} ${u.host}/*`;
+  } catch {
+    return `${method} ?`;
+  }
+};
+
+const fetchErrorLabel = (err: any): string => {
+  if (err?.responseStatus !== undefined) return `HTTP_${err.responseStatus}`;
+  return extractErrorCode(err) ?? err?.name ?? 'unknown';
+};
+
+// warn when anything failed, so a clean window stays out of the warnings.
+export const flushFetchStats = (): void => {
+  if (fetchStats.size === 0) return;
+  const endpoints = Object.fromEntries(fetchStats);
+  fetchStats = new Map();
+  const anyFailure = Object.values(endpoints).some(
+    (s) => Object.keys(s.fetchErrors).length > 0 || s.failed > 0
+  );
+  (anyFailure ? logger.warn : logger.info)(
+    { endpoints, windowMs: FETCH_STATS_INTERVAL_MS },
+    'fetch stats'
+  );
+};
+
+const recordFetchOutcome = (
+  method: string,
+  url: string,
+  outcome: FetchOutcome,
+  fetchErrors: string[]
+): void => {
+  const key = statsEndpoint(method, url);
+  let s = fetchStats.get(key);
+  if (!s) {
+    s = {
+      curlOnly: 0,
+      curlRecovered: 0,
+      failed: 0,
+      fetchErrors: {},
+      fetchOk: 0,
+      fetchOkAfterRetry: 0,
+    };
+    fetchStats.set(key, s);
+  }
+  s[outcome] += 1;
+  for (const label of fetchErrors) {
+    s.fetchErrors[label] = (s.fetchErrors[label] ?? 0) + 1;
+  }
+  if (!fetchStatsTimer) {
+    fetchStatsTimer = setInterval(flushFetchStats, FETCH_STATS_INTERVAL_MS);
+    fetchStatsTimer.unref?.();
+  }
+};
+
+export const resetFetchStatsForTests = (): void => {
+  fetchStats = new Map();
+  if (fetchStatsTimer) clearInterval(fetchStatsTimer);
+  fetchStatsTimer = undefined;
+};
 
 // ---------- curl primitives (exec a raw curl command) ----------
 
@@ -268,6 +355,9 @@ export interface TryFetchOpts<T> {
   // collapsed summary of an ongoing outage; the first failure must not set it,
   // or the detail is lost entirely.
   suppressFailureLogs?: boolean;
+  // Skip fetch and go straight to curl: for a caller that already knows fetch
+  // is broken on this machine.
+  curlFirst?: boolean;
 }
 
 // Run fetchFn; if it throws (or returns non-2xx surfaced via thrown error),
@@ -276,6 +366,16 @@ export const tryFetchWithFallback = async <T>(
   opts: TryFetchOpts<T>
 ): Promise<HttpResult<T>> => {
   const { url, method, fetchFn, curlFn } = opts;
+  if (opts.curlFirst) {
+    try {
+      const data = await curlFn();
+      recordFetchOutcome(method, url, 'curlOnly', []);
+      return { data, viaFallback: true, fetchAttempts: 0 };
+    } catch (err) {
+      recordFetchOutcome(method, url, 'failed', []);
+      throw err;
+    }
+  }
   const maxAttempts = 1 + Math.max(0, opts.fetchRetries ?? 0);
   const retryDelayMs = opts.retryDelayMs ?? 500;
   const shouldRetry = opts.shouldRetry ?? (() => true);
@@ -286,6 +386,7 @@ export const tryFetchWithFallback = async <T>(
   let responseStatus: number | undefined;
   let fetchDurationMs: number | undefined;
   let attempt = 0;
+  const fetchErrors: string[] = [];
 
   // Fall back to curl only once every attempt fails, or the failure is one
   // retries can't help (shouldRetry).
@@ -304,9 +405,16 @@ export const tryFetchWithFallback = async <T>(
       }
       // Consume the mark so unique (signed-URL) keys don't accumulate.
       if (traceKey) releaseTraceKey(traceKey);
+      recordFetchOutcome(
+        method,
+        url,
+        attempt > 1 ? 'fetchOkAfterRetry' : 'fetchOk',
+        fetchErrors
+      );
       return { data: r.data, viaFallback: false, fetchAttempts: attempt };
     } catch (err: any) {
       fetchErr = err;
+      fetchErrors.push(fetchErrorLabel(err));
       responseStatus = err?.responseStatus;
       fetchDurationMs = Date.now() - startedAt;
       if (!shouldRetry(err)) break;
@@ -334,6 +442,7 @@ export const tryFetchWithFallback = async <T>(
   try {
     const data = await curlFn();
     const curlDurationMs = Date.now() - curlStartedAt;
+    recordFetchOutcome(method, url, 'curlRecovered', fetchErrors);
     logger.info(
       { url, method, fetchAttempts, curlDurationMs },
       'curl fallback succeeded'
@@ -349,6 +458,7 @@ export const tryFetchWithFallback = async <T>(
       }),
     };
   } catch (curlErr: any) {
+    recordFetchOutcome(method, url, 'failed', fetchErrors);
     if (!opts.suppressFailureLogs) {
       logger.error(
         {

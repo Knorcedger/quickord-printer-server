@@ -15,14 +15,13 @@ import JSZip from 'jszip';
 
 import nconf from 'nconf';
 import {
+  CURL_CONNECT_TIMEOUT_S,
   curlExec,
   curlExecJson,
   httpStatusError,
-  HttpResult,
   isCheapRetryableFetchError,
   tryFetchWithFallback,
 } from '../modules/http';
-import { reportFetchFailure } from '../modules/api';
 import { isPackagedExe } from '../modules/installDir';
 import {
   flushUpdateLog,
@@ -36,19 +35,6 @@ import {
   parseServiceStatusName,
   type ServiceState,
 } from './serviceState';
-
-// The update path uses tryFetchWithFallback exactly like the runtime paths
-// (poll/apiCall/common) but never looked at viaFallback, so a fetch that failed
-// and only succeeded via the curl fallback went unreported here. Mirror the
-// runtime wiring: when the update download/version check falls back to curl,
-// report it so a fetch that is quietly broken on the update path is visible too.
-// Fire-and-forget, same as the runtime call sites; a report failure must never
-// hold up or break an update.
-function reportIfViaFallback<T>(result: HttpResult<T>): void {
-  if (result.viaFallback && result.fetchFailure) {
-    reportFetchFailure(result.fetchFailure).catch(() => {});
-  }
-}
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
@@ -1018,7 +1004,6 @@ const GITHUB_FETCH_RETRY = {
 // later update; a venue once sat 13h on one.
 const VERSION_CHECK_TIMEOUT_S = 20;
 const DOWNLOAD_TIMEOUT_S = 600;
-const CURL_CONNECT_TIMEOUT_S = 15;
 
 async function fetchLatestReleaseVersion(): Promise<string | null> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
@@ -1048,7 +1033,6 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
           `curl -L --connect-timeout ${CURL_CONNECT_TIMEOUT_S} --max-time ${VERSION_CHECK_TIMEOUT_S} -H "User-Agent: quickord-printer-server" "${versionUrl}"`
         ),
     });
-    reportIfViaFallback(result);
     const releaseData = result.data;
     const tagName = releaseData.tag_name;
 
@@ -1185,9 +1169,8 @@ export async function downloadLatestCode(
   const srcDir = await fsp.mkdtemp(tempDirPath);
   const zipPath = path.resolve(srcDir, 'quickord-cashier-server.zip');
 
-  let downloadResult: HttpResult<void>;
   try {
-    downloadResult = await tryFetchWithFallback<void>({
+    await tryFetchWithFallback<void>({
       url,
       method: 'GET',
       ...GITHUB_FETCH_RETRY,
@@ -1210,7 +1193,6 @@ export async function downloadLatestCode(
   } catch (err: any) {
     throw new DownloadError(err?.message || String(err));
   }
-  reportIfViaFallback(downloadResult);
 
   // Extract zip
   const tempCodePath = path.resolve(srcDir, 'code');
