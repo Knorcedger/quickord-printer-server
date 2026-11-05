@@ -20,10 +20,10 @@ import { getBackendBaseUrl } from './backendUrl';
 import { markFirstPoll } from './bootGate';
 import { FailureEpisode } from './failureEpisode';
 import {
+  CURL_CONNECT_TIMEOUT_S,
   curlExecJson,
   httpStatusError,
   isCheapRetryableFetchError,
-  isRecoveredFetchNoise,
   tryFetchWithFallback,
   withTempJsonPayload,
 } from './http';
@@ -43,23 +43,26 @@ import logger from './logger';
 // Poll timeout must clear the backend's 20s hold with margin, so a healthy idle
 // poll is answered empty by the server rather than aborted here. The margin is
 // wide because this timer starts before the connection does: DNS + TCP + TLS
-// come out of it, and on a slow venue uplink they alone can eat 5s (undici's
-// own connect timeout is 10s). At 30s such a poll aborted while the backend was
-// still answering normally. Nothing is lost by waiting longer: a backend that
+// come out of it, and on a slow venue uplink they alone can eat 5s (the connect
+// timeout is 20s, see fetchAgent.ts). At 30s such a poll aborted while the
+// backend was still answering normally. Nothing is lost by waiting longer: a backend that
 // genuinely hangs is cut by Heroku's 30s router timeout into an HTTP 503, which
 // arrives as a status error rather than an abort.
 const POLL_TIMEOUT_MS = 45_000;
-const RESULT_TIMEOUT_MS = 10_000;
+// A slow venue uplink needs 11–18s per request; 10s cut every attempt short.
+// curl gets what the fetch left of the attempt budget, not a fresh timer.
+const RESULT_FETCH_TIMEOUT_MS = 25_000;
+const RESULT_ATTEMPT_BUDGET_MS = 30_000;
+const MIN_CURL_TIMEOUT_MS = 5_000;
 // Extra fetch attempts before curl: a retry that succeeds was a blip, all-fail
 // + curl-works is fetch-specific. Only cheap failures are retried (seconds).
 // Poll-only: a result report races the backend's 120s claim-result timeout.
 const POLL_FETCH_RETRIES = 2;
 const FETCH_RETRY_DELAY_MS = 500;
-// A result report that fails gets retried on this schedule (fresh creds each
-// attempt). The sum stays far below the backend's claim-result timeout, so a
-// report that eventually lands still beats the sweep that would otherwise
-// broadcast a false venue-wide failure for paper that actually printed.
-const RESULT_RETRY_DELAYS_MS = [2_000, 10_000, 30_000];
+// Retry schedule for a failed result report (fresh creds each attempt). Worst
+// case is 3×30s + 7s = 97s, inside the backend's 120s claim-result sweep: a
+// later report is ignored and the venue sees a false failure toast.
+const RESULT_RETRY_DELAYS_MS = [2_000, 5_000];
 // Back-off before retrying after a failed poll (uplink down, backend 5xx), so a
 // hard outage doesn't spin the loop. A successful poll re-polls immediately.
 const POLL_ERROR_BACKOFF_MS = 3_000;
@@ -112,9 +115,11 @@ const FETCH_FAILURE_REPORT_INTERVAL_MS = 60 * 60 * 1000;
 let lastFetchFailureReportAt = 0;
 
 // A single fallback is the link breathing; fetch that stays broken while curl
-// works is the incident — only persistence tells them apart.
+// works is the incident — only persistence tells them apart. Single fallbacks
+// are counted in the fetch stats line instead.
 // Poll-only: the poll is serialized, so its streak really is persistence;
 // concurrent result reports could hit the threshold on one shared blip.
+// The same streak sends result reports straight to curl.
 const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
 let consecutiveFetchFallbacks = 0;
 
@@ -159,21 +164,42 @@ function alreadySeen(jobId: string): boolean {
 async function postJson(
   path: string,
   body: Record<string, unknown>,
-  timeoutMs: number,
-  fetchRetries = 0,
-  trackFallbackStreak = false,
-  suppressFailureLogs = false
+  {
+    timeoutMs,
+    fetchRetries = 0,
+    trackFallbackStreak = false,
+    suppressFailureLogs = false,
+    attemptBudgetMs,
+    curlFirst = false,
+  }: {
+    timeoutMs: number;
+    fetchRetries?: number;
+    trackFallbackStreak?: boolean;
+    suppressFailureLogs?: boolean;
+    // Total for fetch + curl; curl gets the remainder. Unset: curl gets timeoutMs.
+    attemptBudgetMs?: number;
+    curlFirst?: boolean;
+  }
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
+  const startedAt = Date.now();
+  const curlTimeoutMs = (): number =>
+    attemptBudgetMs === undefined
+      ? timeoutMs
+      : Math.max(
+          MIN_CURL_TIMEOUT_MS,
+          attemptBudgetMs - (Date.now() - startedAt)
+        );
   const result = await tryFetchWithFallback<any>({
     fetchRetries,
     retryDelayMs: FETCH_RETRY_DELAY_MS,
     suppressFailureLogs,
+    curlFirst,
     shouldRetry: isCheapRetryableFetchError,
     curlFn: () =>
       withTempJsonPayload(body, (tempFilePath) =>
         curlExecJson(
-          `curl -s -m ${Math.ceil(timeoutMs / 1000)} -X POST "${url}" -H "Content-Type: application/json" --data-binary "@${tempFilePath}"`
+          `curl -s --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${Math.ceil(curlTimeoutMs() / 1000)} -X POST "${url}" -H "Content-Type: application/json" --data-binary "@${tempFilePath}"`
         )
       ),
     fetchFn: async () => {
@@ -231,22 +257,15 @@ async function postJson(
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
     const now = Date.now();
-    // The poll gates on the streak; the result path can't measure persistence,
-    // so it reports anything but the noise curl silently recovers. The hourly
-    // throttle is shared, so a machine pages once either way.
-    const worthReporting = trackFallbackStreak
-      ? consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT
-      : !isRecoveredFetchNoise(result.fetchFailure);
     if (
-      worthReporting &&
+      trackFallbackStreak &&
+      consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT &&
       now - lastFetchFailureReportAt > FETCH_FAILURE_REPORT_INTERVAL_MS
     ) {
       lastFetchFailureReportAt = now;
       reportFetchFailure({
         ...result.fetchFailure,
-        consecutiveFallbacks: trackFallbackStreak
-          ? consecutiveFetchFallbacks
-          : undefined,
+        consecutiveFallbacks: consecutiveFetchFallbacks,
       }).catch(() => {});
     }
   }
@@ -281,7 +300,14 @@ function reportResult(
             status,
             venueId: getVenueId(),
           },
-          RESULT_TIMEOUT_MS
+          {
+            attemptBudgetMs: RESULT_ATTEMPT_BUDGET_MS,
+            // Fetch is broken here (the poll keeps falling back): don't spend
+            // the attempt on it, give curl the whole budget.
+            curlFirst:
+              consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT,
+            timeoutMs: RESULT_FETCH_TIMEOUT_MS,
+          }
         );
         // The curl fallback surfaces HTTP errors as parsed bodies, so a 4xx
         // arrives here as data without ok — treat anything unacknowledged as
@@ -324,11 +350,13 @@ async function pollOnce(): Promise<boolean> {
       venueId: getVenueId(),
       version: getPrinterVersion(),
     },
-    POLL_TIMEOUT_MS,
-    POLL_FETCH_RETRIES,
-    true,
-    // Already inside a failing episode: the summary line carries it.
-    pollFailures.active
+    {
+      fetchRetries: POLL_FETCH_RETRIES,
+      // Already inside a failing episode: the summary line carries it.
+      suppressFailureLogs: pollFailures.active,
+      timeoutMs: POLL_TIMEOUT_MS,
+      trackFallbackStreak: true,
+    }
   );
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's

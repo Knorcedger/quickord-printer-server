@@ -2,6 +2,7 @@ import nconf from 'nconf';
 import os from 'os';
 
 import {
+  CURL_CONNECT_TIMEOUT_S,
   curlExecJson,
   FetchFailureDetails,
   httpStatusError,
@@ -24,6 +25,8 @@ const sleep = (ms: number): Promise<void> =>
 const APIKEY =
   nconf.get('QUICKORD_APIKEY') || 'desktop_H2WRdpoSEh7iOWD2iCZD7msTKOs';
 const APPID = 'desktop';
+// Per attempt, fetch and curl alike: slow venue uplinks need 11–18s a request.
+const API_TIMEOUT_S = 30;
 
 // Null when no usable LAN IPv4 is up (DHCP not settled at boot, or only
 // virtual adapters). Never falls back to loopback or — unless the caller opts
@@ -108,7 +111,7 @@ const reportFetchFailure = async (
   try {
     await withTempJsonPayload({ query: mutation }, (tempFilePath) =>
       curlExecJson(
-        `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+        `curl -s --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${API_TIMEOUT_S} -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
       )
     );
     logger.info('Reported fetch failure to BE');
@@ -136,6 +139,7 @@ export const apiCall = async (
           appId: APPID,
         },
         body: JSON.stringify({ query }),
+        signal: AbortSignal.timeout(API_TIMEOUT_S * 1000),
       });
       if (!response.ok) throw httpStatusError(response);
       const data = (await response.json()) as { data?: any; errors?: any };
@@ -144,14 +148,10 @@ export const apiCall = async (
     curlFn: () =>
       withTempJsonPayload({ query }, (tempFilePath) =>
         curlExecJson(
-          `curl -s -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
+          `curl -s --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${API_TIMEOUT_S} -X POST "${apiUrl}" -H "Content-Type: application/json" -H "apikey: ${APIKEY}" -H "appId: ${APPID}" --data-binary "@${tempFilePath}"`
         )
       ),
   });
-
-  if (result.viaFallback && result.fetchFailure) {
-    reportFetchFailure(result.fetchFailure).catch(() => {});
-  }
 
   if (result.data?.errors && !opts.suppressFailureLogs) {
     logger.error('API call error:', JSON.stringify(result.data.errors));

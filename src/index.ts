@@ -1,6 +1,8 @@
 // First, before anything reads ./config.json at import time: it pins the cwd
 // to the install dir so every relative path below is the installed one.
 import { isPackagedExe } from './modules/installDir';
+// Before any fetch: raises Node's 10s connect timeout.
+import './modules/fetchAgent';
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import nconf from 'nconf';
@@ -57,6 +59,7 @@ import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
 import { shipNewUpdateLogLines } from './autoupdate/shipUpdateLog';
 import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
 import {
+  CURL_CONNECT_TIMEOUT_S,
   curlExecJson,
   httpStatusError,
   tryFetchWithFallback,
@@ -292,6 +295,9 @@ const main = async () => {
 
   // Simple HTTPS request (works inside exe)
 
+  // Same cap as the update's own version check.
+  const LATEST_VERSION_TIMEOUT_S = 20;
+
   async function fetchLatestVersion() {
     const url =
       'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
@@ -303,7 +309,9 @@ const main = async () => {
         url,
         method: 'GET',
         fetchFn: async () => {
-          const response = await fetch(url);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(LATEST_VERSION_TIMEOUT_S * 1000),
+          });
           if (!response.ok) throw httpStatusError(response);
           return {
             data: (await response.json()) as {
@@ -312,7 +320,10 @@ const main = async () => {
             },
           };
         },
-        curlFn: () => curlExecJson(`curl -s -L "${url}"`),
+        curlFn: () =>
+          curlExecJson(
+            `curl -s -L --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${LATEST_VERSION_TIMEOUT_S} "${url}"`
+          ),
       });
       return result.data.name || result.data.tag_name || 'unknown';
     } catch (err) {
