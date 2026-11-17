@@ -1,3 +1,5 @@
+import { describe, expect, test } from 'vitest';
+
 // The printer server only stores the per-element sizes; its LAN-fallback
 // renderer still goes by textOptions. What matters here is that settings.json
 // round-trips the new field and that a bad level is rejected rather than stored.

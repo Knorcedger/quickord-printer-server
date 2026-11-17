@@ -1,34 +1,45 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockedFunction,
+} from 'vitest';
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-jest.mock('signale', () => ({
+vi.mock('signale', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-jest.mock('../src/modules/backendUrl', () => ({
+vi.mock('../src/modules/backendUrl', () => ({
   getBackendBaseUrl: () => 'https://backend.test',
 }));
 
 const psIdentity = {
   getPrinterVersion: () => 'v-test',
-  getVenueId: jest.fn(() => 'venue-1'),
-  getWsSecret: jest.fn(() => 'secret'),
+  getVenueId: vi.fn(() => 'venue-1'),
+  getWsSecret: vi.fn(() => 'secret'),
 };
-jest.mock('../src/modules/psIdentity', () => psIdentity);
+vi.mock('../src/modules/psIdentity', () => psIdentity);
 
-jest.mock('../src/modules/http', () => ({
+vi.mock('../src/modules/http', () => ({
   __esModule: true,
-  curlExecJson: jest.fn(),
-  httpStatusError: jest.fn(),
-  tryFetchWithFallback: jest.fn(),
-  withTempJsonPayload: jest.fn(),
+  curlExecJson: vi.fn(),
+  httpStatusError: vi.fn(),
+  tryFetchWithFallback: vi.fn(),
+  withTempJsonPayload: vi.fn(),
 }));
 
 type Shipper = typeof import('../src/modules/logShipper');
@@ -36,22 +47,21 @@ type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
 type UpdateLog = typeof import('../src/autoupdate/shipUpdateLog');
 
-const load = () => {
+const load = async () => {
   let shipper!: Shipper;
   let http!: Http;
   let logger!: Logger;
   let updateLog!: UpdateLog;
-  jest.isolateModules(() => {
-    shipper = require('../src/modules/logShipper');
-    http = require('../src/modules/http');
-    logger = require('../src/modules/logger').default;
-    updateLog = require('../src/autoupdate/shipUpdateLog');
-  });
+  vi.resetModules();
+  shipper = await import('../src/modules/logShipper');
+  http = await import('../src/modules/http');
+  logger = (await import('../src/modules/logger')).default;
+  updateLog = await import('../src/autoupdate/shipUpdateLog');
   return {
     logger,
     shipper,
     updateLog,
-    tryFetch: http.tryFetchWithFallback as jest.MockedFunction<
+    tryFetch: http.tryFetchWithFallback as MockedFunction<
       typeof http.tryFetchWithFallback
     >,
   };
@@ -60,11 +70,11 @@ const load = () => {
 const flush = () => new Promise((r) => setImmediate(r));
 
 // The last body handed to the transport.
-const sentBody = (tryFetch: jest.Mock): any => {
+const sentBody = (tryFetch: Mock): any => {
   const opts = tryFetch.mock.calls.at(-1)[0];
   let body: any;
   const realFetch = global.fetch;
-  global.fetch = jest.fn(async (_url: string, init: any) => {
+  global.fetch = vi.fn(async (_url: string, init: any) => {
     body = JSON.parse(init.body);
     return { json: async () => ({}), ok: true } as any;
   }) as any;
@@ -79,16 +89,16 @@ const sentBody = (tryFetch: jest.Mock): any => {
 describe('logShipper', () => {
   let dir: string;
   let cwd: string;
-  let loaded: ReturnType<typeof load>;
+  let loaded: Awaited<ReturnType<typeof load>>;
 
   beforeEach(async () => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     cwd = process.cwd();
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-logship-'));
     process.chdir(dir);
     psIdentity.getVenueId.mockReturnValue('venue-1');
     psIdentity.getWsSecret.mockReturnValue('secret');
-    loaded = load();
+    loaded = await load();
   });
 
   afterEach(async () => {
@@ -98,7 +108,7 @@ describe('logShipper', () => {
     } finally {
       process.chdir(cwd);
       fs.rmSync(dir, { force: true, recursive: true });
-      jest.restoreAllMocks();
+      vi.restoreAllMocks();
     }
   });
 
@@ -223,7 +233,7 @@ describe('logShipper', () => {
     await shipper.resetLogShipperForTests();
     await flush();
 
-    loaded = load();
+    loaded = await load();
     ({ logger, shipper } = loaded);
     await shipper.initLogShipper();
     logger.info('after restart');
@@ -246,7 +256,7 @@ describe('logShipper', () => {
   });
 
   describe('verbose lines', () => {
-    const ack = (tryFetch: jest.Mock, ackSeq: number) =>
+    const ack = (tryFetch: Mock, ackSeq: number) =>
       tryFetch.mockResolvedValueOnce({
         data: { ackSeq, ok: true },
         fetchAttempts: 1,
@@ -308,16 +318,16 @@ describe('logShipper', () => {
     it('forgets them after the keep window, without counting a drop', async () => {
       const { logger, shipper } = loaded;
       await shipper.initLogShipper();
-      jest.useFakeTimers({
-        doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'clearTimeout'],
+      vi.useFakeTimers({
+        toNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'clearTimeout'],
       });
       try {
         logger.debug('old detail');
-        jest.setSystemTime(Date.now() + shipper.DEBUG_KEEP_MS + 1_000);
+        vi.setSystemTime(Date.now() + shipper.DEBUG_KEEP_MS + 1_000);
         logger.debug('fresh detail');
         await shipper.shipOnce();
       } finally {
-        jest.useRealTimers();
+        vi.useRealTimers();
       }
 
       expect(shipper.getQueueForTests().map((e) => e.msg)).toEqual([
@@ -344,8 +354,6 @@ describe('logShipper', () => {
     });
   });
   describe('update-log lines', () => {
-    const fsp =
-      require('node:fs/promises') as typeof import('node:fs/promises');
     const realAppend = fsp.appendFile;
     const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
@@ -363,7 +371,7 @@ describe('logShipper', () => {
       teardown = new Promise((r) => {
         openAll = r;
       });
-      jest.spyOn(fsp, 'appendFile').mockImplementation((async (
+      vi.spyOn(fsp, 'appendFile').mockImplementation((async (
         file: any,
         data: any
       ) => {
@@ -382,7 +390,7 @@ describe('logShipper', () => {
     const restart = async () => {
       await loaded.shipper.resetLogShipperForTests();
       await flush();
-      loaded = load();
+      loaded = await load();
       await loaded.shipper.initLogShipper();
       return loaded.shipper.getQueueForTests().map((e) => e.msg);
     };

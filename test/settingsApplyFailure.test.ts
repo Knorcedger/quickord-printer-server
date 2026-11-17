@@ -1,3 +1,13 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
+
 // No top-level import/export of its own, so TS would treat this as a global
 // script and collide `load` with the other pull-loop suites.
 export {};
@@ -12,44 +22,44 @@ export {};
  * POLL_HOLD_MS, answers the moment a job is queued, and short-circuits the hold
  * when it has settings to hand over — unless the PS says it cannot take them.
  */
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-jest.mock('../src/modules/api', () => ({ reportFetchFailure: jest.fn() }));
-jest.mock('../src/modules/backendUrl', () => ({
+vi.mock('../src/modules/api', () => ({ reportFetchFailure: vi.fn() }));
+vi.mock('../src/modules/backendUrl', () => ({
   getBackendBaseUrl: () => 'https://backend.test',
 }));
-jest.mock('../src/modules/network', () => ({
+vi.mock('../src/modules/network', () => ({
   __esModule: true,
-  default: jest.fn(),
+  default: vi.fn(),
 }));
-jest.mock('../src/modules/printer', () => ({
-  checkPrinters: jest.fn(async () => []),
+vi.mock('../src/modules/printer', () => ({
+  checkPrinters: vi.fn(async () => []),
 }));
-jest.mock('../src/modules/printJob', () => ({ executePrintJob: jest.fn() }));
+vi.mock('../src/modules/printJob', () => ({ executePrintJob: vi.fn() }));
 
 const psIdentity = {
   getPrinterVersion: () => 'v-test',
-  getVenueId: jest.fn(() => 'venue-1'),
-  getWsSecret: jest.fn(() => 'secret'),
-  triggerRestart: jest.fn(),
+  getVenueId: vi.fn(() => 'venue-1'),
+  getWsSecret: vi.fn(() => 'secret'),
+  triggerRestart: vi.fn(),
 };
-jest.mock('../src/modules/psIdentity', () => psIdentity);
+vi.mock('../src/modules/psIdentity', () => psIdentity);
 
 // The hash the settings module reports after an apply — the only signal the
 // pull loop has that the settings it was handed were actually taken.
-const settings = { getSyncedHash: jest.fn(() => 'h1') };
-jest.mock('../src/modules/settings', () => settings);
+const settings = { getSyncedHash: vi.fn(() => 'h1') };
+vi.mock('../src/modules/settings', () => settings);
 
-const applySettings = { applyDesiredSettings: jest.fn() };
-jest.mock('../src/modules/applySettings', () => applySettings);
+const applySettings = { applyDesiredSettings: vi.fn() };
+vi.mock('../src/modules/applySettings', () => applySettings);
 
 // The backend's own hold (pullApi.ts POLL_HOLD_MS) and the deadlines a stalled
 // channel breaks: a command's round trip and a job's freshness window.
@@ -123,15 +133,14 @@ const fakeBackend = async (url: string, init: any) => {
   return jsonResponse({ jobs: [], ...settingsPayload });
 };
 
-const load = () => {
+const load = async () => {
   let pullClient!: typeof import('../src/modules/pullClient');
-  let executePrintJob!: jest.Mock;
-  let checkPrinters!: jest.Mock;
-  jest.isolateModules(() => {
-    pullClient = require('../src/modules/pullClient');
-    executePrintJob = require('../src/modules/printJob').executePrintJob;
-    checkPrinters = require('../src/modules/printer').checkPrinters;
-  });
+  let executePrintJob!: Mock;
+  let checkPrinters!: Mock;
+  vi.resetModules();
+  pullClient = await import('../src/modules/pullClient');
+  executePrintJob = (await import('../src/modules/printJob')).executePrintJob;
+  checkPrinters = (await import('../src/modules/printer')).checkPrinters;
   return { checkPrinters, executePrintJob, pullClient };
 };
 
@@ -139,14 +148,14 @@ const load = () => {
 // wait instead of leaving a poll in flight after the test.
 const parkLoop = async () => {
   psIdentity.getVenueId.mockReturnValue('');
-  await jest.advanceTimersByTimeAsync(60_000);
+  await vi.advanceTimersByTimeAsync(60_000);
   psIdentity.getVenueId.mockReturnValue('venue-1');
 };
 
 describe('polling while the settings will not apply', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
     polls = [];
     queued = [];
     ignoresTheFlag = false;
@@ -156,19 +165,19 @@ describe('polling while the settings will not apply', () => {
     // Writing settings.json failed: applyDesiredSettings resolves, but the hash
     // it was handed was never taken — which is what the loop must notice.
     applySettings.applyDesiredSettings.mockResolvedValue({});
-    global.fetch = jest.fn(fakeBackend) as any;
+    global.fetch = vi.fn(fakeBackend) as any;
   });
 
   afterEach(async () => {
     await parkLoop();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('tells the backend it could not take them, and stops once it can', async () => {
-    const { pullClient } = load();
+    const { pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(3 * POLL_HOLD_MS);
+    await vi.advanceTimersByTimeAsync(3 * POLL_HOLD_MS);
 
     // Nothing had failed yet on the first poll; every later one carries it.
     expect(pollAt(0).body.settingsApplyFailed).toBe(false);
@@ -178,16 +187,16 @@ describe('polling while the settings will not apply', () => {
     applySettings.applyDesiredSettings.mockImplementation(async () => {
       settings.getSyncedHash.mockReturnValue(DESIRED_HASH);
     });
-    await jest.advanceTimersByTimeAsync(3 * POLL_HOLD_MS);
+    await vi.advanceTimersByTimeAsync(3 * POLL_HOLD_MS);
 
     expect(lastPoll().body.settingsApplyFailed).toBe(false);
   });
 
   it('keeps printing while the failure lasts', async () => {
-    const { executePrintJob, pullClient } = load();
+    const { executePrintJob, pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     expect(polls.length).toBeGreaterThan(5);
 
     // A receipt queued deep into the failure episode, with nothing else in
@@ -195,7 +204,7 @@ describe('polling while the settings will not apply', () => {
     // window, or it ages out unprinted.
     const queuedAt = Date.now();
     queued = [{ data: '', jobId: 'job-1', printerIp: '1.2.3.4' }];
-    await jest.advanceTimersByTimeAsync(JOB_FRESHNESS_MS);
+    await vi.advanceTimersByTimeAsync(JOB_FRESHNESS_MS);
 
     expect(executePrintJob).toHaveBeenCalledTimes(1);
     const deliveredAt = lastPoll().at;
@@ -203,24 +212,24 @@ describe('polling while the settings will not apply', () => {
   });
 
   it('keeps running control commands while the failure lasts', async () => {
-    const { checkPrinters, pullClient } = load();
+    const { checkPrinters, pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(300_000);
 
     // The backend gives up on a command after COMMAND_TIMEOUT_MS and answers
     // the user a fallback, so a loop parked longer than that is a dead button.
     queued = [{ data: '', jobId: 'cmd-1', type: 'checkPrinters' }];
-    await jest.advanceTimersByTimeAsync(COMMAND_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(COMMAND_TIMEOUT_MS);
 
     expect(checkPrinters).toHaveBeenCalledTimes(1);
   });
 
   it('delivers a whole burst, not one claim per pause', async () => {
-    const { executePrintJob, pullClient } = load();
+    const { executePrintJob, pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(300_000);
 
     // The backend hands over at most 20 jobs per claim; the rest wait for the
     // next poll and expire if that poll is a minute away.
@@ -229,22 +238,22 @@ describe('polling while the settings will not apply', () => {
       jobId: `burst-a-${i}`,
       printerIp: '1.2.3.4',
     }));
-    await jest.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     queued = Array.from({ length: 5 }, (_, i) => ({
       data: '',
       jobId: `burst-b-${i}`,
       printerIp: '1.2.3.4',
     }));
-    await jest.advanceTimersByTimeAsync(JOB_FRESHNESS_MS);
+    await vi.advanceTimersByTimeAsync(JOB_FRESHNESS_MS);
 
     expect(executePrintJob).toHaveBeenCalledTimes(25);
   });
 
   it('adds no pause of its own while the backend holds the poll', async () => {
-    const { pullClient } = load();
+    const { pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(300_000);
+    await vi.advanceTimersByTimeAsync(300_000);
 
     // One poll per hold, give or take the round trip. Anything much lower is
     // the loop sleeping between polls again.
@@ -257,10 +266,10 @@ describe('polling while the settings will not apply', () => {
     // answer that carried work is not a spin.
     ignoresTheFlag = true;
     alwaysBusy = true;
-    const { executePrintJob, pullClient } = load();
+    const { executePrintJob, pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(30_000);
 
     // Every answer here carries a job, so nothing may pace them: at the 5s
     // floor this window would be ~6 prints instead of hundreds.
@@ -271,10 +280,10 @@ describe('polling while the settings will not apply', () => {
     // A backend that predates the flag short-circuits its hold on every poll
     // while we are out of sync. Nothing paces the loop but us.
     ignoresTheFlag = true;
-    const { pullClient } = load();
+    const { pullClient } = await load();
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
 
     // ~12 at the 5s floor; hundreds without one.
     expect(polls.length).toBeLessThan(20);

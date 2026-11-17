@@ -1,3 +1,5 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 // No top-level import/export of its own, so TS would treat this as a global
 // script and collide `load` with the other pull-loop suites.
 export {};
@@ -8,40 +10,40 @@ export {};
  * apart, so the chain ends inside the backend's 120s claim-result sweep.
  */
 const logger = {
-  debug: jest.fn(),
-  error: jest.fn(),
-  info: jest.fn(),
-  warn: jest.fn(),
+  debug: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  warn: vi.fn(),
 };
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: logger,
 }));
-jest.mock('../src/modules/api', () => ({
-  reportFetchFailure: jest.fn(() => Promise.resolve()),
+vi.mock('../src/modules/api', () => ({
+  reportFetchFailure: vi.fn(() => Promise.resolve()),
 }));
-jest.mock('../src/modules/backendUrl', () => ({
+vi.mock('../src/modules/backendUrl', () => ({
   getBackendBaseUrl: () => 'https://backend.test',
 }));
-jest.mock('../src/modules/network', () => ({
+vi.mock('../src/modules/network', () => ({
   __esModule: true,
-  default: jest.fn(),
+  default: vi.fn(),
 }));
-jest.mock('../src/modules/printer', () => ({ checkPrinters: jest.fn() }));
-jest.mock('../src/modules/printJob', () => ({
-  executePrintJob: jest.fn((job: any, cb: any) => cb(job.jobId, 'success')),
+vi.mock('../src/modules/printer', () => ({ checkPrinters: vi.fn() }));
+vi.mock('../src/modules/printJob', () => ({
+  executePrintJob: vi.fn((job: any, cb: any) => cb(job.jobId, 'success')),
 }));
 
 const psIdentity = {
   getPrinterVersion: () => 'v-test',
-  getVenueId: jest.fn(() => 'venue-1'),
-  getWsSecret: jest.fn(() => 'secret'),
-  triggerRestart: jest.fn(),
+  getVenueId: vi.fn(() => 'venue-1'),
+  getWsSecret: vi.fn(() => 'secret'),
+  triggerRestart: vi.fn(),
 };
-jest.mock('../src/modules/psIdentity', () => psIdentity);
-jest.mock('../src/modules/settings', () => ({ getSyncedHash: () => 'h1' }));
-jest.mock('../src/modules/applySettings', () => ({
-  applyDesiredSettings: jest.fn(),
+vi.mock('../src/modules/psIdentity', () => psIdentity);
+vi.mock('../src/modules/settings', () => ({ getSyncedHash: () => 'h1' }));
+vi.mock('../src/modules/applySettings', () => ({
+  applyDesiredSettings: vi.fn(),
 }));
 
 const tick = (ms: number) =>
@@ -64,8 +66,8 @@ let t0 = 0;
 const ack = { ok: true };
 const ackResponse = { json: async () => ack, ok: true, status: 200 };
 
-jest.mock('../src/modules/http', () => {
-  const actual = jest.requireActual('../src/modules/http');
+vi.mock('../src/modules/http', async () => {
+  const actual = await vi.importActual('../src/modules/http');
   return {
     ...actual,
     curlExecJson: async (cmd: string) => {
@@ -123,26 +125,25 @@ const gaveUpLogs = () =>
       typeof msg === 'string' && msg.startsWith('Failed to report print result')
   );
 
-const load = () => {
+const load = async () => {
   let pullClient!: typeof import('../src/modules/pullClient');
-  jest.isolateModules(() => {
-    pullClient = require('../src/modules/pullClient');
-  });
+  vi.resetModules();
+  pullClient = await import('../src/modules/pullClient');
   return pullClient;
 };
 
 // Starts the loop with one job queued; its report starts on the first poll.
 const startWithOneJob = async () => {
   queued = [{ data: '', jobId: 'job-1', printerIp: '1.1.1.1' }];
-  load().initPullClient();
-  await jest.advanceTimersByTimeAsync(1_000);
+  (await load()).initPullClient();
+  await vi.advanceTimersByTimeAsync(1_000);
   expect(resultFetchAt).toHaveLength(1);
 };
 
 describe('result report budget and retries', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
     fetchSteps = [];
     curlSteps = [];
     resultFetchAt = [];
@@ -151,7 +152,7 @@ describe('result report budget and retries', () => {
     polls = 0;
     t0 = 0;
     psIdentity.getVenueId.mockReturnValue('venue-1');
-    global.fetch = jest.fn(async (url: string, init: any) => {
+    global.fetch = vi.fn(async (url: string, init: any) => {
       if (url.endsWith('/print-jobs/poll')) {
         // A real answer takes time; also keeps the loop off a microtask spin.
         await tick(1_000);
@@ -172,21 +173,21 @@ describe('result report budget and retries', () => {
 
   afterEach(async () => {
     psIdentity.getVenueId.mockReturnValue('');
-    await jest.advanceTimersByTimeAsync(150_000);
-    jest.useRealTimers();
+    await vi.advanceTimersByTimeAsync(150_000);
+    vi.useRealTimers();
   });
 
   it('gives curl only what the fetch left of the attempt', async () => {
     fetchSteps = [failAfter(22_000)];
     await startWithOneJob();
 
-    await jest.advanceTimersByTimeAsync(22_000);
+    await vi.advanceTimersByTimeAsync(22_000);
     expect(resultCurls).toHaveLength(1);
     expect(resultCurls[0]!.at).toBe(22_000);
     expect(curlTimeoutS(resultCurls[0]!.cmd)).toBe(8);
 
     // curl acknowledged: no further attempts.
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(resultFetchAt).toHaveLength(1);
     expect(resultCurls).toHaveLength(1);
     expect(gaveUpLogs()).toHaveLength(0);
@@ -196,7 +197,7 @@ describe('result report budget and retries', () => {
     fetchSteps = [hangUntilAbort];
     await startWithOneJob();
 
-    await jest.advanceTimersByTimeAsync(25_000);
+    await vi.advanceTimersByTimeAsync(25_000);
     expect(resultCurls).toHaveLength(1);
     expect(resultCurls[0]!.at).toBe(25_000);
     expect(curlTimeoutS(resultCurls[0]!.cmd)).toBe(5);
@@ -206,7 +207,7 @@ describe('result report budget and retries', () => {
     fetchSteps = [failAfter(28_000)];
     await startWithOneJob();
 
-    await jest.advanceTimersByTimeAsync(28_000);
+    await vi.advanceTimersByTimeAsync(28_000);
     expect(resultCurls).toHaveLength(1);
     expect(curlTimeoutS(resultCurls[0]!.cmd)).toBe(5);
   });
@@ -222,7 +223,7 @@ describe('result report budget and retries', () => {
     const pollsAtStart = polls;
 
     // Each attempt: 25s fetch + 5s curl. Then 2s, then 5s before the next.
-    await jest.advanceTimersByTimeAsync(97_000);
+    await vi.advanceTimersByTimeAsync(97_000);
     expect(resultFetchAt).toEqual([0, 32_000, 67_000]);
     expect(resultCurls.map((c) => c.at)).toEqual([25_000, 57_000, 92_000]);
     expect(resultCurls.map((c) => curlTimeoutS(c.cmd))).toEqual([5, 5, 5]);
@@ -230,7 +231,7 @@ describe('result report budget and retries', () => {
     expect(gaveUpLogs()[0]![0]).toContain('after 3 attempts');
 
     // No fourth attempt.
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(resultFetchAt).toHaveLength(3);
     expect(resultCurls).toHaveLength(3);
 
@@ -244,11 +245,11 @@ describe('result report budget and retries', () => {
     await startWithOneJob();
     const pollsAtStart = polls;
 
-    await jest.advanceTimersByTimeAsync(32_000);
+    await vi.advanceTimersByTimeAsync(32_000);
     expect(resultFetchAt).toEqual([0, 32_000]);
     expect(resultCurls).toHaveLength(1);
 
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(resultFetchAt).toHaveLength(2);
     expect(resultCurls).toHaveLength(1);
     expect(gaveUpLogs()).toHaveLength(0);

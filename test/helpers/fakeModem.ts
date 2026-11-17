@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { SerialPortMock } from 'serialport';
 
 import {
@@ -25,7 +26,7 @@ export const useFakePorts = (...paths: string[]) => {
 
 // Init is detached from the open, so tests asserting on writes wait for it.
 export const settleInit = async () => {
-  await jest.advanceTimersByTimeAsync(50);
+  await vi.advanceTimersByTimeAsync(50);
   await Promise.all(
     Array.from(__getRegistry().values()).map((i) => i.initPromise)
   );

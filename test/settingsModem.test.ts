@@ -1,3 +1,13 @@
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -22,14 +32,14 @@ import {
   useFakePorts,
 } from './helpers/fakeModem';
 
-jest.mock('../src/modules/api', () => ({
-  apiCall: jest.fn().mockResolvedValue({ data: {} }),
-  registerPrinterServerIp: jest.fn(),
-  startPrinterServerIpRegistration: jest.fn(),
+vi.mock('../src/modules/api', () => ({
+  apiCall: vi.fn().mockResolvedValue({ data: {} }),
+  registerPrinterServerIp: vi.fn(),
+  startPrinterServerIpRegistration: vi.fn(),
 }));
 
-jest.mock('../src/modules/printer', () => ({
-  setupPrinters: jest.fn(),
+vi.mock('../src/modules/printer', () => ({
+  setupPrinters: vi.fn(),
 }));
 
 const cwd = process.cwd();
@@ -37,8 +47,8 @@ let tmpDir: string;
 
 const post = async (body: Record<string, unknown>) => {
   const res = {
-    send: jest.fn(),
-    status: jest.fn().mockReturnThis(),
+    send: vi.fn(),
+    status: vi.fn().mockReturnThis(),
   };
   await settingsResolver({ body } as Request, res as unknown as Response);
   return res;
@@ -60,8 +70,8 @@ describe('settings — modems', () => {
   afterAll(() => process.chdir(cwd));
 
   beforeEach(() => {
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
-    jest.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
+    vi.clearAllMocks();
     updateSettings(Settings.parse({ printers: [] }));
     useFakePorts('COM3', 'COM4');
   });
@@ -69,7 +79,7 @@ describe('settings — modems', () => {
   afterEach(async () => {
     await syncModems([]);
     dropAllFakePorts();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   describe('getModems normalizer', () => {
@@ -145,10 +155,10 @@ describe('settings — modems', () => {
 
     // Exhaust the reconnect attempts: past that the instance tears down its
     // timers and nothing reopens it on its own.
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
     dropAllFakePorts();
     instanceFor('COM3')!.serial!.close();
-    await jest.advanceTimersByTimeAsync(2_000_000);
+    await vi.advanceTimersByTimeAsync(2_000_000);
     // Still registered, but with no port behind it and its timers cleared.
     expect(instanceFor('COM3')).toBeDefined();
     expect(instanceFor('COM3')?.serial?.isOpen).toBeFalsy();

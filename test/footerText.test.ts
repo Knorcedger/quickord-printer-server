@@ -1,14 +1,15 @@
+import { describe, expect, test, vi } from 'vitest';
 import { printFooterText } from '../src/modules/common';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
 const makePrinter = () => {
   const lines: string[] = [];
   return {
-    alignCenter: jest.fn(),
+    alignCenter: vi.fn(),
     lines,
     newLine: () => lines.push(''),
     println: (text: string) => lines.push(text),

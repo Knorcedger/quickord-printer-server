@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { watchdogRelaunchCommand } from '../src/autoupdate/autoupdate';
 
 // What the restart watchdog runs when the service will not come up.

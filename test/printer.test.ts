@@ -1,3 +1,4 @@
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import {
   printer as ThermalPrinter,
   types as PrinterTypes,
@@ -14,7 +15,7 @@ describe('Thermal Printer', () => {
     printer.cut();
 
     // Mock execute() to return a string (TypeScript compatible)
-    const executeSpy = jest
+    const executeSpy = vi
       .spyOn(printer, 'execute')
       .mockImplementation(async () => 'FAKE_ESC_POS_COMMANDS');
 

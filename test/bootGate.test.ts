@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Request, Response } from 'express';
 
 import {
@@ -7,17 +8,17 @@ import {
 } from '../src/modules/bootGate';
 
 const call = () => {
-  const next = jest.fn();
+  const next = vi.fn();
   const res = {
-    send: jest.fn(),
-    status: jest.fn().mockReturnThis(),
+    send: vi.fn(),
+    status: vi.fn().mockReturnThis(),
   };
   bootGate({} as Request, res as unknown as Response, next);
   return { next, res };
 };
 
 describe('boot gate', () => {
-  afterEach(() => jest.restoreAllMocks());
+  afterEach(() => vi.restoreAllMocks());
 
   it('answers 503 before the first poll', () => {
     startBootGate();
@@ -32,7 +33,7 @@ describe('boot gate', () => {
   it('counts the window from startup, not from process start', () => {
     // 20s of auto-update and printer setup before the server listens: the
     // window must still be ahead of the first request, not already spent.
-    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_000);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 20_000);
     startBootGate();
 
     const { next, res } = call();
@@ -43,7 +44,7 @@ describe('boot gate', () => {
 
   it('opens after 15s even with no poll, so the LAN fallback still works', () => {
     startBootGate();
-    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_000);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_000);
 
     expect(call().next).toHaveBeenCalled();
   });

@@ -1,21 +1,31 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mocked,
+  type MockedFunction,
+} from 'vitest';
 import os from 'os';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-jest.mock('../src/modules/http', () => ({
+vi.mock('../src/modules/http', () => ({
   __esModule: true,
-  curlExecJson: jest.fn(),
-  httpStatusError: jest.fn(),
-  tryFetchWithFallback: jest.fn(),
-  withTempJsonPayload: jest.fn(),
+  curlExecJson: vi.fn(),
+  httpStatusError: vi.fn(),
+  tryFetchWithFallback: vi.fn(),
+  withTempJsonPayload: vi.fn(),
 }));
 
 type Api = typeof import('../src/modules/api');
@@ -24,26 +34,25 @@ type Logger = typeof import('../src/modules/logger').default;
 
 // Fresh module registry per test: the retry loop keeps its venueId in module
 // state, and a leaked loop from an earlier test would keep firing.
-const load = () => {
+const load = async () => {
   let api!: Api;
   let http!: Http;
   let logger!: Logger;
-  jest.isolateModules(() => {
-    api = require('../src/modules/api');
-    http = require('../src/modules/http');
-    logger = require('../src/modules/logger').default;
-  });
+  vi.resetModules();
+  api = await import('../src/modules/api');
+  http = await import('../src/modules/http');
+  logger = (await import('../src/modules/logger')).default;
   return {
     api,
-    logger: logger as jest.Mocked<Logger>,
-    tryFetch: http.tryFetchWithFallback as jest.MockedFunction<
+    logger: logger as Mocked<Logger>,
+    tryFetch: http.tryFetchWithFallback as MockedFunction<
       typeof http.tryFetchWithFallback
     >,
   };
 };
 
 const ifaces = (entries: Record<string, [string, boolean?][]>) =>
-  jest.spyOn(os, 'networkInterfaces').mockReturnValue(
+  vi.spyOn(os, 'networkInterfaces').mockReturnValue(
     Object.fromEntries(
       Object.entries(entries).map(([name, addrs]) => [
         name,
@@ -67,26 +76,26 @@ const okResponse = {
   viaFallback: false,
 };
 
-describe('getLocalIP', () => {
-  afterEach(() => jest.restoreAllMocks());
+describe('getLocalIP', async () => {
+  afterEach(() => vi.restoreAllMocks());
 
-  it('prefers a physical adapter over a virtual one', () => {
+  it('prefers a physical adapter over a virtual one', async () => {
     ifaces({
       'vEthernet (WSL)': [['172.28.0.1']],
       Ethernet: [['192.168.1.50']],
     });
-    expect(load().api.getLocalIP()).toBe('192.168.1.50');
+    expect((await load()).api.getLocalIP()).toBe('192.168.1.50');
   });
 
-  it('never returns loopback when nothing is up', () => {
+  it('never returns loopback when nothing is up', async () => {
     ifaces({ 'Loopback Pseudo-Interface 1': [['127.0.0.1', true]] });
-    expect(load().api.getLocalIP()).toBeNull();
-    expect(load().api.getLocalIP({ allowVirtual: true })).toBeNull();
+    expect((await load()).api.getLocalIP()).toBeNull();
+    expect((await load()).api.getLocalIP({ allowVirtual: true })).toBeNull();
   });
 
-  it('withholds a virtual-only address unless the caller opts in', () => {
+  it('withholds a virtual-only address unless the caller opts in', async () => {
     ifaces({ 'vEthernet (Default Switch)': [['172.28.0.1']] });
-    const { api } = load();
+    const { api } = await load();
     expect(api.getLocalIP()).toBeNull();
     expect(api.getLocalIP({ allowVirtual: true })).toBe('172.28.0.1');
   });
@@ -94,22 +103,22 @@ describe('getLocalIP', () => {
 
 describe('startPrinterServerIpRegistration', () => {
   beforeEach(() => {
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
-    jest.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
+    vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
-    jest.restoreAllMocks();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('waits for a lease instead of publishing a virtual address at boot', async () => {
     ifaces({ 'vEthernet (Default Switch)': [['172.28.0.1']] });
-    const { api, logger, tryFetch } = load();
+    const { api, logger, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-1');
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(tryFetch).not.toHaveBeenCalled();
     // One deferral warning, not one per attempt.
     expect(logger.warn).toHaveBeenCalledTimes(1);
@@ -118,17 +127,17 @@ describe('startPrinterServerIpRegistration', () => {
       'vEthernet (Default Switch)': [['172.28.0.1']],
       Ethernet: [['192.168.1.50']],
     });
-    await jest.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
   });
 
   it('accepts a virtual-only address once the DHCP window has passed', async () => {
     ifaces({ 'vEthernet (External)': [['192.168.1.60']] });
-    const { api, logger, tryFetch } = load();
+    const { api, logger, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-2');
-    await jest.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
 
     expect(tryFetch).toHaveBeenCalledTimes(1);
     expect(logger.info).toHaveBeenCalledWith(
@@ -138,43 +147,43 @@ describe('startPrinterServerIpRegistration', () => {
 
   it('never replaces a registered physical address with a virtual one', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
-    const { api, tryFetch } = load();
+    const { api, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-7');
-    await jest.advanceTimersByTimeAsync(10 * 60_000);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
 
     // The NIC drops long after the DHCP grace window; the WSL address that is
     // left must not be published over the venue's real one.
     ifaces({ 'vEthernet (WSL)': [['172.28.0.1']] });
-    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
 
     ifaces({ Ethernet: [['192.168.1.77']] });
-    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(2);
   });
 
   it('still follows a virtual address it registered itself', async () => {
     ifaces({ 'vEthernet (External)': [['192.168.1.60']] });
-    const { api, tryFetch } = load();
+    const { api, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-8');
-    await jest.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 15_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
 
     // A Hyper-V external switch is the machine's only adapter, so its new
     // lease is still the address the FE has to reach.
     ifaces({ 'vEthernet (External)': [['192.168.1.61']] });
-    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(2);
   });
 
   it('retries until the backend confirms, then stops', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
-    const { api, logger, tryFetch } = load();
+    const { api, logger, tryFetch } = await load();
     tryFetch
       .mockRejectedValueOnce(new Error('fetch and curl both failed'))
       .mockResolvedValueOnce({
@@ -184,7 +193,7 @@ describe('startPrinterServerIpRegistration', () => {
       .mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-3');
-    await jest.advanceTimersByTimeAsync(45_000);
+    await vi.advanceTimersByTimeAsync(45_000);
 
     expect(tryFetch).toHaveBeenCalledTimes(3);
     expect(logger.info).toHaveBeenCalledWith(
@@ -192,22 +201,22 @@ describe('startPrinterServerIpRegistration', () => {
     );
 
     // Confirmed: nothing more to say while the address stays the same.
-    await jest.advanceTimersByTimeAsync(10 * 60_000);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(3);
   });
 
   it('re-registers when the LAN IP changes', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
-    const { api, logger, tryFetch } = load();
+    const { api, logger, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-5');
-    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
 
     // A new DHCP lease used to sit unpublished until the next restart.
     ifaces({ Ethernet: [['192.168.1.77']] });
-    await jest.advanceTimersByTimeAsync(5 * 60_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
 
     expect(tryFetch).toHaveBeenCalledTimes(2);
     expect(logger.info).toHaveBeenCalledWith(
@@ -217,27 +226,27 @@ describe('startPrinterServerIpRegistration', () => {
 
   it('keeps retrying a change the backend did not confirm', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
-    const { api, tryFetch } = load();
+    const { api, tryFetch } = await load();
     tryFetch.mockResolvedValue(okResponse as any);
 
     api.startPrinterServerIpRegistration('venue-6');
-    await jest.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(tryFetch).toHaveBeenCalledTimes(1);
 
     // The new address must not be remembered as registered until confirmed.
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
     ifaces({ Ethernet: [['192.168.1.77']] });
-    await jest.advanceTimersByTimeAsync(5 * 60_000 + 45_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 45_000);
     expect(tryFetch.mock.calls.length).toBeGreaterThan(2);
   });
 
   it('collapses the logs of a sustained outage and backs off', async () => {
     ifaces({ Ethernet: [['192.168.1.50']] });
-    const { api, logger, tryFetch } = load();
+    const { api, logger, tryFetch } = await load();
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
 
     api.startPrinterServerIpRegistration('venue-4');
-    await jest.advanceTimersByTimeAsync(60 * 60_000);
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
 
     // 4 attempts at 15s, then one a minute — not 240.
     expect(tryFetch.mock.calls.length).toBeLessThan(70);

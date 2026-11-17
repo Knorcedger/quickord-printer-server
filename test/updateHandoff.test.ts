@@ -1,3 +1,4 @@
+import { describe, expect, it, vi } from 'vitest';
 import type * as AutoUpdate from '../src/autoupdate/autoupdate';
 import type { UpdateCheckResult } from '../src/autoupdate/autoupdate';
 
@@ -13,18 +14,16 @@ const UPDATING: UpdateCheckResult = {
 
 // A started update latches updateInFlight for the life of the process, so each
 // test needs its own copy of the module.
-function loadAutoUpdate(): typeof AutoUpdate {
+async function loadAutoUpdate(): Promise<typeof AutoUpdate> {
   let mod: typeof AutoUpdate;
-  jest.isolateModules(() => {
-    // eslint-disable-next-line global-require
-    mod = require('../src/autoupdate/autoupdate');
-  });
+  vi.resetModules();
+  mod = await import('../src/autoupdate/autoupdate');
   return mod!;
 }
 
 describe('triggerUpdate handoff', () => {
   it('awaits beforeHandoff before the updater is spawned', async () => {
-    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const { setUpdateHandler, triggerUpdate } = await loadAutoUpdate();
     const order: string[] = [];
     setUpdateHandler(async (beforeHandoff) => {
       // Stands in for downloadLatestCode: report, then spawn the child.
@@ -45,7 +44,7 @@ describe('triggerUpdate handoff', () => {
   });
 
   it('reuses an in-flight update instead of spawning a second updater', async () => {
-    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const { setUpdateHandler, triggerUpdate } = await loadAutoUpdate();
     let runs = 0;
     setUpdateHandler(async (beforeHandoff) => {
       runs += 1;
@@ -64,7 +63,7 @@ describe('triggerUpdate handoff', () => {
   });
 
   it('stays retriable when there was nothing to update', async () => {
-    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const { setUpdateHandler, triggerUpdate } = await loadAutoUpdate();
     let runs = 0;
     const latest: UpdateCheckResult = {
       currentVersion: '2',
@@ -83,7 +82,8 @@ describe('triggerUpdate handoff', () => {
   });
 
   it('codes a failed download as DOWNLOAD_FAILED', async () => {
-    const { DownloadError, setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const { DownloadError, setUpdateHandler, triggerUpdate } =
+      await loadAutoUpdate();
     setUpdateHandler(async () => {
       throw new DownloadError('fetch failed');
     });
@@ -98,7 +98,7 @@ describe('triggerUpdate handoff', () => {
   });
 
   it('codes any other crash as UPDATE_FAILED', async () => {
-    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
+    const { setUpdateHandler, triggerUpdate } = await loadAutoUpdate();
     setUpdateHandler(async () => {
       throw new Error('EPERM');
     });
@@ -112,7 +112,7 @@ describe('triggerUpdate handoff', () => {
   });
 
   it('codes a missing handler as UPDATE_FAILED', async () => {
-    const { triggerUpdate } = loadAutoUpdate();
+    const { triggerUpdate } = await loadAutoUpdate();
 
     const result = await triggerUpdate();
 
@@ -124,14 +124,14 @@ describe('triggerUpdate handoff', () => {
 });
 
 describe('sc.exe error codes', () => {
-  it('prefers the exit code, which is the Win32 error itself', () => {
-    const { scErrorCode } = loadAutoUpdate();
+  it('prefers the exit code, which is the Win32 error itself', async () => {
+    const { scErrorCode } = await loadAutoUpdate();
     expect(scErrorCode(1060, 'anything')).toBe(1060);
     expect(scErrorCode(5, '')).toBe(5);
   });
 
-  it('falls back to the printed code when the exit code is lost', () => {
-    const { scErrorCode } = loadAutoUpdate();
+  it('falls back to the printed code when the exit code is lost', async () => {
+    const { scErrorCode } = await loadAutoUpdate();
     expect(
       scErrorCode(0, '[SC] StartService FAILED 1056:\n\nAn instance...')
     ).toBe(1056);
@@ -139,8 +139,8 @@ describe('sc.exe error codes', () => {
     expect(scErrorCode(0, 'no code here')).toBeNull();
   });
 
-  it('explains the codes a technician will actually hit', () => {
-    const { describeScError } = loadAutoUpdate();
+  it('explains the codes a technician will actually hit', async () => {
+    const { describeScError } = await loadAutoUpdate();
     expect(describeScError(5, '[SC] OpenService FAILED 5:')).toContain(
       'not running as administrator'
     );

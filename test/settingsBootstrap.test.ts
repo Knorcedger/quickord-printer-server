@@ -1,3 +1,12 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,24 +24,24 @@ import {
   updateSettings,
 } from '../src/modules/settings';
 
-jest.mock('../src/modules/api', () => ({
-  apiCall: jest.fn().mockResolvedValue({ data: {} }),
-  registerPrinterServerIp: jest.fn(),
-  startPrinterServerIpRegistration: jest.fn(),
+vi.mock('../src/modules/api', () => ({
+  apiCall: vi.fn().mockResolvedValue({ data: {} }),
+  registerPrinterServerIp: vi.fn(),
+  startPrinterServerIpRegistration: vi.fn(),
 }));
 
-jest.mock('../src/modules/printer', () => ({
-  setupPrinters: jest.fn(),
+vi.mock('../src/modules/printer', () => ({
+  setupPrinters: vi.fn(),
 }));
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-jest.mock('../src/modules/modem', () => ({
-  getModems: jest.requireActual('../src/modules/modem').getModems,
-  syncModems: jest.fn(),
+vi.mock('../src/modules/modem', async () => ({
+  getModems: (await vi.importActual<any>('../src/modules/modem')).getModems,
+  syncModems: vi.fn(),
 }));
 
 const cwd = process.cwd();
@@ -58,7 +67,7 @@ describe('LAN bootstrap identity', () => {
   afterAll(() => process.chdir(cwd));
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     updateSettings(Settings.parse({ printers: [] }));
   });
 
@@ -100,7 +109,7 @@ describe('LAN bootstrap identity', () => {
 
   it('ignores printers and modems from an old FE full-state push', async () => {
     await applyDesiredSettings(pulled, { hash: 'h1', source: 'pull' });
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     await applyBootstrapIdentity({
       modems: [{ modemId: 'm1', port: 'COM9' }],

@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { feed } from '../src/modules/modemParser';
 
 // Golden master of the parsing that used to live inline in modem.ts.

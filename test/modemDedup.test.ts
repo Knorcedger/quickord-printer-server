@@ -1,3 +1,4 @@
+import { beforeEach, describe, expect, it } from 'vitest';
 import { __resetDedup, shouldEmit } from '../src/modules/modemDedup';
 
 describe('modemDedup.shouldEmit', () => {

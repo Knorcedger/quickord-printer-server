@@ -1,58 +1,68 @@
-jest.mock('../src/modules/logger', () => ({
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mocked,
+  type MockedFunction,
+} from 'vitest';
+
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-jest.mock('../src/modules/api', () => ({ reportFetchFailure: jest.fn() }));
-jest.mock('../src/modules/backendUrl', () => ({
+vi.mock('../src/modules/api', () => ({ reportFetchFailure: vi.fn() }));
+vi.mock('../src/modules/backendUrl', () => ({
   getBackendBaseUrl: () => 'https://backend.test',
 }));
-jest.mock('../src/modules/network', () => ({
+vi.mock('../src/modules/network', () => ({
   __esModule: true,
-  default: jest.fn(),
+  default: vi.fn(),
 }));
-jest.mock('../src/modules/printer', () => ({ checkPrinters: jest.fn() }));
-jest.mock('../src/modules/printJob', () => ({ executePrintJob: jest.fn() }));
+vi.mock('../src/modules/printer', () => ({ checkPrinters: vi.fn() }));
+vi.mock('../src/modules/printJob', () => ({ executePrintJob: vi.fn() }));
 
 const psIdentity = {
   getPrinterVersion: () => 'v-test',
-  getVenueId: jest.fn(() => 'venue-1'),
-  getWsSecret: jest.fn(() => 'secret'),
-  triggerRestart: jest.fn(),
+  getVenueId: vi.fn(() => 'venue-1'),
+  getWsSecret: vi.fn(() => 'secret'),
+  triggerRestart: vi.fn(),
 };
-jest.mock('../src/modules/psIdentity', () => psIdentity);
+vi.mock('../src/modules/psIdentity', () => psIdentity);
 
-jest.mock('../src/modules/http', () => ({
+vi.mock('../src/modules/http', () => ({
   __esModule: true,
   CURL_CONNECT_TIMEOUT_S: 20,
-  curlExecJson: jest.fn(),
-  httpStatusError: jest.fn(),
+  curlExecJson: vi.fn(),
+  httpStatusError: vi.fn(),
   isCheapRetryableFetchError: () => true,
-  tryFetchWithFallback: jest.fn(),
-  withTempJsonPayload: jest.fn(),
+  tryFetchWithFallback: vi.fn(),
+  withTempJsonPayload: vi.fn(),
 }));
 
 type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
 
-const load = () => {
+const load = async () => {
   let pullClient!: typeof import('../src/modules/pullClient');
   let http!: Http;
   let logger!: Logger;
-  jest.isolateModules(() => {
-    pullClient = require('../src/modules/pullClient');
-    http = require('../src/modules/http');
-    logger = require('../src/modules/logger').default;
-  });
+  vi.resetModules();
+  pullClient = await import('../src/modules/pullClient');
+  http = await import('../src/modules/http');
+  logger = (await import('../src/modules/logger')).default;
   return {
-    logger: logger as jest.Mocked<Logger>,
+    logger: logger as Mocked<Logger>,
     pullClient,
-    tryFetch: http.tryFetchWithFallback as jest.MockedFunction<
+    tryFetch: http.tryFetchWithFallback as MockedFunction<
       typeof http.tryFetchWithFallback
     >,
   };
@@ -69,29 +79,29 @@ const heldPoll = (value: unknown) => () =>
 // wait instead of leaving a poll in flight after the test.
 const parkLoop = async () => {
   psIdentity.getVenueId.mockReturnValue('');
-  await jest.advanceTimersByTimeAsync(30_000);
+  await vi.advanceTimersByTimeAsync(30_000);
   psIdentity.getVenueId.mockReturnValue('venue-1');
 };
 
 describe('pull loop failure logging', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
-    jest.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
+    vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
     psIdentity.getVenueId.mockReturnValue('venue-1');
   });
 
   afterEach(async () => {
     await parkLoop();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('logs the first poll failure in full, then one summary per 5 minutes', async () => {
-    const { logger, pullClient, tryFetch } = load();
+    const { logger, pullClient, tryFetch } = await load();
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(6 * 60_000);
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
 
     expect(tryFetch.mock.calls.length).toBeGreaterThan(50);
     // Only the first poll of the episode lets the http layer dump the failure.
@@ -112,11 +122,11 @@ describe('pull loop failure logging', () => {
   });
 
   it('logs one recovery line and re-arms the full dump', async () => {
-    const { logger, pullClient, tryFetch } = load();
+    const { logger, pullClient, tryFetch } = await load();
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     tryFetch.mockImplementation(
       heldPoll({
         data: { jobs: [] },
@@ -124,7 +134,7 @@ describe('pull loop failure logging', () => {
         viaFallback: false,
       }) as any
     );
-    await jest.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(30_000);
 
     expect(logger.info).toHaveBeenCalledWith(
       expect.stringMatching(
@@ -134,7 +144,7 @@ describe('pull loop failure logging', () => {
 
     const callsBefore = tryFetch.mock.calls.length;
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
-    await jest.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(30_000);
     expect(
       tryFetch.mock.calls
         .slice(callsBefore)
@@ -143,7 +153,7 @@ describe('pull loop failure logging', () => {
   });
 
   it('does not let an auth rejection inflate the next outage count', async () => {
-    const { logger, pullClient, tryFetch } = load();
+    const { logger, pullClient, tryFetch } = await load();
     tryFetch.mockResolvedValue({
       data: {
         code: 'printJobs.authRejected',
@@ -154,13 +164,13 @@ describe('pull loop failure logging', () => {
     } as any);
 
     pullClient.initPullClient();
-    await jest.advanceTimersByTimeAsync(3 * 60_000);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
 
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error.mock.calls[0]?.[0]).toMatch(/^Print-job poll rejected/);
 
     tryFetch.mockRejectedValue(new Error('fetch and curl both failed'));
-    await jest.advanceTimersByTimeAsync(65_000);
+    await vi.advanceTimersByTimeAsync(65_000);
 
     // A fresh episode: full dump again, counted from one.
     expect(logger.error).toHaveBeenNthCalledWith(

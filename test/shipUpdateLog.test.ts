@@ -1,11 +1,12 @@
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import type { LogLine } from '../src/modules/logger';
 
-const enqueueLines = jest.fn(async (_lines: LogLine[]) => true);
-jest.mock('../src/modules/logShipper', () => ({
+const enqueueLines = vi.fn(async (_lines: LogLine[]) => true);
+vi.mock('../src/modules/logShipper', () => ({
   __esModule: true,
   enqueueLines: (lines: LogLine[]) => enqueueLines(lines),
 }));

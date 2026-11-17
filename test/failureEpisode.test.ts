@@ -1,27 +1,36 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mocked,
+} from 'vitest';
 import { FailureEpisode } from '../src/modules/failureEpisode';
 import logger from '../src/modules/logger';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-const mockedLogger = logger as jest.Mocked<typeof logger>;
+const mockedLogger = logger as Mocked<typeof logger>;
 
 describe('FailureEpisode', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
-    jest.setSystemTime(new Date('2026-09-03T10:00:00Z'));
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
+    vi.setSystemTime(new Date('2026-09-03T10:00:00Z'));
   });
 
   afterEach(() => {
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('logs the first failure in full and then stays quiet', () => {
@@ -35,7 +44,7 @@ describe('FailureEpisode', () => {
     );
 
     for (let i = 0; i < 50; i++) {
-      jest.advanceTimersByTime(3_000);
+      vi.advanceTimersByTime(3_000);
       episode.fail(err);
     }
     expect(mockedLogger.error).toHaveBeenCalledTimes(1);
@@ -47,14 +56,14 @@ describe('FailureEpisode', () => {
     const episode = new FailureEpisode('Print-job poll');
 
     episode.fail(new Error('boom'));
-    jest.advanceTimersByTime(5 * 60_000);
+    vi.advanceTimersByTime(5 * 60_000);
     episode.fail(new Error('still down'));
 
     expect(mockedLogger.error).toHaveBeenLastCalledWith(
       'Print-job poll still failing — 2 consecutive failures over 5m. Last error: still down'
     );
 
-    jest.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(60_000);
     episode.fail(new Error('still down'));
     expect(mockedLogger.error).toHaveBeenCalledTimes(2);
   });
@@ -63,7 +72,7 @@ describe('FailureEpisode', () => {
     const episode = new FailureEpisode('Print-job poll');
 
     episode.fail(new Error('boom'));
-    jest.advanceTimersByTime(9 * 60_000);
+    vi.advanceTimersByTime(9 * 60_000);
     episode.fail(new Error('boom'));
     episode.succeed();
 
