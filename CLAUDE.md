@@ -63,8 +63,8 @@ npm install
 # Development
 npm run start:dev
 
-# Typecheck
-npx tsc -p tsconfig.json --noEmit
+# Typecheck (tsrs, the Rust port of TypeScript 7; `npm run typecheck:tsc` runs tsc)
+npm run typecheck
 
 # Build & create release zip
 npm run build
