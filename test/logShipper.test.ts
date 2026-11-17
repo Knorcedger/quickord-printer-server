@@ -223,7 +223,10 @@ describe('logShipper', () => {
     expect(queue).toHaveLength(shipper.MAX_SPOOL_ENTRIES);
     expect(queue[0]!.msg).toBe('line 3');
     expect(shipper.getDroppedForTests()).toBe(3);
-  });
+    // Drain the 5,003 spool appends here, under this test's own timeout:
+    // on a busy machine they outlast the afterEach hook's 10s.
+    await shipper.resetLogShipperForTests();
+  }, 60_000);
 
   it('restores the spool after a restart and continues its seq', async () => {
     let { logger, shipper } = loaded;
