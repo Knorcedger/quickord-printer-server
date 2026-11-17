@@ -1,28 +1,29 @@
+import { describe, expect, it, vi, type Mocked } from 'vitest';
+
 // No top-level import/export of its own, so TS would treat this as a global
 // script and collide `load` with the other suites.
 export {};
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
 type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
 
-const load = () => {
+const load = async () => {
   let http!: Http;
   let logger!: Logger;
-  jest.isolateModules(() => {
-    http = require('../src/modules/http');
-    logger = require('../src/modules/logger').default;
-  });
-  return { http, logger: logger as jest.Mocked<Logger> };
+  vi.resetModules();
+  http = await import('../src/modules/http');
+  logger = (await import('../src/modules/logger')).default;
+  return { http, logger: logger as Mocked<Logger> };
 };
 
 const URL_A = 'https://backend.test/print-jobs/result';
@@ -34,14 +35,14 @@ const connectFail = (code: string) => {
 };
 
 // The endpoints object of the stats line logged at `level`.
-const statsLine = (logger: jest.Mocked<Logger>, level: 'info' | 'warn') => {
+const statsLine = (logger: Mocked<Logger>, level: 'info' | 'warn') => {
   const call = logger[level].mock.calls.find((c) => c[1] === 'fetch stats');
   return (call?.[0] as any)?.endpoints;
 };
 
 describe('fetch retry policy', () => {
-  it('goes straight to curl on a connect timeout instead of retrying fetch', () => {
-    const { http } = load();
+  it('goes straight to curl on a connect timeout instead of retrying fetch', async () => {
+    const { http } = await load();
     expect(http.isCheapRetryableFetchError(connectFail('ETIMEDOUT'))).toBe(
       false
     );
@@ -54,8 +55,8 @@ describe('fetch retry policy', () => {
   });
 
   it('does not retry an ETIMEDOUT fetch before falling back', async () => {
-    const { http } = load();
-    const fetchFn = jest.fn(async () => {
+    const { http } = await load();
+    const fetchFn = vi.fn(async () => {
       throw connectFail('ETIMEDOUT');
     });
     const result = await http.tryFetchWithFallback({
@@ -73,7 +74,7 @@ describe('fetch retry policy', () => {
 
 describe('fetch stats line', () => {
   it('counts each outcome per endpoint and logs a failing window as warn', async () => {
-    const { http, logger } = load();
+    const { http, logger } = await load();
     const ok = async () => ({ data: 'fetch' });
 
     await http.tryFetchWithFallback({
@@ -144,7 +145,7 @@ describe('fetch stats line', () => {
   });
 
   it('logs a clean window as info, and nothing when there was no traffic', async () => {
-    const { http, logger } = load();
+    const { http, logger } = await load();
     await http.tryFetchWithFallback({
       curlFn: async () => 'curl',
       fetchFn: async () => ({ data: 'fetch' }),
@@ -168,25 +169,25 @@ describe('fetch stats line', () => {
   });
 
   it('flushes on its own every window', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     try {
-      const { http, logger } = load();
+      const { http, logger } = await load();
       await http.tryFetchWithFallback({
         curlFn: async () => 'curl',
         fetchFn: async () => ({ data: 'fetch' }),
         method: 'POST',
         url: URL_A,
       });
-      jest.advanceTimersByTime(http.FETCH_STATS_INTERVAL_MS);
+      vi.advanceTimersByTime(http.FETCH_STATS_INTERVAL_MS);
       expect(statsLine(logger, 'info')).toBeDefined();
       http.resetFetchStatsForTests();
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 
   it('folds open-ended paths into their host past the endpoint cap', async () => {
-    const { http, logger } = load();
+    const { http, logger } = await load();
     for (let i = 0; i < 30; i++) {
       await http.tryFetchWithFallback({
         curlFn: async () => Buffer.alloc(0),

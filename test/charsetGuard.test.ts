@@ -1,3 +1,5 @@
+import { describe, expect, test, vi, type Mock } from 'vitest';
+
 // The lib switches code page on its own when a character is missing from the
 // configured one; on CP737 printers the first `€` broke every Greek label after
 // it. These lock the guard at the byte level.
@@ -22,9 +24,9 @@ import {
 } from '../src/modules/common';
 import logger from '../src/modules/logger';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
 const SAMPLE = 'ΣΥΝΟΛΟ: 5.00 €';
@@ -110,7 +112,7 @@ describe('charset guard', () => {
   // PC850 venues printed Greek only through the lib's silent page switch;
   // the guard turns that into `?`, so setup has to say so.
   test('warnIfNoGreek flags a charset without Greek letters', () => {
-    const warn = logger.warn as jest.Mock;
+    const warn = logger.warn as Mock;
     warn.mockClear();
 
     const latin = installCharsetGuard(
@@ -143,7 +145,7 @@ describe('charset guard', () => {
     expect(sanitizeForEncoding('Ω', encoding)).toBe('Ω');
     expect(sanitizeForEncoding('ΑΒ', encoding)).toBe('??');
 
-    const warn = logger.warn as jest.Mock;
+    const warn = logger.warn as Mock;
     warn.mockClear();
     warnIfNoGreek(installCharsetGuard(makePrinter(charset), charset), 'Bar');
     expect(warn).toHaveBeenCalledTimes(1);
@@ -519,7 +521,7 @@ describe('charset guard', () => {
       makePrinter(characterSet),
       characterSet
     );
-    const println = jest.spyOn(printer, 'println');
+    const println = vi.spyOn(printer, 'println');
     // 42 characters before the guard, 44 after.
     const text = `${'ΚΑΦΕΣ '.repeat(6)}ΤΟΣ 5€`;
     expect(text.length).toBe(42);

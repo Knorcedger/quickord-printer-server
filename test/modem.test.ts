@@ -1,3 +1,12 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockedFunction,
+} from 'vitest';
 import signale from 'signale';
 
 import { apiCall } from '../src/modules/api';
@@ -21,18 +30,18 @@ import {
   useFakePorts,
 } from './helpers/fakeModem';
 
-jest.mock('../src/modules/api', () => ({
-  apiCall: jest.fn().mockResolvedValue({ data: {} }),
-  registerPrinterServerIp: jest.fn(),
-  startPrinterServerIpRegistration: jest.fn(),
+vi.mock('../src/modules/api', () => ({
+  apiCall: vi.fn().mockResolvedValue({ data: {} }),
+  registerPrinterServerIp: vi.fn(),
+  startPrinterServerIpRegistration: vi.fn(),
 }));
 
-const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>;
+const mockedApiCall = apiCall as MockedFunction<typeof apiCall>;
 
 const modem = (port: string, label?: string) => ({ label, port });
 
 // Let queued microtasks/serialport events run without real waiting.
-const settle = () => jest.advanceTimersByTimeAsync(1);
+const settle = () => vi.advanceTimersByTimeAsync(1);
 
 const numbersSentToBE = () =>
   mockedApiCall.mock.calls.map(
@@ -42,8 +51,8 @@ const numbersSentToBE = () =>
 describe('modem registry', () => {
   beforeEach(() => {
     // The mock serial binding resolves its own operations on nextTick.
-    jest.useFakeTimers({ doNotFake: ['nextTick'] });
-    jest.clearAllMocks();
+    vi.useFakeTimers({ toNotFake: ['nextTick'] });
+    vi.clearAllMocks();
     __resetDedup();
     updateSettings(Settings.parse({ printers: [], venueId: 'venue-1' }));
     useFakePorts('COM3', 'COM4');
@@ -52,7 +61,7 @@ describe('modem registry', () => {
   afterEach(async () => {
     await syncModems([]);
     dropAllFakePorts();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   it('M1: opens every configured port', async () => {
@@ -123,7 +132,7 @@ describe('modem registry', () => {
     ring('COM3', '6976641604');
     await settle();
 
-    jest.setSystemTime(Date.now() + 6_000);
+    vi.setSystemTime(Date.now() + 6_000);
 
     ring('COM3', '6976641604');
     await settle();
@@ -145,12 +154,12 @@ describe('modem registry', () => {
     await settle();
     expect(numbersSentToBE()).toEqual(['2109999999']);
 
-    await jest.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
   });
 
   it('M9: gives up on one port without touching the other', async () => {
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
 
     await syncModems([modem('COM3'), modem('COM4')]);
 
@@ -160,7 +169,7 @@ describe('modem registry', () => {
     dropAllFakePorts();
     com3.serial!.close();
 
-    await jest.advanceTimersByTimeAsync(2_000_000);
+    await vi.advanceTimersByTimeAsync(2_000_000);
 
     expect(
       errorSpy.mock.calls.some((c) => String(c[0]).includes('gave up'))
@@ -180,7 +189,7 @@ describe('modem registry', () => {
     const before3 = recordingOf('COM3').length;
     const before4 = recordingOf('COM4').length;
 
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await settle();
 
     expect(recordingOf('COM3').slice(before3)).toBe('AT\r');
@@ -214,7 +223,7 @@ describe('modem registry', () => {
   });
 
   it('M13: a port that cannot open does not take down the others', async () => {
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
 
     await syncModems([modem('COM3'), modem('COM9')]);
 
@@ -228,7 +237,7 @@ describe('modem registry', () => {
   });
 
   it('M15: a sync arriving while another sync is opening does not leak a half-open port', async () => {
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
 
     // Reopen the race window that useFakePorts closes with a 0ms init delay.
     __setInitDelayMs(20);
@@ -238,7 +247,7 @@ describe('modem registry', () => {
     const early = instanceFor('COM3');
 
     const second = syncModems([modem('COM3')]);
-    await jest.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     await Promise.all([first, second]);
 
     const final = instanceFor('COM3')!;
@@ -254,13 +263,13 @@ describe('modem registry', () => {
   });
 
   it('M16: re-issues VCID when a RING arrives without a CID block', async () => {
-    const warnSpy = jest.spyOn(signale, 'warn').mockImplementation();
+    const warnSpy = vi.spyOn(signale, 'warn').mockImplementation();
     await syncModems([modem('COM3')]);
     await settleInit();
     const before = recordingOf('COM3').length;
 
     emit('COM3', 'RING\r\n');
-    await jest.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
 
     expect(recordingOf('COM3').slice(before)).toBe('AT+VCID=1\r');
     expect(
@@ -276,18 +285,18 @@ describe('modem registry', () => {
     const before = recordingOf('COM3').length;
 
     ring('COM3', '6976641604');
-    await jest.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     // Later RINGs of the same call carry no NMBR and must stay quiet too.
     emit('COM3', 'RING\r\n');
-    await jest.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
 
     expect(recordingOf('COM3').slice(before)).toBe('');
     expect(instanceFor('COM3')?.consecutiveVcidReissues).toBe(0);
   });
 
   it('M18: reconnects the port after three re-issues in a row', async () => {
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
-    jest.spyOn(signale, 'warn').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
+    vi.spyOn(signale, 'warn').mockImplementation();
 
     await syncModems([modem('COM3')]);
     await settleInit();
@@ -297,7 +306,7 @@ describe('modem registry', () => {
     for (let i = 0; i < 3; i++) {
       emit('COM3', 'RING\r\n');
       // eslint-disable-next-line no-await-in-loop
-      await jest.advanceTimersByTimeAsync(35_000); // past RECENT_NMBR_WINDOW_MS
+      await vi.advanceTimersByTimeAsync(35_000); // past RECENT_NMBR_WINDOW_MS
     }
 
     expect(
@@ -306,16 +315,16 @@ describe('modem registry', () => {
       )
     ).toBe(true);
 
-    await jest.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(inst.serial).not.toBe(firstSerial);
     expect(inst.serial?.isOpen).toBe(true);
 
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('M19: an old re-issue does not count towards the streak', async () => {
-    jest.spyOn(signale, 'warn').mockImplementation();
-    const errorSpy = jest.spyOn(signale, 'error').mockImplementation();
+    vi.spyOn(signale, 'warn').mockImplementation();
+    const errorSpy = vi.spyOn(signale, 'error').mockImplementation();
 
     await syncModems([modem('COM3')]);
     await settleInit();
@@ -323,7 +332,7 @@ describe('modem registry', () => {
     for (let i = 0; i < 4; i++) {
       emit('COM3', 'RING\r\n');
       // eslint-disable-next-line no-await-in-loop
-      await jest.advanceTimersByTimeAsync(11 * 60_000); // past the decay window
+      await vi.advanceTimersByTimeAsync(11 * 60_000); // past the decay window
     }
 
     expect(
@@ -333,7 +342,7 @@ describe('modem registry', () => {
     ).toBe(false);
     expect(instanceFor('COM3')?.consecutiveVcidReissues).toBe(1);
 
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   it('M20: init does not block the caller of syncModems', async () => {
@@ -352,13 +361,13 @@ describe('modem registry', () => {
     expect(instanceFor('COM3')?.serial?.isOpen).toBe(true);
     expect(recordingOf('COM3')).toBe('');
 
-    await jest.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     await instanceFor('COM3')?.initPromise;
     expect(recordingOf('COM3')).toContain('AT+VCID=1\r');
   });
 
   it('M14: opens a duplicated port only once', async () => {
-    const warnSpy = jest.spyOn(signale, 'warn').mockImplementation();
+    const warnSpy = vi.spyOn(signale, 'warn').mockImplementation();
 
     await syncModems([modem('COM3'), modem('COM3')]);
 
@@ -393,7 +402,7 @@ describe('modem registry', () => {
       await syncModems([modem('COM3')]);
 
       ring('COM3', NUMBER);
-      await jest.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(200);
       await settleInit();
 
       expect(shipped.some((m) => m.includes('drained pre-init output'))).toBe(
@@ -431,9 +440,9 @@ describe('modem registry', () => {
       await syncModems([modem('COM3')]);
 
       // 'AT' is now waiting for an OK the mock never sends.
-      await jest.advanceTimersByTimeAsync(10);
+      await vi.advanceTimersByTimeAsync(10);
       ring('COM3', NUMBER);
-      await jest.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       await instanceFor('COM3')?.initPromise;
 
       expect(

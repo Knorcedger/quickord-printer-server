@@ -1,3 +1,4 @@
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   enqueuePrinterJob,
   hasPendingPrinterJob,
@@ -5,9 +6,9 @@ import {
   runOnPrinterQueue,
 } from '../src/modules/printerQueue';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
 const deferred = () => {
@@ -68,7 +69,7 @@ describe('printer queue', () => {
 
 describe('hasPendingPrinterJob', () => {
   it('is true while a job runs and false once the queue drains', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     try {
       const job = deferred();
       enqueuePrinterJob('10.0.0.7', () => job.promise);
@@ -76,10 +77,10 @@ describe('hasPendingPrinterJob', () => {
       expect(hasPendingPrinterJob('10.0.0.8')).toBe(false);
 
       job.resolve();
-      await jest.runAllTimersAsync();
+      await vi.runAllTimersAsync();
       expect(hasPendingPrinterJob('10.0.0.7')).toBe(false);
     } finally {
-      jest.useRealTimers();
+      vi.useRealTimers();
     }
   });
 });

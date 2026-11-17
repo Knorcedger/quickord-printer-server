@@ -1,33 +1,47 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mocked,
+} from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
+
+// updateLog.ts imports tmpdir by name, which a spy on the os object misses.
+const fakeTmp = vi.hoisted(() => ({ dir: '' }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  const tmpdir = () => fakeTmp.dir || actual.tmpdir();
+  return { ...actual, default: { ...actual.default, tmpdir }, tmpdir };
+});
 
 type UpdateLog = typeof import('../src/autoupdate/updateLog');
 type Logger = typeof import('../src/modules/logger').default;
 
 // Fresh registry per test: the module latches updaterMode and its temp path.
-const load = () => {
+const load = async () => {
   let mod!: UpdateLog;
   let logger!: Logger;
-  jest.isolateModules(() => {
-    /* eslint-disable global-require */
-    mod = require('../src/autoupdate/updateLog');
-    logger = require('../src/modules/logger').default;
-    /* eslint-enable global-require */
-  });
-  return { logger: logger as jest.Mocked<Logger>, mod };
+  vi.resetModules();
+  mod = await import('../src/autoupdate/updateLog');
+  logger = (await import('../src/modules/logger')).default;
+  return { logger: logger as Mocked<Logger>, mod };
 };
 
 // The module picks its temp path from tmpdir() at import time, so each test
 // gets its own directory and they cannot see each other's files.
 const useTempDir = () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-updatelog-'));
-  jest.spyOn(os, 'tmpdir').mockReturnValue(dir);
+  fakeTmp.dir = dir;
   return dir;
 };
 
@@ -41,18 +55,19 @@ describe('update log', () => {
   let tmp: string;
 
   beforeEach(() => {
-    jest.spyOn(console, 'log').mockImplementation(() => {});
-    jest.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     tmp = useTempDir();
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
+    fakeTmp.dir = '';
     fs.rmSync(tmp, { force: true, recursive: true });
   });
 
-  it('lands in the install directory, not in temp', () => {
-    const { mod } = load();
+  it('lands in the install directory, not in temp', async () => {
+    const { mod } = await load();
     const root = path.join(tmp, 'quickord-cashier-server');
     const builds = install(root);
 
@@ -72,12 +87,12 @@ describe('update log', () => {
     ).toHaveLength(0);
   });
 
-  it('appends across updates instead of replacing', () => {
+  it('appends across updates instead of replacing', async () => {
     const root = path.join(tmp, 'install');
     const builds = install(root);
     fs.writeFileSync(path.join(builds, 'autoupdate.log'), 'previous update\n');
 
-    const { mod } = load();
+    const { mod } = await load();
     mod.markUpdaterProcess();
     mod.updateLog('this update');
     mod.flushUpdateLog(root);
@@ -90,8 +105,8 @@ describe('update log', () => {
     expect(written).toContain('this update');
   });
 
-  it('keeps the temp file when the install directory is unusable', () => {
-    const { mod } = load();
+  it('keeps the temp file when the install directory is unusable', async () => {
+    const { mod } = await load();
     mod.markUpdaterProcess();
     mod.updateLog('rollback failed');
     // A file where the builds directory should be: mkdir and append both fail.
@@ -110,7 +125,7 @@ describe('update log', () => {
     );
   });
 
-  it('absorbs a dead updater log at boot and leaves a live one alone', () => {
+  it('absorbs a dead updater log at boot and leaves a live one alone', async () => {
     const builds = install(path.join(tmp, 'install'));
     const dead = path.join(tmp, 'quickord-update-999999.log');
     const live = path.join(tmp, `quickord-update-${process.pid}.log`);
@@ -120,7 +135,7 @@ describe('update log', () => {
     const cwd = process.cwd();
     process.chdir(builds);
     try {
-      load().mod.absorbStrayUpdateLogs();
+      (await load()).mod.absorbStrayUpdateLogs();
     } finally {
       process.chdir(cwd);
     }
@@ -132,8 +147,8 @@ describe('update log', () => {
     expect(fs.existsSync(live)).toBe(true);
   });
 
-  it('goes to the app log when it is not the updater', () => {
-    const { logger, mod } = load();
+  it('goes to the app log when it is not the updater', async () => {
+    const { logger, mod } = await load();
 
     mod.updateLog('normal boot version check');
 

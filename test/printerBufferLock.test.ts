@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
 import * as common from '../src/modules/common';
 import {
@@ -9,9 +10,9 @@ import {
 } from '../src/modules/printer';
 import { enqueuePrinterJob } from '../src/modules/printerQueue';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+  default: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
 const deferred = () => {
@@ -28,12 +29,12 @@ describe('LAN prints sharing a printer buffer', () => {
   const sent: string[] = [];
 
   beforeAll(async () => {
-    jest
-      .spyOn(ThermalPrinter.prototype, 'raw')
-      .mockImplementation(async (data: Buffer) => {
+    vi.spyOn(ThermalPrinter.prototype, 'raw').mockImplementation(
+      async (data: Buffer) => {
         sent.push(Buffer.from(data).toString('latin1'));
         return '';
-      });
+      }
+    );
     await setupPrinters({
       printers: [
         {
@@ -48,7 +49,7 @@ describe('LAN prints sharing a printer buffer', () => {
 
   afterAll(async () => {
     stopPrinterKeepalive();
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
     // Let the inter-job pauses drain so the worker exits cleanly.
     await new Promise((r) => setTimeout(r, 600));
   });
@@ -56,13 +57,13 @@ describe('LAN prints sharing a printer buffer', () => {
   it("keeps a rendering request's bytes when a queued one finishes", async () => {
     const pullJob = deferred();
     const image = deferred();
-    jest
-      .spyOn(common, 'readMarkdown')
-      .mockImplementation(async (_text, printer) => {
+    vi.spyOn(common, 'readMarkdown').mockImplementation(
+      async (_text, printer) => {
         printer.println('B-HEADER');
         await image.promise;
         printer.println('B-BODY');
-      });
+      }
+    );
 
     // A renders, then waits behind a pull job; B starts while A is queued.
     enqueuePrinterJob('10.0.0.9', () => pullJob.promise);
@@ -76,7 +77,7 @@ describe('LAN prints sharing a printer buffer', () => {
       } as any,
     ]);
     await flush();
-    const res = { send: jest.fn(), status: jest.fn() };
+    const res = { send: vi.fn(), status: vi.fn() };
     res.status.mockReturnValue(res);
     const b = printText({ body: { text: 'x' } } as any, res as any);
     await flush();
@@ -112,15 +113,15 @@ describe('LAN prints sharing a printer buffer', () => {
     } as any);
     sent.length = 0;
     const image = deferred();
-    jest
-      .spyOn(common, 'readMarkdown')
-      .mockImplementation(async (_text, printer) => {
+    vi.spyOn(common, 'readMarkdown').mockImplementation(
+      async (_text, printer) => {
         printer.println('A-TEXT');
         await image.promise;
-      });
+      }
+    );
 
     // A holds p1 mid-render; B's comments only go to p2.
-    const res = { send: jest.fn(), status: jest.fn() };
+    const res = { send: vi.fn(), status: vi.fn() };
     res.status.mockReturnValue(res);
     const a = printText({ body: { text: 'x' } } as any, res as any);
     await flush();
@@ -158,12 +159,12 @@ describe('LAN prints sharing a printer buffer', () => {
         },
       ],
     } as any);
-    jest.spyOn(common, 'readMarkdown').mockResolvedValue(undefined);
-    jest
-      .mocked(ThermalPrinter.prototype.raw)
-      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.0.1:9100'));
+    vi.spyOn(common, 'readMarkdown').mockResolvedValue(undefined);
+    vi.mocked(ThermalPrinter.prototype.raw).mockRejectedValueOnce(
+      new Error('connect ECONNREFUSED 10.0.0.1:9100')
+    );
 
-    const res = { send: jest.fn(), status: jest.fn() };
+    const res = { send: vi.fn(), status: vi.fn() };
     res.status.mockReturnValue(res);
     await printText({ body: { text: 'x' } } as any, res as any);
 
@@ -176,7 +177,7 @@ describe('LAN prints sharing a printer buffer', () => {
   });
 
   it('reuses the last status instead of probing a printer mid-job', async () => {
-    const probe = jest
+    const probe = vi
       .spyOn(ThermalPrinter.prototype, 'isPrinterConnected')
       .mockResolvedValue(true);
     await checkPrinters();

@@ -1,3 +1,13 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -13,29 +23,29 @@ import {
   updateSettings,
 } from '../src/modules/settings';
 
-jest.mock('../src/modules/api', () => ({
-  apiCall: jest.fn().mockResolvedValue({ data: {} }),
-  registerPrinterServerIp: jest.fn(),
-  startPrinterServerIpRegistration: jest.fn(),
+vi.mock('../src/modules/api', () => ({
+  apiCall: vi.fn().mockResolvedValue({ data: {} }),
+  registerPrinterServerIp: vi.fn(),
+  startPrinterServerIpRegistration: vi.fn(),
 }));
 
-jest.mock('../src/modules/printer', () => ({
-  setupPrinters: jest.fn(),
+vi.mock('../src/modules/printer', () => ({
+  setupPrinters: vi.fn(),
 }));
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
   default: {
-    debug: jest.fn(),
-    error: jest.fn(),
-    info: jest.fn(),
-    warn: jest.fn(),
+    debug: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
   },
 }));
 
-jest.mock('../src/modules/modem', () => ({
-  getModems: jest.requireActual('../src/modules/modem').getModems,
-  syncModems: jest.fn(),
+vi.mock('../src/modules/modem', async () => ({
+  getModems: (await vi.importActual<any>('../src/modules/modem')).getModems,
+  syncModems: vi.fn(),
 }));
 
 const cwd = process.cwd();
@@ -61,7 +71,7 @@ describe('settings hash sync', () => {
   afterAll(() => process.chdir(cwd));
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     updateSettings(Settings.parse({ printers: [] }));
   });
 
@@ -174,10 +184,10 @@ describe('settings hash sync', () => {
 
       // One line, carrying the real reason the write failed.
       expect(logger.warn).toHaveBeenCalledTimes(1);
-      expect((logger.warn as jest.Mock).mock.calls[0][0]).toContain('EISDIR');
+      expect((logger.warn as Mock).mock.calls[0][0]).toContain('EISDIR');
       expect(logger.error).not.toHaveBeenCalled();
 
-      jest.clearAllMocks();
+      vi.clearAllMocks();
       await applyDesiredSettings(desired, {
         authoritative: true,
         hash: 'abc123',

@@ -1,20 +1,29 @@
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type * as AutoUpdate from '../src/autoupdate/autoupdate';
 
-jest.mock('../src/modules/logger', () => ({
+vi.mock('../src/modules/logger', () => ({
   __esModule: true,
-  default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+  default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
-jest.mock('../src/modules/api', () => ({
-  reportFetchFailure: jest.fn(() => Promise.resolve()),
+vi.mock('../src/modules/api', () => ({
+  reportFetchFailure: vi.fn(() => Promise.resolve()),
 }));
 
-const curlExec = jest.fn();
-jest.mock('../src/modules/http', () => ({
-  ...jest.requireActual('../src/modules/http'),
+const curlExec = vi.fn();
+vi.mock('../src/modules/http', async () => ({
+  ...(await vi.importActual('../src/modules/http')),
   curlExec: (...a: unknown[]) => curlExec(...a),
 }));
 
@@ -34,7 +43,7 @@ describe('release download over the curl fallback', () => {
     process.chdir(root);
     process.env.CODE_VERSION_URL = VERSION_URL;
     process.env.CODE_UPDATE_URL = UPDATE_URL;
-    global.fetch = jest.fn(async (url: any) =>
+    global.fetch = vi.fn(async (url: any) =>
       url === VERSION_URL
         ? ({
             ok: true,
@@ -58,12 +67,10 @@ describe('release download over the curl fallback', () => {
     fs.rmSync(root, { force: true, recursive: true });
   });
 
-  function loadAutoUpdate(): typeof AutoUpdate {
+  async function loadAutoUpdate(): Promise<typeof AutoUpdate> {
     let mod: typeof AutoUpdate;
-    jest.isolateModules(() => {
-      // eslint-disable-next-line global-require
-      mod = require('../src/autoupdate/autoupdate');
-    });
+    vi.resetModules();
+    mod = await import('../src/autoupdate/autoupdate');
     return mod!;
   }
 
@@ -77,7 +84,7 @@ describe('release download over the curl fallback', () => {
       )
     );
     const { setUpdateHandler, triggerUpdate, downloadLatestCode } =
-      loadAutoUpdate();
+      await loadAutoUpdate();
     setUpdateHandler((beforeHandoff) => downloadLatestCode(0, beforeHandoff));
 
     const result = await triggerUpdate();
@@ -93,12 +100,12 @@ describe('release download over the curl fallback', () => {
   it('caps the version check and the download in time', async () => {
     curlExec.mockRejectedValue(new Error('curl failed'));
     const { setUpdateHandler, triggerUpdate, downloadLatestCode } =
-      loadAutoUpdate();
+      await loadAutoUpdate();
     setUpdateHandler((beforeHandoff) => downloadLatestCode(0, beforeHandoff));
 
     await triggerUpdate();
 
-    for (const [, init] of (global.fetch as jest.Mock).mock.calls) {
+    for (const [, init] of (global.fetch as Mock).mock.calls) {
       expect(init.signal).toBeInstanceOf(AbortSignal);
     }
     expect(curlExec).toHaveBeenCalledWith(
@@ -107,8 +114,8 @@ describe('release download over the curl fallback', () => {
   });
 
   it('lets only the boot-time check respect the failed-release cap', async () => {
-    const { setUpdateHandler, triggerUpdate } = loadAutoUpdate();
-    const handler = jest.fn(
+    const { setUpdateHandler, triggerUpdate } = await loadAutoUpdate();
+    const handler = vi.fn(
       async (_beforeHandoff?: unknown, _force?: boolean) => ({
         state: 'already-latest' as const,
       })

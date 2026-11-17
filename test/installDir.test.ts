@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { isPackagedExe } from '../src/modules/installDir';
 
 describe('isPackagedExe', () => {
