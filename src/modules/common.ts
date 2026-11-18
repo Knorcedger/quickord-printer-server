@@ -451,6 +451,14 @@ export const setLineSpacing = (printer: ThermalPrinter) => {
   printer.add(Buffer.from([0x1b, 0x33, LINE_SPACING]));
 };
 
+// ~3 mm, just under a full line: separates extras without a blank line.
+export const OPTION_GAP_DOTS = 24;
+
+// ESC J n feeds n dots once, leaving the line spacing as is.
+export const feedOptionGap = (printer: ThermalPrinter) => {
+  printer.add(Buffer.from([0x1b, 0x4a, OPTION_GAP_DOTS]));
+};
+
 // Replaces the library's cut(), which feeds eight lines. ESC 2 restores the
 // default spacing first, since ESC d feeds at the current one and would clip.
 export const cutPaper = (printer: ThermalPrinter) => {
@@ -851,14 +859,18 @@ export const buildProductRow = (
 
 // `enlarged` tells us the caller left the text at double width (BOLD_PRODUCTS),
 // where every character costs two cells and only half the line is usable.
+// `gap` feeds a small space before each option (order tickets only).
+// Returns how many options printed a line.
 export const printOptionDetails = (
   printer,
   options: ProductOption[],
   lang: string,
   settings: any,
-  enlarged = false
-) => {
+  enlarged = false,
+  gap = false
+): number => {
   const width = enlarged ? 21 : 42;
+  let printed = 0;
 
   options?.forEach((option) => {
     // Transliterate and sanitize before measuring: both rewrite the text
@@ -925,6 +937,11 @@ export const printOptionDetails = (
       continuationIndent,
       priceStr.length
     );
+    // Wrapped lines of one option stay together; the gap goes before it.
+    if (lines.length > 0) {
+      printed += 1;
+      if (gap) feedOptionGap(printer);
+    }
     lines.forEach((wrapped, idx) => {
       const isLast = idx === lines.length - 1;
       let out = wrapped;
@@ -937,6 +954,7 @@ export const printOptionDetails = (
       printer.println(out);
     });
   });
+  return printed;
 };
 
 export const printProductDiscount = (

@@ -114,6 +114,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(false),
+  optionSpacing: z
+    .boolean({
+      description:
+        'Whether to feed a small gap before each customization on order tickets. Only applies when optionDetails is on.',
+      invalid_type_error: 'optionSpacing must be a boolean.',
+    })
+    .optional()
+    .default(false),
   vatAnalysis: z
     .boolean({
       description: 'Whether to print the VAT analysis on the receipt.',

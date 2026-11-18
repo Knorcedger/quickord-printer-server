@@ -30,6 +30,7 @@ import {
   receiptData,
   printDeliveryNoteProducts,
   printDeliveryNoteVatBreakdown,
+  feedOptionGap,
   printOptionDetails,
   printProductDiscount,
   getInvoiceTypeLabel,
@@ -3948,20 +3949,25 @@ export const printOrder = async (
             }
 
             // Handle product option details
+            const optionGap = settings.optionSpacing === true;
+            let printedOptions = 0;
             if (shouldPrintOptionDetails(settings) && product.options) {
               console.log('Printing details:', JSON.stringify(product.options));
               // BOLD_PRODUCTS leaves the text enlarged for the option lines too.
-              printOptionDetails(
+              printedOptions = printOptionDetails(
                 printer,
                 product.options,
                 lang,
                 settings,
-                boldProducts
+                boldProducts,
+                optionGap
               );
             }
             if (boldProducts) printer.bold(false);
             // Comments (if any)
             if (product.comments) {
+              // Separates the comment from the last extra above it.
+              if (optionGap && printedOptions > 0) feedOptionGap(printer);
               printer.println(
                 tr(
                   ` ${translations.printOrder.productComments[lang]}: ${normalizeGreek(product.comments.toUpperCase())}`,
