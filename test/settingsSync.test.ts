@@ -290,6 +290,23 @@ describe('settings hash sync', () => {
     expect(getSettings().printers[0]?.networkName).toBe('');
   });
 
+  it('keeps optionSpacing from the backend and defaults it off', async () => {
+    await applyDesiredSettings(
+      {
+        ...desired,
+        printers: [
+          desired.printers[0],
+          { ...desired.printers[0], optionSpacing: true, networkName: 'bar' },
+        ],
+      },
+      { authoritative: true, hash: 'abc123', source: 'pull channel' }
+    );
+
+    expect(getSyncedHash()).toBe('abc123');
+    expect(getSettings().printers[0]?.optionSpacing).toBe(false);
+    expect(getSettings().printers[1]?.optionSpacing).toBe(true);
+  });
+
   it('keeps hideOptionTitles from the backend and defaults it off', async () => {
     await applyDesiredSettings(
       {
