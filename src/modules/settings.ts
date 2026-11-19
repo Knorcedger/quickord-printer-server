@@ -106,6 +106,14 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default(false),
+  buzzerEnabled: z
+    .boolean({
+      description:
+        'Whether to sound the printer buzzer (ESC B) before every print. Printers without a buzzer ignore it.',
+      invalid_type_error: 'buzzerEnabled must be a boolean.',
+    })
+    .optional()
+    .default(false),
   hideOptionTitles: z
     .boolean({
       description:
