@@ -364,15 +364,20 @@ const printerQueueKey = (settings?: Pick<IPrinterSettings, 'ip' | 'port'>) =>
 // requests, so another one may clear() it while this job waits its turn.
 const sendQueued = async (
   printer: ThermalPrinter,
-  key: string
+  key: string,
+  prefix?: Buffer
 ): Promise<void> => {
-  const data = Buffer.from(printer.getBuffer() ?? []);
+  const body = Buffer.from(printer.getBuffer() ?? []);
+  const data = prefix ? Buffer.concat([prefix, body]) : body;
   if (!key) {
     await printer.raw(data);
     return;
   }
   await runOnPrinterQueue(key, () => printer.raw(data));
 };
+
+// ESC B n t: n beeps of t × 50 ms; printers without a buzzer ignore it.
+export const BUZZER_BYTES = Buffer.from([0x1b, 0x42, 2, 3]);
 
 // Helper function to execute printer with proper error handling
 const executePrinter = async (
@@ -385,8 +390,13 @@ const executePrinter = async (
   // Mark busy so the keep-alive loop never opens a competing connection on a
   // single-socket printer mid-job; markPrinterIdle also starts the cooldown.
   markPrinterBusy(printer);
+  // Beep once per print: only before the first copy (callers pass `copy`).
+  const beep =
+    settings?.buzzerEnabled && (context?.copy ?? 1) === 1
+      ? BUZZER_BYTES
+      : undefined;
   try {
-    await sendQueued(printer, printerQueueKey(settings));
+    await sendQueued(printer, printerQueueKey(settings), beep);
     printer?.clear();
     logger.info(
       `Successfully executed ${operation} on ${printerIdentifier}`,
@@ -802,7 +812,8 @@ const printTextFunc = async (
             printer,
             settings,
             printerIdentifier,
-            'text print'
+            'text print',
+            { copy: j + 1 }
           );
 
           logger.info(`Successfully printed text to ${printerIdentifier}`, {
@@ -3269,7 +3280,8 @@ const printDeliveryNote = async (
             printer,
             settings,
             printerIdentifier,
-            'delivery note print'
+            'delivery note print',
+            { copy: copies + 1 }
           );
           logger.info(`Successfull delivery note to ${printerIdentifier}`);
           successCount++;
