@@ -7,6 +7,9 @@ import { feed } from './modemParser';
 import { getModems, getSettings, IModemSettings } from './settings';
 
 const KEEPALIVE_INTERVAL_MS = 60_000;
+// A keepalive tick this late means the PC slept: the modem lost its init
+// (AT+VCID=1), so reinit before the first call instead of on it.
+const RESUME_GAP_MS = 5 * 60_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 20;
 
@@ -49,6 +52,7 @@ type ModemInstance = {
   isReconnecting: boolean;
   keepalive: ReturnType<typeof setInterval> | null;
   readonly key: string;
+  lastKeepaliveAt: number;
   lastNmbrAt: number;
   lastVcidReissueAt: number;
   reconnectAttempt: number;
@@ -172,11 +176,29 @@ const onPhoneNumber = async (inst: ModemInstance, phoneNumber: string) => {
   }
 };
 
+// Reopen from scratch; a fresh failure mode must not inherit an exhausted
+// attempt counter that would give up immediately.
+const forceReconnect = (inst: ModemInstance) => {
+  inst.reconnectAttempt = 0;
+  detachPort(inst);
+  scheduleReconnect(inst);
+};
+
 const startKeepalive = (inst: ModemInstance) => {
   if (inst.keepalive) clearInterval(inst.keepalive);
+  inst.lastKeepaliveAt = Date.now();
 
   inst.keepalive = setInterval(() => {
+    const gap = Date.now() - inst.lastKeepaliveAt;
+    inst.lastKeepaliveAt = Date.now();
     if (!inst.serial || !inst.serial.isOpen) return;
+    if (gap > RESUME_GAP_MS && !inst.isReconnecting && !inst.closing) {
+      logger.warn(
+        `${tag(inst)} keepalive gap ${Math.round(gap / 1000)}s (system resumed from sleep?), re-initializing modem`
+      );
+      forceReconnect(inst);
+      return;
+    }
     inst.serial.write('AT\r', (err) => {
       if (err) {
         logger.error(`${tag(inst)} keepalive failed:`, err.message);
@@ -204,11 +226,7 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
     logger.error(
       `${tag(inst)} VCID re-issue hit ${MAX_CONSECUTIVE_VCID_REISSUES}x in a row — modem appears stuck, forcing reconnect`
     );
-    // Start the backoff from scratch: this is a fresh failure mode and must not
-    // inherit an exhausted attempt counter that would give up immediately.
-    inst.reconnectAttempt = 0;
-    detachPort(inst);
-    scheduleReconnect(inst);
+    forceReconnect(inst);
     return;
   }
 
@@ -539,6 +557,7 @@ const openInstance = async (settings: IModemSettings) => {
     isReconnecting: false,
     keepalive: null,
     key: settings.port,
+    lastKeepaliveAt: 0,
     lastNmbrAt: 0,
     lastVcidReissueAt: 0,
     reconnectAttempt: 0,

@@ -196,6 +196,50 @@ describe('modem registry', () => {
     expect(recordingOf('COM4').slice(before4)).toBe('AT\r');
   });
 
+  it('M21: re-initializes the modem when the PC resumes from sleep', async () => {
+    const warnSpy = vi.spyOn(signale, 'warn').mockImplementation();
+    await syncModems([modem('COM3'), modem('COM4')]);
+    await settleInit();
+    const com3 = instanceFor('COM3')!;
+    const firstSerial = com3.serial;
+
+    // Sleep freezes the process: the wall clock jumps, timers fire late.
+    vi.setSystemTime(Date.now() + 14 * 60 * 60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes('keepalive gap'))
+    ).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await settleInit();
+    expect(com3.serial).not.toBe(firstSerial);
+    expect(com3.serial?.isOpen).toBe(true);
+    expect(com3.reconnectAttempt).toBe(0);
+    expect(recordingOf('COM3')).toBe(
+      'ATE1\rAT\rAT+GCI=B5\rATS24=0\rAT+VCID=1\r'
+    );
+    expect(instanceFor('COM4')?.serial?.isOpen).toBe(true);
+
+    warnSpy.mockRestore();
+  });
+
+  it('M22: regular keepalive ticks do not re-initialize the modem', async () => {
+    const warnSpy = vi.spyOn(signale, 'warn').mockImplementation();
+    await syncModems([modem('COM3')]);
+    await settleInit();
+    const firstSerial = instanceFor('COM3')!.serial;
+
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+
+    expect(instanceFor('COM3')!.serial).toBe(firstSerial);
+    expect(
+      warnSpy.mock.calls.some((c) => String(c[0]).includes('keepalive gap'))
+    ).toBe(false);
+
+    warnSpy.mockRestore();
+  });
+
   it('M11: removing a modem does not disturb the remaining one', async () => {
     await syncModems([modem('COM3'), modem('COM4')]);
 
