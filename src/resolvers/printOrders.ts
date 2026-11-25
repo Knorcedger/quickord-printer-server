@@ -155,6 +155,12 @@ export const DeliveryInfo = z.object({
     invalid_type_error: 'customer bell must be a string.',
     required_error: 'customerBell is required.',
   }),
+  customerDoorbell: z
+    .string({
+      invalid_type_error: 'customerDoorbell must be a string.',
+    })
+    .optional()
+    .nullable(),
   customerEmail: z
     .string({
       invalid_type_error: 'customerEmail must be a string.',
