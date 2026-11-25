@@ -861,6 +861,51 @@ export const buildProductRow = (
 // where every character costs two cells and only half the line is usable.
 // `gap` feeds a small space before each option (order tickets only).
 // Returns how many options printed a line.
+// customerBell carries the delivery comments and customerDoorbell the
+// doorbell; staff orders copy the comments into waiterComment, so skip repeats.
+export const printDeliveryInfo = (
+  printer: ThermalPrinter,
+  deliveryInfo: {
+    customerAddress?: null | string;
+    customerBell?: null | string;
+    customerDoorbell?: null | string;
+    customerFirstname?: null | string;
+    customerFloor?: null | string;
+    customerLastname?: null | string;
+    customerPhoneNumber?: null | string;
+  },
+  waiterComment: null | string | undefined,
+  lang: SupportedLanguages,
+  settings: { transliterate?: boolean }
+) => {
+  const line = (label: string, value: string) =>
+    printer.println(tr(`${label}:${value}`, !!settings.transliterate));
+  const labels = translations.printOrder;
+
+  line(
+    labels.customerName[lang],
+    `${normalizeGreek(deliveryInfo.customerFirstname || '')} ${normalizeGreek(deliveryInfo.customerLastname || '')}`
+  );
+  line(
+    labels.deliveryAddress[lang],
+    normalizeGreek(deliveryInfo.customerAddress || '')
+  );
+  line(
+    labels.deliveryFloor[lang],
+    normalizeGreek(deliveryInfo.customerFloor || '')
+  );
+  const doorbell = normalizeGreek(deliveryInfo.customerDoorbell || '').trim();
+  if (doorbell) line(labels.deliveryBell[lang], doorbell);
+  line(labels.deliveryPhone[lang], deliveryInfo.customerPhoneNumber || '');
+
+  const comments = normalizeGreek(deliveryInfo.customerBell || '').trim();
+  const bottom = normalizeGreek(waiterComment || '').trim();
+  if (comments && comments.toUpperCase() !== bottom.toUpperCase()) {
+    line(labels.deliveryComments[lang], comments);
+  }
+  drawLine2(printer);
+};
+
 export const printOptionDetails = (
   printer,
   options: ProductOption[],

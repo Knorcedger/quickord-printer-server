@@ -55,8 +55,12 @@ export default {
       en: 'ADDRESS',
     },
     deliveryBell: {
-      el: 'ΚΟΥΔ',
-      en: 'BELL',
+      el: 'ΚΟΥΔΟΥΝΙ',
+      en: 'DOORBELL',
+    },
+    deliveryComments: {
+      el: 'ΣΧΟΛΙΑ',
+      en: 'COMMENTS',
     },
     deliveryFee: {
       el: 'ΚΟΣΤΟΣ ΔΙΑΝΟΜΗΣ',

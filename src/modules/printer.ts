@@ -39,6 +39,7 @@ import {
   setLineSpacing,
   cutPaper,
   printFooterText,
+  printDeliveryInfo,
 } from './common';
 import logger from './logger';
 import {
@@ -3737,37 +3738,13 @@ export const printOrder = async (
           drawLine2(printer);
 
           if (order.deliveryInfo) {
-            printer.println(
-              tr(
-                `${translations.printOrder.customerName[lang]}:${normalizeGreek(order.deliveryInfo.customerFirstname || '')} ${normalizeGreek(order.deliveryInfo.customerLastname || '')}`,
-                settings.transliterate
-              )
+            printDeliveryInfo(
+              printer,
+              order.deliveryInfo,
+              order.waiterComment,
+              lang,
+              settings
             );
-            printer.println(
-              tr(
-                `${translations.printOrder.deliveryAddress[lang]}:${normalizeGreek(order.deliveryInfo.customerAddress)}`,
-                settings.transliterate
-              )
-            );
-            printer.println(
-              tr(
-                `${translations.printOrder.deliveryFloor[lang]}:${normalizeGreek(order.deliveryInfo.customerFloor)}`,
-                settings.transliterate
-              )
-            );
-            printer.println(
-              tr(
-                `${translations.printOrder.deliveryBell[lang]}:${normalizeGreek(order.deliveryInfo.customerBell)}`,
-                settings.transliterate
-              )
-            );
-            printer.println(
-              tr(
-                `${translations.printOrder.deliveryPhone[lang]}:${order.deliveryInfo.customerPhoneNumber}`,
-                settings.transliterate
-              )
-            );
-            drawLine2(printer);
           }
 
           if (order.TakeAwayInfo && order.orderType !== 'TAKE_AWAY_INSIDE') {
