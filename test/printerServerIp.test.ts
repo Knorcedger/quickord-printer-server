@@ -4,9 +4,9 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mocked,
   type MockedFunction,
+  vi,
 } from 'vitest';
 import os from 'os';
 
@@ -35,13 +35,10 @@ type Logger = typeof import('../src/modules/logger').default;
 // Fresh module registry per test: the retry loop keeps its venueId in module
 // state, and a leaked loop from an earlier test would keep firing.
 const load = async () => {
-  let api!: Api;
-  let http!: Http;
-  let logger!: Logger;
   vi.resetModules();
-  api = await import('../src/modules/api');
-  http = await import('../src/modules/http');
-  logger = (await import('../src/modules/logger')).default;
+  const api: Api = await import('../src/modules/api');
+  const http: Http = await import('../src/modules/http');
+  const logger: Logger = (await import('../src/modules/logger')).default;
   return {
     api,
     logger: logger as Mocked<Logger>,

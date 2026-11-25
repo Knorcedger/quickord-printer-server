@@ -31,6 +31,7 @@ let persistPending = false;
  */
 const persist = async (quiet: boolean): Promise<void> => {
   const error = await saveSettings();
+
   if (!error) {
     persistPending = false;
     return;
@@ -38,6 +39,7 @@ const persist = async (quiet: boolean): Promise<void> => {
 
   persistPending = true;
   updateSettings({ ...getSettings(), syncedHash: undefined });
+
   // One line, and only outside a known failure episode: an unwritable file
   // fails on every poll, and the caller's episode summary already carries it.
   if (!quiet) {
@@ -86,6 +88,7 @@ export const applyBootstrapIdentity = async (incoming: {
     typeof incoming.venueId === 'string' ? incoming.venueId : '';
 
   if (!incomingVenueId) throw new Error('venueId is required');
+
   if (ownVenueId && incomingVenueId !== ownVenueId) {
     throw new VenueMismatchError(ownVenueId, incomingVenueId);
   }

@@ -1,6 +1,3 @@
-/* eslint-disable no-continue */
-/* eslint-disable no-restricted-syntax */
-
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -28,6 +25,7 @@ const format = (args: unknown[]) =>
   `${new Date().toISOString()} ${args
     .map((arg) => {
       if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+
       if (typeof arg === 'object' && arg !== null) return JSON.stringify(arg);
       return String(arg);
     })
@@ -96,7 +94,7 @@ function appendInto(target: string, content: string): boolean {
  * the interesting runs are the ones that failed.
  */
 export function flushUpdateLog(installDir: string): void {
-  let content = '';
+  let content: string;
   try {
     content = fs.readFileSync(tempLogPath, 'utf-8');
   } catch {
@@ -108,6 +106,7 @@ export function flushUpdateLog(installDir: string): void {
     'builds',
     'autoupdate.log'
   );
+
   if (appendInto(target, content)) {
     fs.rmSync(tempLogPath, { force: true });
     return;
@@ -126,7 +125,7 @@ export function flushUpdateLog(installDir: string): void {
  * is still finishing owns its file.
  */
 export function absorbStrayUpdateLogs(): void {
-  let entries: string[] = [];
+  let entries: string[];
   try {
     entries = fs.readdirSync(tmpdir());
   } catch {
@@ -136,11 +135,13 @@ export function absorbStrayUpdateLogs(): void {
   for (const name of entries) {
     if (!name.startsWith(PREFIX) || !name.endsWith('.log')) continue;
     const pid = Number(name.slice(PREFIX.length, -'.log'.length));
+
     if (Number.isFinite(pid) && isAlive(pid)) continue;
 
     const full = path.join(tmpdir(), name);
     try {
       const content = fs.readFileSync(full, 'utf-8');
+
       if (appendInto(path.resolve('autoupdate.log'), content)) {
         fs.rmSync(full, { force: true });
       }

@@ -34,17 +34,18 @@ const API_TIMEOUT_S = 30;
 // kills LAN printing for the whole venue and nothing re-registers it.
 export const getLocalIP = (
   options: { allowVirtual?: boolean } = {}
-): string | null => {
+): null | string => {
   const interfaces = os.networkInterfaces();
 
   // Skip virtual/container interfaces that may shadow the real LAN IP
   const virtualPatterns =
     /^(vEthernet|WSL|docker|br-|veth|Hyper-V|VMware|VirtualBox|virbr)/i;
 
-  let virtual: string | null = null;
+  let virtual: null | string = null;
 
   for (const name of Object.keys(interfaces)) {
     const iface = interfaces[name];
+
     if (!iface) continue;
 
     for (const alias of iface) {
@@ -83,6 +84,7 @@ const reportFetchFailure = async (
   if (failure.networkDown) return;
 
   const apiUrl = nconf.get('QUICKORD_API_URL');
+
   if (!apiUrl) return;
 
   // Every venue reports the same method+url, so without the venueId an incident
@@ -141,6 +143,7 @@ export const apiCall = async (
         body: JSON.stringify({ query }),
         signal: AbortSignal.timeout(API_TIMEOUT_S * 1000),
       });
+
       if (!response.ok) throw httpStatusError(response);
       const data = (await response.json()) as { data?: any; errors?: any };
       return { data };
@@ -164,9 +167,10 @@ export const apiCall = async (
 // loop below owns all the logging for a run of failed attempts.
 export const registerPrinterServerIp = async (
   venueId: string,
-  opts: { ip?: string | null; quiet?: boolean } = {}
+  opts: { ip?: null | string; quiet?: boolean } = {}
 ): Promise<boolean> => {
   const localIp = opts.ip === undefined ? getLocalIP() : opts.ip;
+
   if (!localIp) return false;
 
   if (!opts.quiet) {
@@ -185,6 +189,7 @@ export const registerPrinterServerIp = async (
       `updatePrinterServerIp returned errors: ${JSON.stringify(res.errors)}`
     );
   }
+
   if (res?.data?.updatePrinterServerIp?.status !== 'ok') {
     throw new Error(
       `updatePrinterServerIp was not confirmed: ${JSON.stringify(res?.data ?? null)}`
@@ -213,7 +218,7 @@ const VIRTUAL_IP_GRACE_MS = 5 * 60 * 1000;
 // free — only an actual change costs a call.
 const IP_WATCH_MS = 5 * 60 * 1000;
 
-let ipRegistrationVenueId: string | null = null;
+let ipRegistrationVenueId: null | string = null;
 
 // Retries until the backend confirms, then re-registers whenever the address
 // changes. The PS must not block on this: it only enables the FE's direct-LAN
@@ -230,7 +235,7 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
     let waitingLogged = false;
     // Only what the backend has confirmed, so a failed attempt is retried
     // instead of being remembered as done.
-    let registeredIp: string | null = null;
+    let registeredIp: null | string = null;
     // A virtual address is only ever acceptable as the first one published.
     let registeredVirtual = false;
 
@@ -255,6 +260,7 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
         }
       } else if (ip !== registeredIp) {
         waitingLogged = false;
+
         if (registeredIp) {
           logger.info(
             `LAN IP changed ${registeredIp} -> ${ip}, re-registering`
@@ -282,7 +288,6 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
 
       const settled = registeredIp !== null && ip === registeredIp;
       await sleep(
-        // eslint-disable-next-line no-nested-ternary
         settled
           ? IP_WATCH_MS
           : episode.failureCount >= IP_REGISTRATION_FAST_ATTEMPTS

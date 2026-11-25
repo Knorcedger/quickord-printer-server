@@ -13,7 +13,10 @@ describe('modemParser.feed', () => {
   });
 
   it('parses the CHC format without the equals sign', () => {
-    const res = feed('', 'RING\r\nDATE 0408\r\nTIME 1355\r\nNMBR 6976641604\r\n');
+    const res = feed(
+      '',
+      'RING\r\nDATE 0408\r\nTIME 1355\r\nNMBR 6976641604\r\n'
+    );
     expect(res.phoneNumber).toBe('6976641604');
   });
 

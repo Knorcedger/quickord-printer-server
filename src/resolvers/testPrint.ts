@@ -5,15 +5,19 @@ import { z } from 'zod';
 import logger from '../modules/logger';
 import { printTestPage } from '../modules/printer';
 
-
-const testPrint = async (req: Request<{}, any, any>, res: Response<{}, any>) => {
+const testPrint = async (
+  req: Request<{}, any, any>,
+  res: Response<{}, any>
+) => {
   try {
     let ip = '';
     let port = '';
+
     if (req.body.ip !== '') {
       ip = z.string().ip().parse(req.body.ip.replace('\r', ''));
       logger.info('Printing test page for ip printer:', ip);
     }
+
     if (req.body.port !== '') {
       port = req.body.port;
       logger.info('Printing test page for usb printer:', port);
@@ -24,7 +28,9 @@ const testPrint = async (req: Request<{}, any, any>, res: Response<{}, any>) => 
     const result = await printTestPage(ip, port, charset, codePage);
 
     if (result === 'Printer not connected') {
-      res.status(503).send({ error: 'Printer not connected', status: 'failed' });
+      res
+        .status(503)
+        .send({ error: 'Printer not connected', status: 'failed' });
       return;
     }
 

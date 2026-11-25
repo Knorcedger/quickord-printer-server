@@ -126,9 +126,9 @@ const gaveUpLogs = () =>
   );
 
 const load = async () => {
-  let pullClient!: typeof import('../src/modules/pullClient');
   vi.resetModules();
-  pullClient = await import('../src/modules/pullClient');
+  const pullClient: typeof import('../src/modules/pullClient') =
+    await import('../src/modules/pullClient');
   return pullClient;
 };
 
@@ -161,6 +161,7 @@ describe('result report budget and retries', () => {
         queued = [];
         return { json: async () => ({ jobs }), ok: true, status: 200 };
       }
+
       if (url.endsWith('/print-jobs/result')) {
         if (resultFetchAt.length === 0) t0 = Date.now();
         resultFetchAt.push(Date.now() - t0);

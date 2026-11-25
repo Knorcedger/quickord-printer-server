@@ -9,17 +9,16 @@
  */
 
 export type ServiceState =
-  | 'RUNNING'
-  | 'STOPPED'
-  | 'PENDING'
-  | 'ABSENT'
-  | 'UNKNOWN';
+  'ABSENT' | 'PENDING' | 'RUNNING' | 'STOPPED' | 'UNKNOWN';
 
 /** `Get-Service .Status` is a .NET enum name, identical in every locale. */
-export function parseServiceStatusName(output: string): ServiceState | null {
+export function parseServiceStatusName(output: string): null | ServiceState {
   if (/\bAbsent\b/i.test(output)) return 'ABSENT';
+
   if (/\bRunning\b/i.test(output)) return 'RUNNING';
+
   if (/\bStopped\b/i.test(output)) return 'STOPPED';
+
   if (/\b\w+Pending\b/i.test(output)) return 'PENDING';
   return null;
 }
@@ -31,6 +30,7 @@ export function parseServiceStatusName(output: string): ServiceState | null {
  */
 export function parseScQueryState(output: string, code: number): ServiceState {
   if (/\b1060\b/.test(output)) return 'ABSENT'; // service does not exist
+
   if (code !== 0) return 'UNKNOWN';
   const codes = [...output.matchAll(/:\s*(\d+)\s+[^\s(]/g)].map((m) =>
     Number(m[1])
@@ -62,11 +62,15 @@ export function parseListeningPids(
   const pids = new Set<number>();
   for (const line of output.split(/\r?\n/)) {
     const parts = line.trim().split(/\s+/);
+
     if (parts.length < 5) continue;
+
     if (!(parts[1] ?? '').endsWith(`:${port}`)) continue;
     const foreign = parts[2] ?? '';
+
     if (foreign !== '0.0.0.0:0' && foreign !== '[::]:0') continue;
     const pid = parseInt(parts[parts.length - 1] ?? '', 10);
+
     if (!Number.isFinite(pid) || pid === 0 || pid === selfPid) continue;
     pids.add(pid);
   }

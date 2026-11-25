@@ -48,16 +48,16 @@ type ModemInstance = {
   consecutiveVcidReissues: number;
   // Set while init runs, so the AT replies can be read off the data handler.
   initListener: ((chunk: string) => void) | null;
-  initPromise: Promise<void> | null;
+  initPromise: null | Promise<void>;
   isReconnecting: boolean;
-  keepalive: ReturnType<typeof setInterval> | null;
+  keepalive: null | ReturnType<typeof setInterval>;
   readonly key: string;
   lastKeepaliveAt: number;
   lastNmbrAt: number;
   lastVcidReissueAt: number;
   reconnectAttempt: number;
-  reconnectTimer: ReturnType<typeof setTimeout> | null;
-  ringTimer: ReturnType<typeof setTimeout> | null;
+  reconnectTimer: null | ReturnType<typeof setTimeout>;
+  ringTimer: null | ReturnType<typeof setTimeout>;
   serial: InstanceType<typeof SerialPort> | null;
   settings: IModemSettings;
 };
@@ -110,6 +110,7 @@ const clearTimers = (inst: ModemInstance) => {
     clearInterval(inst.keepalive);
     inst.keepalive = null;
   }
+
   if (inst.reconnectTimer) {
     clearTimeout(inst.reconnectTimer);
     inst.reconnectTimer = null;
@@ -120,12 +121,14 @@ const clearTimers = (inst: ModemInstance) => {
 
 const detachPort = (inst: ModemInstance) => {
   inst.initListener = null;
+
   if (!inst.serial) return;
   // Remove listeners BEFORE close so it doesn't trigger a reconnect. Keep a
   // sink for 'error': closing cancels a pending write and an unhandled 'error'
   // event would take the process down.
   inst.serial.removeAllListeners();
   inst.serial.on('error', () => {});
+
   if (inst.serial.isOpen) inst.serial.close();
   inst.serial = null;
 };
@@ -191,7 +194,9 @@ const startKeepalive = (inst: ModemInstance) => {
   inst.keepalive = setInterval(() => {
     const gap = Date.now() - inst.lastKeepaliveAt;
     inst.lastKeepaliveAt = Date.now();
+
     if (!inst.serial || !inst.serial.isOpen) return;
+
     if (gap > RESUME_GAP_MS && !inst.isReconnecting && !inst.closing) {
       logger.warn(
         `${tag(inst)} keepalive gap ${Math.round(gap / 1000)}s (system resumed from sleep?), re-initializing modem`
@@ -214,6 +219,7 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
   if (!inst.serial?.isOpen || inst.closing) return;
 
   const now = Date.now();
+
   if (now - inst.lastVcidReissueAt > VCID_REISSUE_DECAY_MS) {
     inst.consecutiveVcidReissues = 0;
   }
@@ -222,6 +228,7 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
 
   if (inst.consecutiveVcidReissues >= MAX_CONSECUTIVE_VCID_REISSUES) {
     inst.consecutiveVcidReissues = 0;
+
     if (inst.isReconnecting) return;
     logger.error(
       `${tag(inst)} VCID re-issue hit ${MAX_CONSECUTIVE_VCID_REISSUES}x in a row — modem appears stuck, forcing reconnect`
@@ -241,11 +248,14 @@ const reissueVcid = (inst: ModemInstance, reason: string) => {
 // of the same call legitimately carry no NMBR.
 const watchRingWithoutCid = (inst: ModemInstance, chunk: string) => {
   if (!/\bRING\b/.test(chunk) || inst.ringTimer) return;
+
   if (Date.now() - inst.lastNmbrAt < RECENT_NMBR_WINDOW_MS) return;
 
   inst.ringTimer = setTimeout(() => {
     inst.ringTimer = null;
+
     if (inst.buffer.includes('NMBR')) return;
+
     if (Date.now() - inst.lastNmbrAt < RECENT_NMBR_WINDOW_MS) return;
 
     logger.warn(
@@ -270,11 +280,13 @@ export const matchInitReply = (
     const echo = new RegExp(
       `(?:^|[\\r\\n])${cmd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\r|\\n)`
     ).exec(buffer);
+
     if (!echo) return null;
     after = buffer.slice(echo.index + echo[0].length);
   }
 
   if (/\bERROR\b/.test(after)) return 'error';
+
   if (/\bOK\b/.test(after)) return 'ok';
   return null;
 };
@@ -291,15 +303,19 @@ const sendInitCommand = (
       let settled = false;
       let buf = '';
       let listener: ((chunk: string) => void) | null = null;
+      // finish() can run before the timer is set, so this stays a let.
+      // eslint-disable-next-line prefer-const
       let timer: ReturnType<typeof setTimeout>;
 
       const finish = (err?: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+
         // Only drop the listener if it is still ours: a superseding init may
         // have installed its own in the meantime.
         if (inst.initListener === listener) inst.initListener = null;
+
         if (err) reject(err);
         else resolve();
       };
@@ -309,6 +325,7 @@ const sendInitCommand = (
         buf += chunk;
 
         const reply = matchInitReply(buf, cmd, echoOn);
+
         if (reply === 'error')
           finish(new Error(`modem replied ERROR to ${cmd}`));
         else if (reply === 'ok') finish();
@@ -339,14 +356,19 @@ const sendInitCommand = (
       logger.warn(
         `${tag(inst)} init '${cmd}' attempt ${attempt}/${timings.attempts} failed: ${(err as Error).message}`
       );
+
       if (attempt >= timings.attempts) {
         throw new Error(
-          `init command '${cmd}' failed after ${timings.attempts} attempts`
+          `init command '${cmd}' failed after ${timings.attempts} attempts`,
+          { cause: err }
         );
       }
       await wait(timings.backoffMs * attempt);
+
       if (inst.closing || inst.serial !== serial) {
-        throw new Error('modem instance superseded during init');
+        throw new Error('modem instance superseded during init', {
+          cause: err,
+        });
       }
       return attemptLoop(attempt + 1);
     }
@@ -372,16 +394,19 @@ const runInit = async (
     };
     inst.initListener = listener;
     await wait(ms);
+
     if (inst.initListener === listener) inst.initListener = null;
     return out;
   };
 
   const drained = await collect(timings.drainMs);
+
   if (drained.length) {
     logger.info(
       `${tag(inst)} drained pre-init output: ${redactDigits(JSON.stringify(drained.slice(0, 256)))}`
     );
   }
+
   if (!alive()) return;
 
   // ATE1 is fire-and-forget: a modem booted with ATE0 does not echo it back, so
@@ -389,11 +414,13 @@ const runInit = async (
   logger.info(`${tag(inst)} init -> ATE1 (fire-and-forget)`);
   serial.write('ATE1\r');
   const echoOn = /ATE1/.test(await collect(timings.settleMs));
+
   if (!echoOn) {
     logger.warn(
       `${tag(inst)} no ATE1 echo, matching init replies without the echo anchor`
     );
   }
+
   if (!alive()) return;
 
   // Failures are logged but non-fatal: some modems don't support AT+GCI or
@@ -401,7 +428,7 @@ const runInit = async (
   // open lets call detection work; the RING watchdog re-issues VCID if needed.
   for (const cmd of INIT_COMMANDS) {
     if (!alive()) return;
-    // eslint-disable-next-line no-await-in-loop
+
     await sendInitCommand(inst, serial, cmd, echoOn).catch((err: Error) =>
       logger.warn(
         `${tag(inst)} init '${cmd}' did not complete: ${err.message} — continuing anyway`
@@ -444,6 +471,7 @@ const openPort = async (inst: ModemInstance) => {
   if (inst.closing || registry.get(inst.key) !== inst) {
     serial.removeAllListeners();
     serial.on('error', () => {});
+
     if (serial.isOpen) serial.close();
     throw new Error('modem instance superseded while opening');
   }
@@ -497,6 +525,7 @@ const openPort = async (inst: ModemInstance) => {
 
 function scheduleReconnect(inst: ModemInstance) {
   if (inst.isReconnecting || inst.closing) return;
+
   // Dropped from the registry by a sync in the meantime: don't resurrect it.
   if (registry.get(inst.key) !== inst) return;
 
@@ -522,6 +551,7 @@ function scheduleReconnect(inst: ModemInstance) {
 
   inst.reconnectTimer = setTimeout(async () => {
     inst.reconnectTimer = null;
+
     if (inst.closing || registry.get(inst.key) !== inst) return;
 
     try {
@@ -543,6 +573,7 @@ const closeInstance = async (inst: ModemInstance) => {
   inst.closing = true;
   clearTimers(inst);
   detachPort(inst);
+
   if (registry.get(inst.key) === inst) registry.delete(inst.key);
   logger.info(`${tag(inst)} closed`);
 };
@@ -589,6 +620,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
       logger.warn('Ignoring modem entry without a port');
       return;
     }
+
     if (wanted.has(m.port)) {
       logger.warn(`Duplicate modem port ${m.port} in settings, ignoring copy`);
       return;
@@ -597,7 +629,6 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
   });
 
   for (const inst of Array.from(registry.values())) {
-    // eslint-disable-next-line no-await-in-loop
     if (!wanted.has(inst.key)) await closeInstance(inst);
   }
 
@@ -609,11 +640,10 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop
     if (existing) await closeInstance(existing);
 
     // One modem that fails to open must not take the others down.
-    // eslint-disable-next-line no-await-in-loop
+
     await openInstance(cfg).catch((err) =>
       logger.error(
         `[modem ${port}] failed to open, continuing:`,
@@ -625,6 +655,7 @@ export const syncModems = async (list: IModemSettings[]): Promise<void> => {
 
 export const initModem = async () => {
   const modems = getModems();
+
   if (!modems.length) return;
   logger.info(`Initializing ${modems.length} modem(s)`);
   await syncModems(modems);

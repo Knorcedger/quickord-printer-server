@@ -1,3 +1,6 @@
+// Unused, but part of the printer <-> translations import cycle: removing it
+// changes module load order.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { deliveryNote } from './modules/printer';
 
 export default {

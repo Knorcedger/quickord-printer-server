@@ -71,6 +71,7 @@ const jsonResponse = (payload: unknown) => ({
 
 const fakeBackend = async (url: string, init: any) => {
   const body = JSON.parse(init.body);
+
   if (url.endsWith('/print-jobs/result')) {
     results.push(body.jobId);
     return jsonResponse({ ok: true });
@@ -89,9 +90,9 @@ const fakeBackend = async (url: string, init: any) => {
 };
 
 const load = async () => {
-  let pullClient!: typeof import('../src/modules/pullClient');
   vi.resetModules();
-  pullClient = await import('../src/modules/pullClient');
+  const pullClient: typeof import('../src/modules/pullClient') =
+    await import('../src/modules/pullClient');
   return pullClient;
 };
 

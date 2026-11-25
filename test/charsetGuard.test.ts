@@ -1,4 +1,4 @@
-import { describe, expect, test, vi, type Mock } from 'vitest';
+import { describe, expect, type Mock, test, vi } from 'vitest';
 
 // The lib switches code page on its own when a character is missing from the
 // configured one; on CP737 printers the first `€` broke every Greek label after
@@ -6,8 +6,8 @@ import { describe, expect, test, vi, type Mock } from 'vitest';
 import iconv from 'iconv-lite';
 import {
   CharacterSet,
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 import {
   installCharsetGuard,
@@ -138,19 +138,19 @@ describe('charset guard', () => {
   test.each([
     [CharacterSet.PC437_USA, 'CP437'],
     [CharacterSet.PC851_GREEK, 'CP860'],
-  ])('warnIfNoGreek flags %s, which has Ω but not the alphabet', (
-    charset,
-    encoding
-  ) => {
-    expect(sanitizeForEncoding('Ω', encoding)).toBe('Ω');
-    expect(sanitizeForEncoding('ΑΒ', encoding)).toBe('??');
+  ])(
+    'warnIfNoGreek flags %s, which has Ω but not the alphabet',
+    (charset, encoding) => {
+      expect(sanitizeForEncoding('Ω', encoding)).toBe('Ω');
+      expect(sanitizeForEncoding('ΑΒ', encoding)).toBe('??');
 
-    const warn = logger.warn as Mock;
-    warn.mockClear();
-    warnIfNoGreek(installCharsetGuard(makePrinter(charset), charset), 'Bar');
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]![0]).toContain(encoding);
-  });
+      const warn = logger.warn as Mock;
+      warn.mockClear();
+      warnIfNoGreek(installCharsetGuard(makePrinter(charset), charset), 'Bar');
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]![0]).toContain(encoding);
+    }
+  );
 
   test('sanitizeForPrinter sanitizes only guarded printers', () => {
     const guarded = installCharsetGuard(

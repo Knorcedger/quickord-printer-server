@@ -3,9 +3,9 @@ import { z } from 'zod';
 
 import logger from '../modules/logger';
 import {
-  printOrdersComments as printerPrintOrdersComments,
-  determinePrintStatus,
   buildPrintResponse,
+  determinePrintStatus,
+  printOrdersComments as printerPrintOrdersComments,
 } from '../modules/printer';
 import { OrderType } from './printOrders';
 

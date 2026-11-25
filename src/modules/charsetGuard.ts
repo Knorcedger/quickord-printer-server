@@ -43,6 +43,7 @@ const encodableCache = new Map<string, boolean>();
 const encodable = (ch: string, encoding: string): boolean => {
   const key = `${encoding}\0${ch}`;
   let result = encodableCache.get(key);
+
   if (result === undefined) {
     try {
       result = iconv.encode(ch, encoding).toString() !== '?';
@@ -67,6 +68,7 @@ export const sanitizeForEncoding = (text: string, encoding: string): string => {
       continue;
     }
     const fallback = SYMBOL_FALLBACKS[ch];
+
     if (fallback !== undefined) {
       out += fallback;
       continue;
@@ -98,20 +100,16 @@ export const installCharsetGuard = (
 
 // Probe the whole alphabet: CP437 (and PC851_GREEK, which the lib maps to
 // CP860) carry a few Greek letters as math symbols but not `Α` or `Β`.
-const GREEK_ALPHABET = [
-  ...'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψως',
-];
+const GREEK_ALPHABET = [...'ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρστυφχψως'];
 
 const encodesGreek = (encoding: string): boolean =>
   GREEK_ALPHABET.every((ch) => encodable(ch, encoding));
 
 // A charset with no Greek (e.g. PC850) used to print Greek only because the
 // lib silently switched pages; with the guard it prints `?`. Say so at setup.
-export const warnIfNoGreek = (
-  printer: ThermalPrinter,
-  label: string
-): void => {
+export const warnIfNoGreek = (printer: ThermalPrinter, label: string): void => {
   const encoding = encodings.get(printer);
+
   if (encoding && !encodesGreek(encoding)) {
     logger.warn(
       `Printer ${label}: charset ${encoding} cannot encode Greek, Greek text will print as ? — use a Greek charset (e.g. PC737_GREEK)`

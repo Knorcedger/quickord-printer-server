@@ -15,39 +15,41 @@ const NETWORK_DOWN_CODES = new Set([
 ]);
 
 export interface FetchFailureDetails {
-  url: string;
-  method: string;
-  fetchErrorName?: string;
-  fetchErrorMessage?: string;
-  fetchErrorCode?: string;
-  fetchErrorCause?: unknown;
-  responseStatus?: number;
+  // Set by callers tracking consecutive fallbacks (the pull loop).
+  consecutiveFallbacks?: number;
+  curlDurationMs?: number;
+  curlOk: boolean;
   // >1 means every retry failed too: fetch is broken here, not blipping.
   fetchAttempts: number;
-  curlOk: boolean;
-  networkDown: boolean;
   // A curl that answers fast where fetch hung means the link was fine.
   fetchDurationMs?: number;
-  curlDurationMs?: number;
+  fetchErrorCause?: unknown;
+  fetchErrorCode?: string;
+  fetchErrorMessage?: string;
+  fetchErrorName?: string;
+  method: string;
+  networkDown: boolean;
+  responseStatus?: number;
   // undefined = no mark: connect-phase failure, or a concurrent request to the
   // same method+URL consumed it first.
   socketReused?: boolean;
-  // Set by callers tracking consecutive fallbacks (the pull loop).
-  consecutiveFallbacks?: number;
+  url: string;
 }
 
 export interface HttpResult<T> {
   data: T;
-  viaFallback: boolean;
   // Attempts made, on both the success and fallback paths.
   fetchAttempts: number;
   fetchFailure?: FetchFailureDetails;
+  viaFallback: boolean;
 }
 
 const extractErrorCode = (err: any): string | undefined => {
   if (!err) return undefined;
+
   if (typeof err.code === 'string') return err.code;
   const cause: any = err.cause;
+
   if (cause && typeof cause.code === 'string') return cause.code;
   return undefined;
 };
@@ -71,6 +73,7 @@ const trackTraceKey = (key: string): void => {
 
 const releaseTraceKey = (key: string): void => {
   const n = (inFlightTraceKeys.get(key) ?? 1) - 1;
+
   if (n > 0) {
     inFlightTraceKeys.set(key, n);
     return;
@@ -99,11 +102,13 @@ const ensureSocketReuseTracing = (): void => {
     });
     diagnosticsChannel.subscribe('undici:client:sendHeaders', (msg: any) => {
       const request = msg?.request;
+
       if (!request?.method || !request?.path) return;
       const key = `${request.method} ${request.origin}${request.path}`;
       // delete() consumes the mark: fresh for the first request only. Consume
       // even when untracked, else the next request on it would look fresh.
       const wasFresh = msg?.socket ? freshSockets.delete(msg.socket) : false;
+
       // Only record for keys we're awaiting, so the map can't grow unbounded.
       if (!inFlightTraceKeys.has(key)) return;
       socketReuseByRequest.set(key, !wasFresh);
@@ -177,6 +182,7 @@ const CHEAP_RETRYABLE_CODES = new Set([
 export const isCheapRetryableFetchError = (err: any): boolean => {
   if (err?.name === 'AbortError') return false;
   const status = err?.responseStatus;
+
   // The backend answered: retry a dyno restart, never a 4xx we'd re-earn.
   if (status !== undefined) return status >= 500;
   return CHEAP_RETRYABLE_CODES.has(extractErrorCode(err) ?? '');
@@ -194,14 +200,14 @@ export const FETCH_STATS_INTERVAL_MS = 15 * 60 * 1000;
 const MAX_STATS_ENDPOINTS = 25;
 
 interface EndpointStats {
-  fetchOk: number;
-  fetchOkAfterRetry: number;
-  curlRecovered: number;
   // Curl-first requests (fetch known broken here), so no fetch was tried.
   curlOnly: number;
+  curlRecovered: number;
   failed: number;
   // Per failed fetch attempt, keyed by error code / HTTP status.
   fetchErrors: Record<string, number>;
+  fetchOk: number;
+  fetchOkAfterRetry: number;
 }
 
 type FetchOutcome = Exclude<keyof EndpointStats, 'fetchErrors'>;
@@ -213,6 +219,7 @@ const statsEndpoint = (method: string, url: string): string => {
   try {
     const u = new URL(url);
     const key = `${method} ${u.host}${u.pathname}`;
+
     if (fetchStats.has(key) || fetchStats.size < MAX_STATS_ENDPOINTS) {
       return key;
     }
@@ -249,6 +256,7 @@ const recordFetchOutcome = (
 ): void => {
   const key = statsEndpoint(method, url);
   let s = fetchStats.get(key);
+
   if (!s) {
     s = {
       curlOnly: 0,
@@ -264,6 +272,7 @@ const recordFetchOutcome = (
   for (const label of fetchErrors) {
     s.fetchErrors[label] = (s.fetchErrors[label] ?? 0) + 1;
   }
+
   if (!fetchStatsTimer) {
     fetchStatsTimer = setInterval(flushFetchStats, FETCH_STATS_INTERVAL_MS);
     fetchStatsTimer.unref?.();
@@ -272,6 +281,7 @@ const recordFetchOutcome = (
 
 export const resetFetchStatsForTests = (): void => {
   fetchStats = new Map();
+
   if (fetchStatsTimer) clearInterval(fetchStatsTimer);
   fetchStatsTimer = undefined;
 };
@@ -280,8 +290,8 @@ export const resetFetchStatsForTests = (): void => {
 
 export const curlExec = (
   cmd: string,
-  opts: { encoding?: 'utf-8' | 'buffer' } = {}
-): Promise<{ stdout: string | Buffer; stderr: string }> =>
+  opts: { encoding?: 'buffer' | 'utf-8' } = {}
+): Promise<{ stderr: string; stdout: Buffer | string }> =>
   new Promise((resolve, reject) => {
     exec(
       cmd,
@@ -341,12 +351,14 @@ export interface FetchFnResult<T> {
 }
 
 export interface TryFetchOpts<T> {
-  url: string;
-  method: string;
-  fetchFn: () => Promise<FetchFnResult<T>>;
+  // Skip fetch and go straight to curl: for a caller that already knows fetch
+  // is broken on this machine.
+  curlFirst?: boolean;
   curlFn: () => Promise<T>;
+  fetchFn: () => Promise<FetchFnResult<T>>;
   // Extra fetch attempts before falling back to curl. Default 0 (single try).
   fetchRetries?: number;
+  method: string;
   // Pause between fetch attempts. Default 500ms.
   retryDelayMs?: number;
   // Filters which failures the retries apply to. Defaults to all of them.
@@ -355,9 +367,7 @@ export interface TryFetchOpts<T> {
   // collapsed summary of an ongoing outage; the first failure must not set it,
   // or the detail is lost entirely.
   suppressFailureLogs?: boolean;
-  // Skip fetch and go straight to curl: for a caller that already knows fetch
-  // is broken on this machine.
-  curlFirst?: boolean;
+  url: string;
 }
 
 // Run fetchFn; if it throws (or returns non-2xx surfaced via thrown error),
@@ -366,6 +376,7 @@ export const tryFetchWithFallback = async <T>(
   opts: TryFetchOpts<T>
 ): Promise<HttpResult<T>> => {
   const { url, method, fetchFn, curlFn } = opts;
+
   if (opts.curlFirst) {
     try {
       const data = await curlFn();
@@ -381,11 +392,12 @@ export const tryFetchWithFallback = async <T>(
   const shouldRetry = opts.shouldRetry ?? (() => true);
   ensureSocketReuseTracing();
   const traceKey = requestTraceKey(method, url);
+
   if (traceKey) trackTraceKey(traceKey);
   let fetchErr: any;
   let responseStatus: number | undefined;
   let fetchDurationMs: number | undefined;
-  let attempt = 0;
+  let attempt: number;
   const fetchErrors: string[] = [];
 
   // Fall back to curl only once every attempt fails, or the failure is one
@@ -396,6 +408,7 @@ export const tryFetchWithFallback = async <T>(
     const startedAt = Date.now();
     try {
       const r = await fetchFn();
+
       if (attempt > 1) {
         // info, not warn: a recovery isn't an incident.
         logger.info(
@@ -403,6 +416,7 @@ export const tryFetchWithFallback = async <T>(
           'fetch recovered on retry'
         );
       }
+
       // Consume the mark so unique (signed-URL) keys don't accumulate.
       if (traceKey) releaseTraceKey(traceKey);
       recordFetchOutcome(
@@ -417,7 +431,9 @@ export const tryFetchWithFallback = async <T>(
       fetchErrors.push(fetchErrorLabel(err));
       responseStatus = err?.responseStatus;
       fetchDurationMs = Date.now() - startedAt;
+
       if (!shouldRetry(err)) break;
+
       // Jittered: a dyno restart fails every venue's poll at once, and a fixed
       // wait would march them all back onto the booting dyno together.
       if (attempt < maxAttempts) await sleep(jittered(retryDelayMs));
@@ -427,10 +443,12 @@ export const tryFetchWithFallback = async <T>(
   const fetchAttempts = Math.min(attempt, maxAttempts);
   const ctx = buildFetchErrorContext(url, method, fetchErr, responseStatus);
   let socketReused: boolean | undefined;
+
   if (traceKey) {
     socketReused = socketReuseByRequest.get(traceKey);
     releaseTraceKey(traceKey);
   }
+
   if (!opts.suppressFailureLogs) {
     logger.error(
       { ...ctx, fetchAttempts, fetchDurationMs, socketReused },
@@ -459,6 +477,7 @@ export const tryFetchWithFallback = async <T>(
     };
   } catch (curlErr: any) {
     recordFetchOutcome(method, url, 'failed', fetchErrors);
+
     if (!opts.suppressFailureLogs) {
       logger.error(
         {

@@ -26,6 +26,7 @@ export function isPackagedExe(execPath: string): boolean {
 if (process.platform === 'win32' && isPackagedExe(process.execPath)) {
   // nexe keeps process.execPath on the real binary; __dirname points inside it.
   const installDir = path.dirname(process.execPath);
+
   if (path.resolve(process.cwd()) !== path.resolve(installDir)) {
     try {
       process.chdir(installDir);

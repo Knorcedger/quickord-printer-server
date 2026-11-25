@@ -4,8 +4,8 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mock,
+  vi,
 } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -68,10 +68,9 @@ describe('release download over the curl fallback', () => {
   });
 
   async function loadAutoUpdate(): Promise<typeof AutoUpdate> {
-    let mod: typeof AutoUpdate;
     vi.resetModules();
-    mod = await import('../src/autoupdate/autoupdate');
-    return mod!;
+    const mod: typeof AutoUpdate = await import('../src/autoupdate/autoupdate');
+    return mod;
   }
 
   it('asks curl to fail on an HTTP error and codes it DOWNLOAD_FAILED', async () => {

@@ -21,6 +21,7 @@ const parse = (raw: string): LogLine[] => {
   const lines: LogLine[] = [];
   raw.split(/\r?\n/).forEach((text) => {
     const match = LINE.exec(text);
+
     if (match) {
       const isError = match[2]!.startsWith(ERROR_MARK);
       const body = isError ? match[2]!.slice(ERROR_MARK.length) : match[2]!;
@@ -54,6 +55,7 @@ export async function shipNewUpdateLogLines(): Promise<number> {
     UPDATE_LOG_FILES.map((f) => fs.readFile(f, 'utf8').catch(() => ''))
   );
   const fresh = contents.flatMap(parse).filter((l) => l.ts > since);
+
   if (fresh.length === 0) return 0;
 
   // The marker only moves once the lines are on disk; a failed write retries

@@ -11,11 +11,10 @@ vi.mock('../src/modules/logShipper', () => ({
   enqueueLines: (lines: LogLine[]) => enqueueLines(lines),
 }));
 
-// eslint-disable-next-line import/first
 import {
   MAX_LINES_PER_PASS,
-  SHIPPED_MARKER,
   shipNewUpdateLogLines,
+  SHIPPED_MARKER,
 } from '../src/autoupdate/shipUpdateLog';
 
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
@@ -67,9 +66,7 @@ describe('shipNewUpdateLogLines', () => {
     const second = ago(1_000);
     fs.appendFileSync('autoupdate.log', `${second} run two\n`);
     await expect(shipNewUpdateLogLines()).resolves.toBe(1);
-    expect(shipped().map((l) => l.message)).toEqual([
-      '[autoupdate] run two',
-    ]);
+    expect(shipped().map((l) => l.message)).toEqual(['[autoupdate] run two']);
   });
 
   test('ERROR lines ship as errors and continuation lines stay attached', async () => {

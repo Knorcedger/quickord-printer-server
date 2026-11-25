@@ -21,6 +21,7 @@ export const resolveCopies = (
   document: string
 ): number => {
   const entry = settings.documentCopies?.find((d) => d.document === document);
+
   if (entry) {
     return toValidCopyCount(entry.copies);
   }
@@ -40,6 +41,7 @@ export const resolveCopies = (
  */
 const toValidCopyCount = (value: unknown): number => {
   const count = Math.floor(Number(value));
+
   if (!Number.isFinite(count) || count < MIN_COPIES) {
     return MIN_COPIES;
   }

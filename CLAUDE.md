@@ -66,6 +66,10 @@ npm run start:dev
 # Typecheck (tsrs, the Rust port of TypeScript 7; `npm run typecheck:tsc` runs tsc)
 npm run typecheck
 
+# Lint and formatting (CI runs both, plus typecheck and tests, on every PR)
+npm run lint            # npm run lint:fix to apply the fixable ones
+npm run format:check    # npm run format to rewrite
+
 # Build & create release zip
 npm run build
 # This runs: typecheck → compile TS to dist/ → zip dist + config + package files
@@ -121,6 +125,7 @@ To change service config (start mode, dependencies, failure actions) on already-
 ## Code Style
 
 - **Never add a `Co-Authored-By:` trailer to commit messages.**
+- **Import order is load order.** ESLint does not sort import statements: `src/index.ts` must load `installDir` first, and some modules import each other.
 - **Keep comments short.** One or two lines. Explain the non-obvious _why_, not the reasoning that led there. No multi-paragraph rationale blocks above constants or functions.
 
 ## Key Patterns

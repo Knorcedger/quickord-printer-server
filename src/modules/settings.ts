@@ -276,7 +276,7 @@ export type IPrinterSettings = z.infer<typeof PrinterSettings>;
 // Option details moved from the legacy 'OPTION-DETAILS' pseudo-document to a
 // dedicated boolean. Fall back to the array for settings not yet migrated.
 export const shouldPrintOptionDetails = (
-  settings: Pick<IPrinterSettings, 'optionDetails' | 'documentsToPrint'>
+  settings: Pick<IPrinterSettings, 'documentsToPrint' | 'optionDetails'>
 ): boolean =>
   settings.optionDetails ??
   settings.documentsToPrint?.includes('OPTION-DETAILS') ??

@@ -16,7 +16,8 @@ const printCache = new Map<string, number>();
 // sent by two stations (e.g. a desktop and a mobile both reacting to the same
 // order broadcast) dedup against each other, while a genuinely different kiosk
 // print stays distinct.
-const normalizeAppId = (v: unknown): string => (v === 'kiosk' ? 'kiosk' : 'app');
+const normalizeAppId = (v: unknown): string =>
+  v === 'kiosk' ? 'kiosk' : 'app';
 
 // Build a canonical string for the request body that ignores the things that
 // differ between two stations printing the *same* document but not between two
@@ -32,6 +33,7 @@ const canonicalize = (value: unknown): string => {
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value) ?? 'null';
   }
+
   if (Array.isArray(value)) {
     return `[${value.map(canonicalize).join(',')}]`;
   }

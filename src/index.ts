@@ -18,10 +18,10 @@ import logger from './modules/logger';
 import { initModem } from './modules/modem';
 import scanNetworkForConnections from './modules/network';
 import {
-  setupPrinters,
-  paymentReceipt,
   invoice,
   invoiceMyPelates,
+  paymentReceipt,
+  setupPrinters,
 } from './modules/printer';
 import { printText } from './modules/printer';
 import {
@@ -86,6 +86,7 @@ function recordBindFailure(): number {
   let count = 0;
   try {
     const prev = JSON.parse(fs.readFileSync(BIND_FAILURE_STATE, 'utf-8'));
+
     if (
       typeof prev.first === 'number' &&
       now - prev.first < BIND_FAILURE_WINDOW_MS
@@ -157,6 +158,7 @@ async function handleBindFailure(
   if (err.code === 'EADDRINUSE') {
     try {
       const killed = await killPortHolders(port);
+
       if (killed.length) {
         logger.info(`Killed PID(s) ${killed.join(', ')} holding port ${port}.`);
       }
@@ -223,6 +225,7 @@ const main = async () => {
     }
 
     logger.info('Update path:', process.argv);
+
     // A normal boot checks for a release only once it serves (see
     // app.listen), so a slow or hung check never keeps prints waiting.
     if (args.length > 0) {
@@ -245,6 +248,8 @@ const main = async () => {
   await setupPrinters(getSettings());
 
   const app = express();
+  // Declared early: the shutdown handler below closes it.
+  // eslint-disable-next-line prefer-const
   let server!: ReturnType<typeof app.listen>;
   app.use(
     cors({
@@ -312,6 +317,7 @@ const main = async () => {
           const response = await fetch(url, {
             signal: AbortSignal.timeout(LATEST_VERSION_TIMEOUT_S * 1000),
           });
+
           if (!response.ok) throw httpStatusError(response);
           return {
             data: (await response.json()) as {
@@ -378,12 +384,14 @@ const main = async () => {
   // line, as before.
   async function doRestart(): Promise<void> {
     const isDev = process.argv[1]?.endsWith('.ts');
+
     if (isDev) {
       process.exit(0);
     }
 
     let exitCode = 0;
     let relaunch: (() => void) | undefined;
+
     if (isPackagedExe(process.execPath)) {
       // A non-zero exit is only meaningful as "restart me" if WinSW is our
       // parent. Orphaned instances exit 0 and rely on the watchdog below,
@@ -471,7 +479,7 @@ const main = async () => {
     try {
       const printers = await checkPrinters();
       res.status(200).send({ printers });
-    } catch (error) {
+    } catch {
       res.status(500).send({ error: 'Failed to check printers' });
     }
   });
@@ -548,14 +556,13 @@ const main = async () => {
     });
   });
 
-  // eslint-disable-next-line no-unused-vars
   app.use(
     (
       err: Error,
       req: Request<{}, any, any>,
       res: Response<{}, any>,
-      // eslint-disable-next-line no-unused-vars
-      next: any
+      // Express needs all four parameters to treat this as an error handler.
+      _next: any
     ) => {
       const errorMessage = `Problem: Unhandled error detected. Message: ${err.message}. URL: ${req.url}.`;
 

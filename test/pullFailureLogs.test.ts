@@ -4,9 +4,9 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mocked,
   type MockedFunction,
+  vi,
 } from 'vitest';
 
 vi.mock('../src/modules/logger', () => ({
@@ -52,13 +52,11 @@ type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
 
 const load = async () => {
-  let pullClient!: typeof import('../src/modules/pullClient');
-  let http!: Http;
-  let logger!: Logger;
   vi.resetModules();
-  pullClient = await import('../src/modules/pullClient');
-  http = await import('../src/modules/http');
-  logger = (await import('../src/modules/logger')).default;
+  const pullClient: typeof import('../src/modules/pullClient') =
+    await import('../src/modules/pullClient');
+  const http: Http = await import('../src/modules/http');
+  const logger: Logger = (await import('../src/modules/logger')).default;
   return {
     logger: logger as Mocked<Logger>,
     pullClient,
