@@ -921,11 +921,13 @@ export const printDeliveryInfo = (
     normalizeGreek(deliveryInfo.customerFloor || '')
   );
   const doorbell = normalizeGreek(deliveryInfo.customerDoorbell || '').trim();
+
   if (doorbell) line(labels.deliveryBell[lang], doorbell);
   line(labels.deliveryPhone[lang], deliveryInfo.customerPhoneNumber || '');
 
   const comments = normalizeGreek(deliveryInfo.customerBell || '').trim();
   const bottom = normalizeGreek(waiterComment || '').trim();
+
   if (comments && comments.toUpperCase() !== bottom.toUpperCase()) {
     line(labels.deliveryComments[lang], comments);
   }

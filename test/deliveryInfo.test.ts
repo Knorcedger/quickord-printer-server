@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
   CharacterSet,
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 import { installCharsetGuard } from '../src/modules/charsetGuard';
 import { printDeliveryInfo } from '../src/modules/common';
