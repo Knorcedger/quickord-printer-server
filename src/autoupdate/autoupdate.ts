@@ -1472,7 +1472,7 @@ function hasServerExe(dir: string): boolean {
 
 // Losing printerServerService.exe leaves the running server up but the service
 // unstartable (and un-uninstallable) at the next reboot. node_modules carries
-// the native deps (serialport, sharp), so new exes on a missing or empty one
+// the native deps (serialport), so new exes on a missing or empty one
 // are a dead install — the same rule updater.js validates before it stages.
 // Checked on the new build only — an install already missing them is what an
 // update must repair.

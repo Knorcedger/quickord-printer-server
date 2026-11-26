@@ -17,7 +17,6 @@ import { registerPreExitTask, triggerUpdate } from '../autoupdate/autoupdate';
 import { reportFetchFailure } from './api';
 import { applyDesiredSettings } from './applySettings';
 import { getBackendBaseUrl } from './backendUrl';
-import { markFirstPoll } from './bootGate';
 import { FailureEpisode } from './failureEpisode';
 import {
   CURL_CONNECT_TIMEOUT_S,
@@ -564,7 +563,6 @@ async function loop(): Promise<void> {
     try {
       const polledAt = Date.now();
       const delivered = await pollOnce();
-      markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
 

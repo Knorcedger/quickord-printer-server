@@ -25,7 +25,6 @@ cp -r node_modules/debug ./builds/node_modules/
 cp -r node_modules/ms ./builds/node_modules/
 cp -r node_modules/node-gyp-build ./builds/node_modules/
 cp -r node_modules/serialport ./builds/node_modules/
-cp -r node_modules/@img ./builds/node_modules/
 
 # Copy package-lock.json (if you meant package-lock.json from the root)
 
@@ -53,7 +52,7 @@ cp  force_autoupdate.bat ./builds/builds/ || { echo "Failed to copy force_autoup
 # The venue installs this zip by running the printerServer.exe *inside it* as
 # the updater, so a zip missing a piece cannot install itself and cannot roll
 # back either - it dies in require() and leaves the venue with a stopped
-# service. The six cp -r above are unchecked; this is where that gets caught.
+# service. The cp -r above are unchecked; this is where that gets caught.
 for entry in \
   builds/printerServer.exe \
   builds/printerServerService.exe \
@@ -63,7 +62,6 @@ for entry in \
   updater.exe \
   node_modules/serialport/package.json \
   node_modules/@serialport/bindings-cpp/package.json \
-  node_modules/@img/sharp-win32-x64/package.json \
   node_modules/debug/package.json \
   node_modules/ms/package.json \
   node_modules/node-gyp-build/package.json

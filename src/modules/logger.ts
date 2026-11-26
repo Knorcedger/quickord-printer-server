@@ -1,6 +1,3 @@
-import AdmZip from 'adm-zip';
-
-import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 
 import process from 'node:process';
@@ -161,32 +158,7 @@ const init = async (filename: string = 'app') => {
   );
 };
 
-const generations = (filename: string, count: number) => [
-  `${filename}.log`,
-  ...Array.from({ length: count - 1 }, (_, i) => `${filename}.${i + 1}.log`),
-];
-
-const possibleFiles = [
-  ...generations('app', LOG_GENERATIONS),
-  // Written by the updater, which runs from %TEMP% and flushes here when it
-  // finishes. See autoupdate/updateLog.ts.
-  ...generations('autoupdate', 2),
-];
-
-const createZip = () => {
-  const zip = new AdmZip();
-
-  possibleFiles.forEach((f) => {
-    if (existsSync(`./${f}`)) {
-      zip.addLocalFile(`./${f}`);
-    }
-  });
-
-  return zip.toBuffer();
-};
-
 export default {
-  createZip,
   debug,
   error,
   info,

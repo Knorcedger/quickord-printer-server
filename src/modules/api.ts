@@ -31,7 +31,7 @@ const API_TIMEOUT_S = 30;
 // Null when no usable LAN IPv4 is up (DHCP not settled at boot, or only
 // virtual adapters). Never falls back to loopback or — unless the caller opts
 // in — to a Hyper-V/WSL/Docker address: a wrong IP published to the backend
-// kills LAN printing for the whole venue and nothing re-registers it.
+// breaks the FE's LAN pairing for the whole venue and nothing re-registers it.
 export const getLocalIP = (
   options: { allowVirtual?: boolean } = {}
 ): null | string => {
@@ -203,8 +203,8 @@ export const registerPrinterServerIp = async (
 const IP_REGISTRATION_RETRY_MS = 15_000;
 // A dead uplink lasts hours, and every attempt costs a fetch plus a curl
 // process, so slow down once a boot-time DHCP race is no longer the likely
-// cause. Registration is not latency-critical: it only enables the FE's
-// direct-LAN fast path.
+// cause. Registration is not latency-critical: it only lets the FE find this
+// PS on the LAN to pair it.
 const IP_REGISTRATION_SLOW_RETRY_MS = 60_000;
 const IP_REGISTRATION_FAST_ATTEMPTS = 4;
 // Only virtual adapters up right after boot means DHCP hasn't settled. Past
@@ -214,15 +214,15 @@ const VIRTUAL_IP_GRACE_MS = 5 * 60 * 1000;
 
 // Once registered, keep watching: a new DHCP lease (router reboot) used to
 // leave a stale IP in the backend until the next restart of this process, and
-// the FE silently lost its direct-LAN path. Reading the address is local and
+// the FE could no longer reach it to pair. Reading the address is local and
 // free — only an actual change costs a call.
 const IP_WATCH_MS = 5 * 60 * 1000;
 
 let ipRegistrationVenueId: null | string = null;
 
 // Retries until the backend confirms, then re-registers whenever the address
-// changes. The PS must not block on this: it only enables the FE's direct-LAN
-// fast path, while the pull channel — which does the printing — needs no IP at
+// changes. The PS must not block on this: it only serves the FE's LAN pairing,
+// while the pull channel — which does the printing — needs no IP at
 // all. At boot the service starts before DHCP has a lease, so the first
 // attempts legitimately have nothing to publish.
 export const startPrinterServerIpRegistration = (venueId: string): void => {
@@ -243,7 +243,7 @@ export const startPrinterServerIpRegistration = (venueId: string): void => {
       const physicalIp = getLocalIP();
       // The grace window covers a boot with nothing real up yet; it must not
       // outlive the first registration, or a physical NIC that drops later gets
-      // replaced by a vEthernet/WSL address and the venue loses LAN printing.
+      // replaced by a vEthernet/WSL address and the FE can't pair over the LAN.
       const allowVirtual =
         Date.now() - startedAt >= VIRTUAL_IP_GRACE_MS &&
         (registeredIp === null || registeredVirtual);

@@ -262,25 +262,13 @@ export const PrinterSettings = z.object({
     })
     .optional()
     .default([]),
-  // Per-element size levels (0-3). Accepted and round-tripped through settings.json so
-  // the BE stays the single writer; the LAN-fallback renderer here still uses
-  // textOptions, which the FE dual-writes for exactly that reason. A new value
-  // inside the closed textOptions enum would 400 the whole venue's settings,
-  // which is why this is a separate field.
+  // Per-element size levels (0-3), round-tripped so the BE stays the single
+  // writer. Kept apart from textOptions, whose closed enum would 400 new values.
   textSizes: PrinterTextSizes.optional(),
   transliterate: z.boolean().default(false),
 });
 
 export type IPrinterSettings = z.infer<typeof PrinterSettings>;
-
-// Option details moved from the legacy 'OPTION-DETAILS' pseudo-document to a
-// dedicated boolean. Fall back to the array for settings not yet migrated.
-export const shouldPrintOptionDetails = (
-  settings: Pick<IPrinterSettings, 'documentsToPrint' | 'optionDetails'>
-): boolean =>
-  settings.optionDetails ??
-  settings.documentsToPrint?.includes('OPTION-DETAILS') ??
-  false;
 
 export const ModemSettings = z.object({
   label: z.string().optional(),

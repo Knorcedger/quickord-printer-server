@@ -319,11 +319,6 @@ export const curlExecJson = async (cmd: string): Promise<any> => {
   return JSON.parse(stdout as string);
 };
 
-export const curlExecBuffer = async (cmd: string): Promise<Buffer> => {
-  const { stdout } = await curlExec(cmd, { encoding: 'buffer' });
-  return stdout as Buffer;
-};
-
 // Write a JSON payload to a temp file (avoids Windows shell-escaping issues)
 // and pass the path to a function that runs the curl command.
 export const withTempJsonPayload = async <R>(

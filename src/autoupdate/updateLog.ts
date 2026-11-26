@@ -11,7 +11,7 @@ import logger from '../modules/logger';
  * underneath itself (backupInstall renames it away), so it cannot write its log
  * where it belongs while it works. It buffers into %TEMP% instead and flushes
  * into <install>/builds/autoupdate.log on the way out — that file is what the
- * /logs zip ships. Before this, every one of these messages was a console.log
+ * log shipper sends. Before this, every one of these messages was a console.log
  * into a window that closed, which is why a failed update at a venue left no
  * trace at all.
  */

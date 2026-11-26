@@ -12,7 +12,7 @@ import {
   types as PrinterTypes,
   printer as ThermalPrinter,
 } from 'node-thermal-printer';
-import { isUSBPrinterOnline } from './common';
+import { isUSBPrinterOnline } from './usbPrinter';
 import logger from './logger';
 import { enqueuePrinterJob } from './printerQueue';
 
@@ -162,7 +162,7 @@ export function executePrintJob(
   const buffer = Buffer.from(data, 'base64');
 
   // Key the queue by the physical target (ip for TCP, device path for local);
-  // printerQueueKey in printer.ts must match so LAN fallback prints share it.
+  // printerQueueKey in printer.ts must match so checkPrinters sees the job.
   const queueKey = printerIp || printerPort!;
   const queuedAt = Date.now();
   enqueuePrinterJob(queueKey, async () => {
