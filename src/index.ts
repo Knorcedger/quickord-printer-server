@@ -6,7 +6,6 @@ import './modules/fetchAgent';
 import * as bodyParser from 'body-parser';
 import cors from 'cors';
 import nconf from 'nconf';
-import { CharacterSet } from 'node-thermal-printer';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -16,33 +15,14 @@ import { Request, Response } from 'express';
 import { homepage } from './homepage';
 import logger from './modules/logger';
 import { initModem } from './modules/modem';
-import scanNetworkForConnections from './modules/network';
-import {
-  invoice,
-  invoiceMyPelates,
-  paymentReceipt,
-  setupPrinters,
-} from './modules/printer';
-import { printText } from './modules/printer';
+import { setupPrinters } from './modules/printer';
 import {
   getModems,
   getPublicSettings,
   getSettings,
   loadSettings,
-  PrinterTextOptions,
 } from './modules/settings';
-import { bootGate, startBootGate } from './modules/bootGate';
-import { dedup } from './modules/dedup';
-import printOrderComments from './resolvers/printOrderComments';
-import printOrders, { printFullOrders } from './resolvers/printOrders';
-import { paymentSlip } from './modules/printer';
-import { deliveryNote } from './modules/printer';
-import { parkingTicket } from './modules/printer';
-import { orderForm } from './modules/printer';
-import { checkPrinters } from './modules/printer';
-import { pelatologioRecord } from './modules/printer';
 import settings from './resolvers/settings';
-import testPrint from './resolvers/testPrint';
 import autoUpdate, {
   downloadLatestCode,
   getServiceState,
@@ -57,14 +37,7 @@ import autoUpdate, {
 } from './autoupdate/autoupdate';
 import { absorbStrayUpdateLogs } from './autoupdate/updateLog';
 import { shipNewUpdateLogLines } from './autoupdate/shipUpdateLog';
-import { getLocalIP, startPrinterServerIpRegistration } from './modules/api';
-import {
-  CURL_CONNECT_TIMEOUT_S,
-  curlExecJson,
-  httpStatusError,
-  tryFetchWithFallback,
-} from './modules/http';
-import { paymentMyPelatesReceipt } from './modules/printer';
+import { startPrinterServerIpRegistration } from './modules/api';
 import { initPullClient, pausePullClient } from './modules/pullClient';
 import { initLogShipper } from './modules/logShipper';
 import { setRestartHandler } from './modules/psIdentity';
@@ -298,74 +271,13 @@ const main = async () => {
     }
   }
 
-  // Simple HTTPS request (works inside exe)
-
-  // Same cap as the update's own version check.
-  const LATEST_VERSION_TIMEOUT_S = 20;
-
-  async function fetchLatestVersion() {
-    const url =
-      'https://api.github.com/repos/Knorcedger/quickord-printer-server/releases/latest';
-    try {
-      const result = await tryFetchWithFallback<{
-        name?: string;
-        tag_name?: string;
-      }>({
-        url,
-        method: 'GET',
-        fetchFn: async () => {
-          const response = await fetch(url, {
-            signal: AbortSignal.timeout(LATEST_VERSION_TIMEOUT_S * 1000),
-          });
-
-          if (!response.ok) throw httpStatusError(response);
-          return {
-            data: (await response.json()) as {
-              name?: string;
-              tag_name?: string;
-            },
-          };
-        },
-        curlFn: () =>
-          curlExecJson(
-            `curl -s -L --connect-timeout ${CURL_CONNECT_TIMEOUT_S} -m ${LATEST_VERSION_TIMEOUT_S} "${url}"`
-          ),
-      });
-      return result.data.name || result.data.tag_name || 'unknown';
-    } catch (err) {
-      logger.warn('Latest-version fetch from GitHub failed:', err);
-      return 'unknown';
-    }
-  }
-
-  // ------------------ ROUTES ------------------
-
-  app
-    .route('/printer-version')
-    .post(settings)
-    .get((req: Request, res: Response) => {
-      const version = getPrinterVersion();
-      res.status(200).json({ version });
-    });
-
-  app.get('/request-latest-version', async (req, res) => {
-    try {
-      const version = await fetchLatestVersion();
-      res.status(200).json({ version });
-    } catch (err) {
-      logger.error('Error fetching version:', err);
-      res.status(500).json({ version: 'unknown' });
-    }
-  });
-
   app
     .route('/status')
     .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
       res.status(200).send({ status: 'ok' });
     });
 
-  // Restart this process. Triggered by the HTTP route (legacy/local) and by a
-  // backend restart command over the pull channel / WebSocket (remote).
+  // Restart this process on a backend restart command over the pull channel.
   //
   // We do NOT respawn ourselves. A detached spawn is what used to take the
   // server out from under the service manager: WinSW saw its child exit
@@ -440,7 +352,7 @@ const main = async () => {
     }, 500);
   }
 
-  // Let a backend restartRequest trigger the same restart path as the HTTP route.
+  // Let a backend restartRequest trigger the restart.
   setRestartHandler(restartServer);
 
   // Explicit version check on demand, without a restart: when there is nothing
@@ -461,83 +373,6 @@ const main = async () => {
       resume: initPullClient,
     });
   });
-
-  app.post('/restart', (req: Request, res: Response) => {
-    res.status(200).send({ status: 'restarting' });
-    restartServer();
-  });
-
-  app
-    .route('/local-ip')
-    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      // The FE asks long after boot, so a virtual adapter here is the machine's
-      // real address rather than a DHCP race.
-      const localIP = getLocalIP({ allowVirtual: true });
-      res.status(200).send({ localIP });
-    });
-  app.route('/available').get(async (req: Request, res: Response) => {
-    try {
-      const printers = await checkPrinters();
-      res.status(200).send({ printers });
-    } catch {
-      res.status(500).send({ error: 'Failed to check printers' });
-    }
-  });
-
-  app
-    .route('/network')
-    .get(async (req: Request<{}, any, any>, res: Response<{}, any>) => {
-      try {
-        const lanConnections = await scanNetworkForConnections();
-
-        res.status(200).send({ lanConnections });
-      } catch (error) {
-        logger.error('Error scanning network connections:', error);
-        res.status(500).send({ error: 'Failed to scan network connections' });
-      }
-    });
-
-  app.route('/print-orders').post(bootGate, dedup, printOrders);
-  app.route('/print-full-order').post(bootGate, dedup, printFullOrders);
-  app.route('/print-order-comments').post(bootGate, dedup, printOrderComments);
-
-  app.route('/test-print').post(bootGate, testPrint);
-  app.route('/print-alp').post(bootGate, dedup, paymentReceipt);
-  app
-    .route('/print-alp-mypelates')
-    .post(bootGate, dedup, paymentMyPelatesReceipt);
-  app.route('/print-invoice-mypelates').post(bootGate, dedup, invoiceMyPelates);
-
-  app.route('/print-payment-slip').post(bootGate, dedup, paymentSlip);
-  app.route('/print-order-form').post(bootGate, dedup, orderForm);
-  app.route('/print-parking-ticket').post(bootGate, dedup, parkingTicket);
-  app
-    .route('/print-pelatologio-record')
-    .post(bootGate, dedup, pelatologioRecord);
-  app.route('/print-text').post(bootGate, dedup, printText);
-  app.route('/print-invoice').post(bootGate, dedup, invoice);
-  app.route('/print-delivery-note').post(bootGate, dedup, deliveryNote);
-
-  app
-    .route('/logs')
-    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      try {
-        const zip = logger.createZip();
-
-        res.status(200).setHeader('Content-Type', 'application/zip').send(zip);
-      } catch (error) {
-        res.status(500).send({ error });
-      }
-    });
-
-  app
-    .route('/get-data')
-    .get((req: Request<{}, any, any>, res: Response<{}, any>) => {
-      res.status(200).send({
-        charset: Object.values(CharacterSet),
-        textOptions: Object.values(PrinterTextOptions.Values),
-      });
-    });
 
   // 404 catch-all — must come AFTER all route handlers but BEFORE the error
   // handler. Without this, Express's default 404 returns an HTML page
@@ -580,9 +415,6 @@ const main = async () => {
 
   // start server
   server = app.listen(SERVER_PORT, () => {
-    // Only now can a print request arrive, so this is where the gate's window
-    // to reach the backend starts.
-    startBootGate();
     logger.info(
       'API listening at port',
       (server?.address?.() as { port: number })?.port

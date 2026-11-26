@@ -2,8 +2,6 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   enqueuePrinterJob,
   hasPendingPrinterJob,
-  lockPrinterBuffer,
-  runOnPrinterQueue,
 } from '../src/modules/printerQueue';
 
 vi.mock('../src/modules/logger', () => ({
@@ -19,51 +17,57 @@ const deferred = () => {
   return { promise, resolve };
 };
 
+// Resolves once `task` has run on the queue.
+const enqueueAndWait = (key: string, task: () => Promise<void>) =>
+  new Promise<void>((resolve) => {
+    enqueuePrinterJob(key, () => task().finally(resolve));
+  });
+
 describe('printer queue', () => {
   // Let the inter-job pauses drain so the worker exits cleanly.
   afterAll(() => new Promise((r) => setTimeout(r, 600)));
 
-  it('runs an awaited job only after the queued pull job on the same printer', async () => {
+  it('runs a second job only after the first on the same printer', async () => {
     const order: string[] = [];
-    const pullJob = deferred();
+    const first = deferred();
 
     enqueuePrinterJob('10.0.0.5', async () => {
-      order.push('pull:start');
-      await pullJob.promise;
-      order.push('pull:end');
+      order.push('first:start');
+      await first.promise;
+      order.push('first:end');
     });
-    const lan = runOnPrinterQueue('10.0.0.5', async () => {
-      order.push('lan');
+    const second = enqueueAndWait('10.0.0.5', async () => {
+      order.push('second');
     });
 
     await new Promise((r) => setImmediate(r));
-    expect(order).toEqual(['pull:start']);
+    expect(order).toEqual(['first:start']);
 
-    pullJob.resolve();
-    await lan;
-    expect(order).toEqual(['pull:start', 'pull:end', 'lan']);
+    first.resolve();
+    await second;
+    expect(order).toEqual(['first:start', 'first:end', 'second']);
   });
 
   it('does not hold up a different printer', async () => {
     const blocker = deferred();
     enqueuePrinterJob('10.0.0.6', () => blocker.promise);
 
-    await expect(runOnPrinterQueue('10.0.0.7', async () => 'ok')).resolves.toBe(
-      'ok'
-    );
+    await expect(
+      enqueueAndWait('10.0.0.7', async () => {})
+    ).resolves.toBeUndefined();
     blocker.resolve();
   });
 
-  it('rejects to the caller and keeps the chain alive', async () => {
-    await expect(
-      runOnPrinterQueue('10.0.0.8', async () => {
-        throw new Error('Socket timeout');
-      })
-    ).rejects.toThrow('Socket timeout');
+  it('keeps the chain alive after a failed job', async () => {
+    enqueuePrinterJob('10.0.0.8', async () => {
+      throw new Error('Socket timeout');
+    });
 
-    await expect(
-      runOnPrinterQueue('10.0.0.8', async () => 'next')
-    ).resolves.toBe('next');
+    let ran = false;
+    await enqueueAndWait('10.0.0.8', async () => {
+      ran = true;
+    });
+    expect(ran).toBe(true);
   });
 });
 
@@ -82,30 +86,5 @@ describe('hasPendingPrinterJob', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-});
-
-describe('printer buffer lock', () => {
-  it('hands the buffer to the next holder only after release', async () => {
-    const printer = {};
-    const order: string[] = [];
-
-    const releaseA = await lockPrinterBuffer(printer);
-    const b = lockPrinterBuffer(printer).then((release) => {
-      order.push('b');
-      release();
-    });
-
-    await new Promise((r) => setImmediate(r));
-    expect(order).toEqual([]);
-
-    releaseA();
-    await b;
-    expect(order).toEqual(['b']);
-  });
-
-  it('does not hold up a different printer', async () => {
-    await lockPrinterBuffer({});
-    await expect(lockPrinterBuffer({})).resolves.toEqual(expect.any(Function));
   });
 });

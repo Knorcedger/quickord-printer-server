@@ -18,7 +18,7 @@
 
 ## Introduction
 
-This is a simple server that listens for print requests and sends them to a printer. It is intended to be used with the [Quickord](https://app.quickord.com) app. This server was created to be used with thermal printers that support ESC/POS commands. You can configure the local server by going to [this website](https://app.quickord.com/venue/id/printer-settings)
+This server long-polls the Quickord backend for print jobs and sends them to local thermal printers. It is intended to be used with the [Quickord](https://app.quickord.com) app. This server was created to be used with thermal printers that support ESC/POS commands. You can configure the local server by going to [this website](https://app.quickord.com/venue/id/printer-settings)
 
 The printer server supports the following OS:
 
@@ -93,57 +93,9 @@ To just run:
 
 ## Configuration
 
-The following are the printer settings that can be configured:
+Printer settings live in the backend and are edited on [the printer settings page](https://app.quickord.com/venue/id/printer-settings). The server receives them over the pull channel and caches them in `settings.json`; it uses only the printer addresses (for status checks and keep-alive) and the modems. The documents themselves are formatted by the backend.
 
-- `categoriesToPrint: Array<string>`: The categories (`_ids`) that should be printed.
-- `documentsToPrint: Array<string>` : Can contain "ALP","ORDER","PAYMENT-SLIP","ORDERFORM" which is what documents a printer is going to print
-- `orderMethodsToPrint: Array<string>`: what orderMethods a printer is going to print. Can contain
-"DELIVERY","DINE_IN","TAKE_AWAY_INSIDE","TAKE_AWAY_PACKAGE","EFOOD","WOLT","FAGI","BOX"
-- `characterSet: CharacterSetEnum`: The character set to use for the printer. This is taken from the `node-thermal-printer` package.
-- `codePage: number`: The code page to use for the printer. This is used in conjunction with `characterSet` to setup the encoding for the printing. This can be found in the printer's manual or the selft test page.
-- `copies: number`: The number of copies to print.
-- `name: string`: The friendly name of the printer.
-- `networkName: string`: The network name of the printer.
-- `ip: string`: The IP address of the printer. (instead of port)
-- `port: string`: The port to use for the printer. (instead of IP)
-- `textOptions: Array<'BOLD_PRODUCTS' | 'BOLD_ORDER_NUMBER'>`: The text options to use for the printer. This is used to change the text depending on the specified options.
-- `textSize: 'NORMAL' | 'ONE' | 'TWO' | 'THREE'`: The size of the text to print.
-- `transliterate: boolean`: When `true`, converts Greek characters to Latin equivalents (greeklish) before printing. Useful for printers that don't support Greek character sets. Default: `false`.
-
-The printers are configured by sending a POST to `/settings` with the following body (example):
-
-```json
-[
-{
-  "categoriesToPrint": ['idone','idtwo'...],
-  "documentsToPrint": [
-      "ALP",
-      "ORDER",
-      "PAYMENT-SLIP",
-      "ORDERFORM"
-    ],
-  "orderMethodsToPrint": [
-      "DELIVERY",
-      "DINE_IN",
-      "TAKE_AWAY_INSIDE",
-      "TAKE_AWAY_PACKAGE",
-      "EFOOD",
-      "WOLT",
-      "FAGI",
-      "BOX"
-    ],
-  "characterSet": "WPC1253_GREEK",
-  "codePage": 90,
-  "copies": 1,
-  "ip": "192.168.178.150",
-  "name": "",
-  "networkName": "thermalprinternetum.fritz.box",
-  "port": "",
-  "textOptions": [],
-  "textSize": "NORMAL"
-}
-]
-````
+`POST /settings` on the LAN is bootstrap-only: it takes the `venueId` and `wsSecret` the settings page sends when pairing a new server. `GET /settings` returns `{ venueId, claimed, settingsHash, version }`. Apart from those, the server serves `GET /` and `GET /status`; every other route returns a JSON 404 (`ROUTE_NOT_FOUND`).
 
 The server configs (in `config.json`) are:
 
@@ -154,17 +106,9 @@ The server configs (in `config.json`) are:
 
 ## Usage
 
-This server is intended to be used with the quickord app. The server listens for print requests and sends them to the printer. The server can be configured by going to [this website](https://app.quickord.com/venue/id/printer-settings).
-
-Steps to use the server:
-
-1. Launch the server with npm run start:dev.
-2. Open the [Quickord](https://app.quickord.com) web app.
-3. Start a new shift and select all the tables and/or delivery/takeaway orders that you want to print.
-
-Every order now has a print button that you can use to print the order. Every new order (in the chosen shift tables) will be printed automatically.
-
-After making settings changes on the website, you need to restart the server for the changes to take effect and to clear the double printing issue.
+1. Launch the server with `npm run start:dev`.
+2. Open the [printer settings page](https://app.quickord.com/venue/id/printer-settings) in the Quickord app and pair the server.
+3. Prints from the app go to the backend, which queues them as jobs; the server pulls them and prints.
 
 ---
 
@@ -191,7 +135,7 @@ Zip all the log files (`app.log`, `app.1.log`, `app.2.log`, `autoupdate.log` ) a
 
 ## How it works
 
-The Quickord app polls the printer server in an interval to check its status. The server listens for print requests and sends them to the printer. There are logs saved in the `app.log` file that can be used to troubleshoot any issues. It keeps the last 3 logs and rotates them.
+The server long-polls the backend for its venue's print jobs (`pullClient.ts`), sends each one, already formatted as ESC/POS, to its printer (`printJob.ts`), and reports the result. The same channel carries liveness, check printers / scan network, restart, update and test prints. When the server is not polling, the backend refuses prints with `PS_OFFLINE_NO_FALLBACK`; the app never prints to the server directly. Logs are saved in `app.log`.
 
 The autoupdate process is done by checking the `CODE_UPDATE_URL` for the latest release. If there is a new release, the server will download the latest release and restart itself. The autoupdate process is done on every startup of the server. Autoupdate logs are saved in the `autoupdate.log` file. It keeps the last 3 logs and rotates them.
 
@@ -201,8 +145,7 @@ The autoupdate process is done by checking the `CODE_UPDATE_URL` for the latest 
 
 If the server is not working as expected, you can check the logs in the `app.log` and `autoupdate.log` files. These logs are saved in the server folder. The logs keep the last 3 logs and rotate them.
 
-- **The orders are double printing**: This can happen if the server is running multiple times or the Quickord app is open in multiple tabs. Make sure that the server is only running once and there is only one tab open. If the previous don't work, restart the server.
-- **The server only prints X language**: The server prints the main language of the menu, if you want to print in another language you need to change the language of the menu in the Quickord app.
+- **The orders are double printing**: Make sure the server is running only once on the venue's machines.
 - **The print is scrambled and not Greek**: Check that the codepage matches the encoding you have chosen and is the correct for the specific printer. You can find the codepage in the printer's manual or the self test page.
 
 ## Troubleshooting building:

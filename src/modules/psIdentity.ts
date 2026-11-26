@@ -3,8 +3,8 @@
  *
  * Small, dependency-light accessors shared across the app: the venue this
  * server is provisioned for, its per-venue secret, the current version, and the
- * restart trigger. Kept apart from the transport modules so both the pull client
- * and the HTTP resolvers can import them without a cycle.
+ * restart trigger. Kept apart from the transport modules so the pull client
+ * and the settings resolver can import them without a cycle.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

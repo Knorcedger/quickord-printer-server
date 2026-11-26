@@ -1,6 +1,6 @@
 /**
- * Per-printer job queue shared by the pull path (printJob.ts) and the LAN
- * HTTP fallback (printer.ts), so the two never open competing connections.
+ * Per-printer job queue for pull jobs (printJob.ts). checkPrinters and the
+ * keep-alive read it so they never probe a printer mid-job.
  */
 import logger from './logger';
 
@@ -41,38 +41,4 @@ export function enqueuePrinterJob(
 // True while a job for `key` is running or waiting (incl. the inter-job pause).
 export function hasPendingPrinterJob(key: string): boolean {
   return printerQueues.has(key);
-}
-
-// Awaitable variant: queues `task` and settles with its own outcome.
-export function runOnPrinterQueue<T>(
-  key: string,
-  task: () => Promise<T>
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    enqueuePrinterJob(key, () => task().then(resolve, reject));
-  });
-}
-
-// LAN requests share one ThermalPrinter buffer per printer, so each holds this
-// lock from its first clear() to its last, or one request wipes another's bytes.
-// Take it only after the skip checks, so a skipped printer never stalls a request.
-const bufferLocks = new WeakMap<object, Promise<void>>();
-
-export async function lockPrinterBuffer(
-  owner: object | undefined
-): Promise<() => void> {
-  if (!owner) return () => {};
-  const prev = bufferLocks.get(owner) ?? Promise.resolve();
-  let release!: () => void;
-  const held = new Promise<void>((r) => {
-    release = r;
-  });
-  const tail = prev.then(() => held);
-  bufferLocks.set(owner, tail);
-  await prev;
-  return () => {
-    release();
-
-    if (bufferLocks.get(owner) === tail) bufferLocks.delete(owner);
-  };
 }

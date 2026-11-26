@@ -2,11 +2,11 @@
 
 ## Overview
 
-Node.js/TypeScript Express server (port 7810) that bridges the Quickord restaurant ordering platform with ESC/POS thermal printers. Receives order data via HTTP from the Quickord web app, formats it, and sends it to configured printers via TCP (network) or serial (USB).
+Node.js/TypeScript Express server (port 7810) that bridges the Quickord restaurant ordering platform with ESC/POS thermal printers. It pulls print jobs the backend has already formatted and sends them to configured printers via TCP (network) or a device path (USB/shared). Formatting lives in the backend only.
 
 ### Backend channel
 
-The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. When the pull channel is down the backend returns `PS_OFFLINE_NO_FALLBACK` and nothing prints; only venues on the backend's `LAN_FALLBACK_VENUE_IDS` get `PS_OFFLINE`, where the frontend falls back to a direct LAN HTTP call to this server's `/print-*` endpoints.
+The server talks to the backend over a **single HTTP long-poll pull channel** (`pullClient.ts`): it polls for its venue's pending print jobs, runs each through `printJob.ts`, and reports outcomes back over HTTP. The same channel carries liveness, control ops (check printers / scan network / restart / update), test prints, and version reporting. When the pull channel is down the backend returns `PS_OFFLINE_NO_FALLBACK` and nothing prints. There is no LAN print path: the HTTP server only serves `GET /`, `GET|POST /settings` (bootstrap) and `GET /status`, and answers everything else with a JSON 404 `ROUTE_NOT_FOUND`.
 
 ## Tech Stack
 
@@ -23,23 +23,20 @@ The server talks to the backend over a **single HTTP long-poll pull channel** (`
 src/
 ├── index.ts                    # Entry point - Express server, routes, startup
 ├── modules/
-│   ├── printer.ts              # Core print logic - all print formatting and sending
+│   ├── printer.ts              # Printer registry, WiFi keep-alive, checkPrinters
 │   ├── pullClient.ts           # Long-poll pull loop — sole backend channel (see below)
-│   ├── printJob.ts             # Raw ESC/POS job execution (TCP/local), per-printer serialization
+│   ├── printJob.ts             # Raw ESC/POS job execution (TCP/local)
+│   ├── printerQueue.ts         # Per-printer job serialization
+│   ├── usbPrinter.ts           # Windows shared-printer online check
 │   ├── psIdentity.ts           # venueId/secret/version accessors + restart trigger
 │   ├── api.ts                  # Backend GraphQL calls (IP register, error reporting)
 │   ├── backendUrl.ts           # Derives the backend HTTP base from QUICKORD_API_URL
 │   ├── settings.ts             # Zod schemas, settings load/save to settings.json
-│   ├── common.ts               # Utilities: transliteration (tr), text formatting, images
 │   ├── modem.ts                # Serial modem for phone call routing
 │   ├── network.ts              # Network scanner for printer discovery
-│   ├── logger.ts               # File logging with rotation
-│   ├── translations.ts         # i18n (EN, EL)
-│   └── interfaces.ts           # TypeScript interfaces
+│   └── logger.ts               # File logging with rotation
 ├── resolvers/
-│   ├── printOrders.ts          # POST /print-orders handler + Zod validation
-│   ├── settings.ts             # GET/POST /settings handler
-│   └── testPrint.ts            # POST /test-print handler
+│   └── settings.ts             # POST /settings bootstrap handler
 └── autoupdate/
     └── autoupdate.ts           # GitHub release auto-update after startup
 ```
@@ -130,8 +127,7 @@ To change service config (start mode, dependencies, failure actions) on already-
 
 ## Key Patterns
 
-- **Transliteration**: All printed text passes through `tr(text, settings.transliterate)` from `common.ts`. When enabled, converts Greek → Latin characters. Every `printer.println()` / `printer.print()` call with translatable text must use this wrapper.
-- **Settings are per-printer**: Each printer in the `settings.json` array has its own configuration (categories, character set, transliterate, etc.)
+- **Settings are per-printer**: Each printer in the `settings.json` array has its own configuration. The schema still parses the formatting fields (categories, documents, `textOptions`, `transliterate`, `characterSet`…) because the backend sends them, but the PS reads only the addresses and the modems.
 - **Settings come from the backend**: the database is the source of truth. Each poll echoes `syncedHash`; when it differs, the poll answer carries the full desired settings, applied by `applyDesiredSettings` and cached in `settings.json`.
 - **LAN `/settings` is bootstrap-only**: `POST /settings` takes only `venueId` + `wsSecret` (`applyBootstrapIdentity`); printers/modems in the body are ignored. Another venue's push gets 403. `GET /settings` returns only `{ venueId, claimed, settingsHash, version }`.
 
