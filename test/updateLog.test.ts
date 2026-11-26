@@ -4,8 +4,8 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mocked,
+  vi,
 } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,11 +29,9 @@ type Logger = typeof import('../src/modules/logger').default;
 
 // Fresh registry per test: the module latches updaterMode and its temp path.
 const load = async () => {
-  let mod!: UpdateLog;
-  let logger!: Logger;
   vi.resetModules();
-  mod = await import('../src/autoupdate/updateLog');
-  logger = (await import('../src/modules/logger')).default;
+  const mod: UpdateLog = await import('../src/autoupdate/updateLog');
+  const logger: Logger = (await import('../src/modules/logger')).default;
   return { logger: logger as Mocked<Logger>, mod };
 };
 

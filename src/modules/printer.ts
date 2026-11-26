@@ -1,45 +1,42 @@
-/* eslint-disable no-plusplus */
-/* eslint-disable no-await-in-loop */
-/* eslint-disable no-continue */
 import {
   CharacterSet,
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 import { z } from 'zod';
 import nconf from 'nconf';
 import { Request, Response } from 'express';
 import { Order } from '../resolvers/printOrders';
 import {
+  buildProductRow,
   convertToDecimal,
-  tr,
-  normalizeGreek,
-  PaymentMethod,
-  readMarkdown,
-  formatToGreek,
-  formatLine,
-  drawLine2,
+  cutPaper,
   DISCOUNTTYPES,
-  printMarks,
-  printProducts,
-  printPayments,
-  printDiscountAndTip,
-  printLogo,
-  printVatBreakdown,
-  venueData,
-  receiptData,
-  printDeliveryNoteProducts,
-  printDeliveryNoteVatBreakdown,
+  drawLine2,
   feedOptionGap,
-  printOptionDetails,
-  printProductDiscount,
+  formatLine,
+  formatToGreek,
   getInvoiceTypeLabel,
   isUSBPrinterOnline,
-  buildProductRow,
-  setLineSpacing,
-  cutPaper,
-  printFooterText,
+  normalizeGreek,
+  PaymentMethod,
   printDeliveryInfo,
+  printDeliveryNoteProducts,
+  printDeliveryNoteVatBreakdown,
+  printDiscountAndTip,
+  printFooterText,
+  printLogo,
+  printMarks,
+  printOptionDetails,
+  printPayments,
+  printProductDiscount,
+  printProducts,
+  printVatBreakdown,
+  readMarkdown,
+  receiptData,
+  setLineSpacing,
+  tr,
+  venueData,
 } from './common';
 import logger from './logger';
 import {
@@ -59,7 +56,7 @@ import {
   shouldPrintOptionDetails,
 } from './settings';
 import { SupportedLanguages, translations } from './translations';
-import { PelatologioRecord, AadeInvoice } from './interfaces';
+import { AadeInvoice, PelatologioRecord } from './interfaces';
 
 // Custom error classes for better error handling
 export class PrinterError extends Error {
@@ -104,16 +101,16 @@ export class InvalidInputError extends Error {
 }
 
 export type PrintResult = {
-  successes: string[];
-  errors: Array<{ printerIdentifier: string; error: unknown }>;
+  errors: Array<{ error: unknown; printerIdentifier: string }>;
   skipped: Array<{ printerIdentifier: string; reason: string }>;
+  successes: string[];
 };
 
 export type PrintHttpResponse = {
+  failedPrinters: Array<{ error: string; printer: string }>;
+  skippedPrinters: Array<{ printer: string; reason: string }>;
   status: string;
   successfulPrinters: string[];
-  failedPrinters: Array<{ printer: string; error: string }>;
-  skippedPrinters: Array<{ printer: string; reason: string }>;
 };
 
 export const buildPrintResponse = (result: PrintResult): PrintHttpResponse => {
@@ -139,9 +136,9 @@ export const buildPrintResponse = (result: PrintResult): PrintHttpResponse => {
 // Helper function to determine status and HTTP code based on print results
 export const determinePrintStatus = (
   successes: string[],
-  errors: Array<{ printerIdentifier: string; error: unknown }>,
+  errors: Array<{ error: unknown; printerIdentifier: string }>,
   skipped: Array<{ printerIdentifier: string; reason: string }>
-): { status: string; httpCode: number } => {
+): { httpCode: number; status: string } => {
   const hasSuccesses = successes.length > 0;
   const hasErrors = errors.length > 0;
   const hasSkipped = skipped.length > 0;
@@ -189,6 +186,7 @@ const kioskSkipReason = (settings: IPrinterSettings, appId: string) => {
   if (settings.printerType === 'KIOSK' && appId !== 'kiosk') {
     return 'Printer is configured as KIOSK printer only';
   }
+
   if (settings.printerType !== 'KIOSK' && appId === 'kiosk') {
     return 'Kiosk request, printer is not a KIOSK printer';
   }
@@ -203,16 +201,17 @@ const isNetworkPrinterConnectedWithRetry = async (
   identifier: string
 ): Promise<boolean> => {
   for (let attempt = 1; attempt <= PRINTER_CHECK_RETRIES; attempt += 1) {
-    // eslint-disable-next-line no-await-in-loop
     const connected = await printer.isPrinterConnected();
+
     if (connected) {
       return true;
     }
+
     if (attempt < PRINTER_CHECK_RETRIES) {
       logger.info(
         `Printer ${identifier} probe ${attempt}/${PRINTER_CHECK_RETRIES} failed, retrying…`
       );
-      // eslint-disable-next-line no-await-in-loop
+
       await sleep(PRINTER_CHECK_RETRY_DELAY_MS);
     }
   }
@@ -258,12 +257,14 @@ const markPrinterIdle = (printer: ThermalPrinter) => {
 // not within the cooldown window after its last real activity.
 const isPrinterFreeForKeepalive = (printer: ThermalPrinter): boolean => {
   const activity = printerActivity.get(printer);
+
   if (!activity) return true;
+
   if (activity.busy) return false;
   return Date.now() - activity.lastActivityAt >= PRINTER_KEEPALIVE_COOLDOWN_MS;
 };
 
-let keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+let keepaliveInterval: null | ReturnType<typeof setInterval> = null;
 let keepaliveRunning = false;
 
 // Probes each idle network printer once to keep its WiFi radio associated.
@@ -271,10 +272,12 @@ const runKeepaliveCycle = async () => {
   for (let i = 0; i < printers.length; i += 1) {
     const printer = printers[i]?.[0];
     const settings = printers[i]?.[1];
+
     // Only network printers have a radio to keep awake.
     if (!printer || !settings || settings.ip === '') {
       continue;
     }
+
     // Pull jobs bypass the busy flag, so also skip while the queue is active.
     if (
       !isPrinterFreeForKeepalive(printer) ||
@@ -289,6 +292,7 @@ const runKeepaliveCycle = async () => {
       // attempt (no retries) is weak evidence; leave "offline" decisions to
       // checkPrinters, which retries and applies the grace-cycle debounce.
       const connected = await printer.isPrinterConnected();
+
       if (connected) {
         lastConnectedState.set(settings.id || '', true);
       }
@@ -323,6 +327,7 @@ export const startPrinterKeepalive = () => {
   }
 
   const hasNetworkPrinter = printers.some(([, s]) => Boolean(s) && s.ip !== '');
+
   if (!hasNetworkPrinter) {
     return;
   }
@@ -370,6 +375,7 @@ const sendQueued = async (
 ): Promise<void> => {
   const body = Buffer.from(printer.getBuffer() ?? []);
   const data = prefix ? Buffer.concat([prefix, body]) : body;
+
   if (!key) {
     await printer.raw(data);
     return;
@@ -535,6 +541,7 @@ export const checkPrinters = async () => {
 
       // Probing mid-job could break a single-socket print; reuse the last state.
       const lastState = lastConnectedState.get(printerId);
+
       if (
         lastState !== undefined &&
         hasPendingPrinterJob(printerQueueKey(settings))
@@ -549,6 +556,7 @@ export const checkPrinters = async () => {
       markPrinterBusy(printer);
       try {
         let connected = false;
+
         if (settings.ip !== '') {
           connected = await isNetworkPrinterConnectedWithRetry(
             printer,
@@ -581,6 +589,7 @@ export const checkPrinters = async () => {
           logger.info(`Printer ${printerIdentifier} is online`);
           return { id: printerId, connected: true };
         }
+
         if (lastConnectedState.get(printerId) === true) {
           // Debounce: it was online last check, so give it one grace cycle
           // before flipping the UI to offline. Store false so the next failed
@@ -610,7 +619,7 @@ export const checkPrinters = async () => {
   );
 
   const connectedPrinterIds = results.filter(
-    (r): r is { id: string; connected: boolean } => r !== null
+    (r): r is { connected: boolean; id: string } => r !== null
   );
 
   logger.info('Printer connection check complete', {
@@ -629,6 +638,7 @@ export const printTestPage = async (
 ): Promise<string> => {
   let interfaceString = port;
   let device = `usb printer: ${port}`;
+
   if (ip !== '') {
     interfaceString = `tcp://${ip}`;
     device = `ip printer: ${ip}`;
@@ -646,7 +656,8 @@ export const printTestPage = async (
   );
   warnIfNoGreek(printer, device);
 
-  let connected = false;
+  let connected: boolean;
+
   if (ip !== '') {
     connected = await printer?.isPrinterConnected();
   } else {
@@ -658,6 +669,7 @@ export const printTestPage = async (
       connected = false;
     }
   }
+
   if (!connected) {
     logger.warn(`Test print: printer not connected (${device})`);
     printer?.clear();
@@ -752,13 +764,13 @@ export const pelatologioRecord = async (
 
 const printTextFunc = async (
   text: string,
-  alignment: 'left' | 'center' | 'right',
+  alignment: 'center' | 'left' | 'right',
   copies: number = 1,
-  lang: SupportedLanguages = 'el',
+  _lang: SupportedLanguages = 'el',
   requiredDocument: string = 'TEXT'
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -822,6 +834,7 @@ const printTextFunc = async (
             totalCopies: copies,
           });
           successCount++;
+
           if (j === 0) {
             successes.push(printerIdentifier);
           }
@@ -833,6 +846,7 @@ const printTextFunc = async (
           }
         } catch (error) {
           errors.push({ printerIdentifier, error });
+
           if (error instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print text - printer ${printerIdentifier} is not connected or unreachable`
@@ -875,6 +889,7 @@ export const printText = async (
     }
 
     const validAlignments = ['left', 'center', 'right'];
+
     if (req.body.alignment && !validAlignments.includes(req.body.alignment)) {
       throw new InvalidInputError(
         `alignment must be one of: ${validAlignments.join(', ')}`,
@@ -983,11 +998,11 @@ const printParkingTicket = async (
   entryTime: string,
   issuerText: string = '',
   // operatingHours: string,
-  lang: SupportedLanguages = 'el',
+  _lang: SupportedLanguages = 'el',
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -1030,6 +1045,7 @@ const printParkingTicket = async (
           printer.println('PARKING TICKET');
           drawLine2(printer);
           printer.bold(false);
+
           // A configured issuerText replaces the whole venue header — and with it
           // the logo, which that markdown may already carry itself.
           if (issuerText) {
@@ -1080,6 +1096,7 @@ const printParkingTicket = async (
         successes.push(printerIdentifier);
       } catch (error) {
         errors.push({ printerIdentifier, error });
+
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print parking ticket - printer ${printerIdentifier} is not connected or unreachable`
@@ -1116,10 +1133,10 @@ const printParkingTicket = async (
 
 const printPelatologioRecord = async (
   pelatologioRecord: PelatologioRecord,
-  lang: SupportedLanguages = 'el'
+  _lang: SupportedLanguages = 'el'
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -1169,41 +1186,50 @@ const printPelatologioRecord = async (
         printer.println(
           'CATEGORY: ' + pelatologioRecord.vehicleCategory?.toUpperCase()
         );
+
         if (pelatologioRecord.vehicleRegNumber) {
           printer.println('REG NUMBER: ' + pelatologioRecord.vehicleRegNumber);
         }
+
         if (pelatologioRecord.foreignVehicleRegNumber) {
           printer.println(
             'REG NUMBER: ' + pelatologioRecord.foreignVehicleRegNumber
           );
         }
+
         if (pelatologioRecord.dateTime) {
           printer.println(
             'TIME OF ENTRY: ' + formatToGreek(pelatologioRecord.dateTime)
           );
         }
+
         if (pelatologioRecord.completionDateTime) {
           printer.println(
             'COMPLETION DATE: ' +
               formatToGreek(pelatologioRecord.completionDateTime)
           );
         }
+
         if (pelatologioRecord.comments) {
           printer.println('COMMENTS: ' + pelatologioRecord.comments);
         }
+
         if (pelatologioRecord.amount) {
           printer.println(
             'AMOUNT: ' + pelatologioRecord.amount.toFixed(2) + '€'
           );
         }
+
         if (pelatologioRecord.cancellationReason) {
           printer.println(
             'CANCELLATION REASON: ' + pelatologioRecord.cancellationReason
           );
         }
+
         if (pelatologioRecord.nonIssueInvoice) {
           printer.println('TYPE OF INVOICE: INVOICE NOT ISSUED');
         }
+
         if (pelatologioRecord.fim) {
           printer.println('TYPE OF INVOICE: ΑΛΠ/ΑΠΥ/FIM');
           printer.println('FIMAA: ' + pelatologioRecord.fim.fimAA);
@@ -1215,6 +1241,7 @@ const printPelatologioRecord = async (
             'FIMISSUE TIME: ' + pelatologioRecord.fim.fimIssueTime
           );
         }
+
         if (pelatologioRecord.invoiceMark) {
           printer.println('TYPE OF INVOICE: ΑΛΠ/ΑΠΥ');
           printer.println('INVOICE MARK: ' + pelatologioRecord.invoiceMark);
@@ -1238,6 +1265,7 @@ const printPelatologioRecord = async (
         successes.push(printerIdentifier);
       } catch (error) {
         errors.push({ printerIdentifier, error });
+
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print pelatologio record - printer ${printerIdentifier} is not connected or unreachable`
@@ -1279,6 +1307,7 @@ export const paymentSlip = async (
     if (!req.body.aadeInvoice) {
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
+
     if (req.body.orderNumber === undefined || req.body.orderNumber === null) {
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
@@ -1286,6 +1315,7 @@ export const paymentSlip = async (
     // Normalize discount/discounts to array format from order object
     let discountsArray: any[] = [];
     const order = req.body.order;
+
     if (order?.discounts) {
       // If discounts exists, convert to array if needed
       discountsArray = Array.isArray(order.discounts)
@@ -1342,6 +1372,7 @@ export const paymentReceipt = async (
     if (!req.body.aadeInvoice) {
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
+
     if (req.body.orderNumber === undefined || req.body.orderNumber === null) {
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
@@ -1349,6 +1380,7 @@ export const paymentReceipt = async (
     // Normalize discount/discounts to array format from order object
     let discountsArray: any[] = [];
     const order = req.body.order;
+
     if (order?.discounts) {
       console.log('order?.discounts:', order?.discounts);
       // If discounts exists, convert to array if needed
@@ -1422,6 +1454,7 @@ export const invoice = async (
     if (!req.body.aadeInvoice) {
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
+
     if (req.body.orderNumber === undefined || req.body.orderNumber === null) {
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
@@ -1429,6 +1462,7 @@ export const invoice = async (
     // Normalize discount/discounts to array format from order object
     let discountsArray: any[] = [];
     const order = req.body.order;
+
     if (order?.discounts) {
       // If discounts exists, convert to array if needed
       discountsArray = Array.isArray(order.discounts)
@@ -1605,6 +1639,7 @@ export const orderForm = async (
     if (!req.body.aadeInvoice) {
       throw new InvalidInputError('aadeInvoice is required', 'aadeInvoice');
     }
+
     if (req.body.orderNumber === undefined || req.body.orderNumber === null) {
       throw new InvalidInputError('orderNumber is required', 'orderNumber');
     }
@@ -1661,7 +1696,7 @@ const printOrderForm = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -1684,6 +1719,7 @@ const printOrderForm = async (
           });
           continue;
         }
+
         if (settings.documentsToPrint !== undefined) {
           if (!settings.documentsToPrint?.includes('ORDERFORM')) {
             console.log('ORDERFORM is not in documentsToPrint');
@@ -1731,9 +1767,11 @@ const printOrderForm = async (
             project,
             order
           );
+
           if (waiterName) {
             printer.println(waiterName.toUpperCase());
           }
+
           if (aadeInvoice.closed) {
             printer.setTextSize(1, 0);
             printer.bold(true);
@@ -1746,7 +1784,7 @@ const printOrderForm = async (
             printer.setTextSize(0, 0);
           }
           const discounts = order?.discounts || [];
-          const [sumAmount, sumQuantity, fixedBreakdown] = printProducts(
+          printProducts(
             printer,
             aadeInvoice,
             order,
@@ -1755,6 +1793,7 @@ const printOrderForm = async (
             discounts,
             false
           );
+
           if (discounts.length > 0) {
             printDiscountAndTip(
               printer,
@@ -1765,6 +1804,7 @@ const printOrderForm = async (
             );
           }
           printMarks(printer, aadeInvoice, lang, settings.transliterate);
+
           if (settings.poweredByQuickord) {
             printer.println(
               tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -1812,12 +1852,14 @@ const printOrderForm = async (
             }
           );
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
         }
       } catch (error) {
         errors.push({ printerIdentifier, error });
+
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print order form - printer ${printerIdentifier} is not connected or unreachable`
@@ -1859,7 +1901,7 @@ const printPaymentSlip = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -1882,6 +1924,7 @@ const printPaymentSlip = async (
           });
           continue;
         }
+
         if (settings.documentsToPrint !== undefined) {
           if (!settings.documentsToPrint?.includes('PAYMENT-SLIP')) {
             console.log('PAYMENT-SLIP is not in documentsToPrint');
@@ -1942,11 +1985,9 @@ const printPaymentSlip = async (
           printer.alignLeft();
 
           let sumAmount = 0;
-          let sumQuantity = 0;
 
           aadeInvoice?.details.forEach((detail: any) => {
             printer.bold(true);
-            sumQuantity += detail.quantity;
 
             // Sanitized before the 18-cell trim: the guard widens `€`/`…` at
             // append time, which would push the row past the trimmed width.
@@ -1973,6 +2014,7 @@ const printPaymentSlip = async (
           overallDiscounts.forEach((discount: any) => {
             if (discount.amount && discount.type) {
               let discountAmount = '';
+
               if (discount.type === 'FIXED') {
                 discountAmount = (discount.amount / 100).toFixed(2) + '€';
               } else if (
@@ -1981,6 +2023,7 @@ const printPaymentSlip = async (
               ) {
                 discountAmount = discount.amount.toString() + '%';
               }
+
               if (discountAmount !== '') {
                 printer.println(
                   `${tr(`${translations.printOrder.discount[lang]}`, settings.transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', settings.transliterate)}`
@@ -2007,6 +2050,7 @@ const printPaymentSlip = async (
           // primary (largest) payment so the printed amounts reflect money actually
           // collected. `tip` is in cents.
           let tipIdx = -1;
+
           if (tip > 0) {
             let max = 0;
             paymentMethods.forEach((m: any, idx: number) => {
@@ -2051,6 +2095,7 @@ const printPaymentSlip = async (
           printer.println(
             `${translations.printOrder.provider[lang]} ${providerUrl}`
           );
+
           if (settings.poweredByQuickord) {
             printer.println(
               tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2077,12 +2122,14 @@ const printPaymentSlip = async (
             }
           );
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
         }
       } catch (error) {
         errors.push({ printerIdentifier, error });
+
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print payment slip - printer ${printerIdentifier} is not connected or unreachable`
@@ -2132,7 +2179,7 @@ const printPaymentReceipt = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
@@ -2155,6 +2202,7 @@ const printPaymentReceipt = async (
         });
         continue;
       }
+
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ALP')) {
           console.log('ALP is not in documentsToPrint');
@@ -2167,6 +2215,7 @@ const printPaymentReceipt = async (
       }
 
       const kioskSkip = kioskSkipReason(settings, appId);
+
       if (kioskSkip) {
         console.log(kioskSkip);
         skipped.push({ printerIdentifier, reason: kioskSkip });
@@ -2279,6 +2328,7 @@ const printPaymentReceipt = async (
             settings.transliterate
           );
           printMarks(printer, aadeInvoice, lang, settings.transliterate);
+
           if (settings.poweredByQuickord) {
             printer.println(
               tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2316,6 +2366,7 @@ const printPaymentReceipt = async (
             }
           );
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
@@ -2328,6 +2379,7 @@ const printPaymentReceipt = async (
             `printer-${i}`;
 
           errors.push({ printerIdentifier, error });
+
           if (error instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print payment receipt - printer ${printerIdentifier} is not connected or unreachable`
@@ -2379,7 +2431,7 @@ const printInvoice = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
@@ -2402,6 +2454,7 @@ const printInvoice = async (
         });
         continue;
       }
+
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ALP')) {
           console.log(
@@ -2416,6 +2469,7 @@ const printInvoice = async (
       }
 
       const kioskSkip = kioskSkipReason(settings, appId);
+
       if (kioskSkip) {
         console.log(kioskSkip);
         skipped.push({ printerIdentifier, reason: kioskSkip });
@@ -2535,6 +2589,7 @@ const printInvoice = async (
             settings.transliterate
           );
           printMarks(printer, aadeInvoice, lang, settings.transliterate);
+
           if (settings.poweredByQuickord) {
             printer.println(
               tr(`POWERED BY ${project.toUpperCase()}`, settings.transliterate)
@@ -2564,6 +2619,7 @@ const printInvoice = async (
             }
           );
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
@@ -2576,6 +2632,7 @@ const printInvoice = async (
             `printer-${i}`;
 
           errors.push({ printerIdentifier, error });
+
           if (error instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print invoice - printer ${printerIdentifier} is not connected or unreachable`
@@ -2617,7 +2674,7 @@ const printMyPelatesReceipt = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
@@ -2640,6 +2697,7 @@ const printMyPelatesReceipt = async (
         });
         continue;
       }
+
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ALP')) {
           console.log('ALP is not in documentsToPrint');
@@ -2752,6 +2810,7 @@ const printMyPelatesReceipt = async (
           printer.alignCenter();
           printPayments(printer, aadeInvoice, lang, settings.transliterate);
           printMarks(printer, aadeInvoice, lang, settings.transliterate);
+
           if (settings.poweredByQuickord) {
             printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
           }
@@ -2786,6 +2845,7 @@ const printMyPelatesReceipt = async (
             }
           );
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
@@ -2798,6 +2858,7 @@ const printMyPelatesReceipt = async (
             `printer-${i}`;
 
           errors.push({ printerIdentifier, error });
+
           if (error instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print MyPelates receipt - printer ${printerIdentifier} is not connected or unreachable`
@@ -2841,7 +2902,7 @@ const printMyPelatesInvoice = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
@@ -2864,6 +2925,7 @@ const printMyPelatesInvoice = async (
         });
         continue;
       }
+
       if (settings.documentsToPrint !== undefined) {
         if (!settings.documentsToPrint?.includes('ALP')) {
           console.log('ALP is not in documentsToPrint');
@@ -2992,6 +3054,7 @@ const printMyPelatesInvoice = async (
           printer.alignCenter();
           printPayments(printer, aadeInvoice, lang, settings.transliterate);
           printMarks(printer, aadeInvoice, lang, settings.transliterate);
+
           if (settings.poweredByQuickord) {
             printer.println(tr(`POWERED BY MYPELATES`, settings.transliterate));
           }
@@ -3014,6 +3077,7 @@ const printMyPelatesInvoice = async (
           successes.push(printerIdentifier);
         } catch (error) {
           errors.push({ printerIdentifier, error });
+
           if (error instanceof PrinterConnectionError) {
             logger.error(
               `Cannot print MyPelates invoice - printer ${printerIdentifier} is not connected or unreachable`
@@ -3097,8 +3161,8 @@ export type MovePurposeEnumType =
   | 'FACILITY_TRANSFER'
   | 'GUARD'
   | 'RETURN'
-  | 'SALE'
   | 'SALE_3RD_PARTY'
+  | 'SALE'
   | 'SAMPLING';
 export const PayvoMovePurposeMapping: { [index: string]: MovePurposeEnumType } =
   {
@@ -3113,10 +3177,7 @@ export const PayvoMovePurposeMapping: { [index: string]: MovePurposeEnumType } =
   };
 
 export type ShippingMethodEnumType =
-  | 'COURIER'
-  | 'HEADQUARTERS'
-  | 'OWN_MEANS'
-  | 'TRANSPORT';
+  'COURIER' | 'HEADQUARTERS' | 'OWN_MEANS' | 'TRANSPORT';
 export const SHIPPING_METHOD_OPTIONS = [
   { label: 'ΣΤΗΝ ΕΔΡΑ ΜΑΣ', value: 'headquarters' },
   { label: 'ΙΔΙΑ ΜΕΣΑ', value: 'own-means' },
@@ -3132,7 +3193,7 @@ const printDeliveryNote = async (
   venueLogoUrl: string = ''
 ) => {
   let successCount = 0;
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const successes: string[] = [];
 
   for (let i = 0; i < printers.length; i += 1) {
@@ -3243,7 +3304,7 @@ const printDeliveryNote = async (
           // Use delivery note specific products and VAT breakdown functions
           const [
             sumAmount,
-            sumQuantity,
+            ,
             fixedBreakdown,
             totalOriginalValue,
             totalNetValue,
@@ -3286,12 +3347,14 @@ const printDeliveryNote = async (
           );
           logger.info(`Successfull delivery note to ${printerIdentifier}`);
           successCount++;
+
           if (copies === 0) {
             successes.push(printerIdentifier);
           }
         }
       } catch (error) {
         errors.push({ printerIdentifier, error });
+
         if (error instanceof PrinterConnectionError) {
           logger.error(
             `Cannot print delivery note - printer ${printerIdentifier} is not connected or unreachable`
@@ -3344,10 +3407,10 @@ export const printOrder = async (
   appId: string = 'desktop',
   project: string = 'centrix',
   lang: SupportedLanguages = 'el',
-  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
+  mode: 'FULL-ORDER' | 'ORDER' = 'ORDER'
 ) => {
   const successes: string[] = [];
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   // FULL-ORDER is an explicit, on-demand print of the whole order: prices+VAT
@@ -3394,6 +3457,7 @@ export const printOrder = async (
           });
           continue;
         }
+
         if (!isFull && settings.orderMethodsToPrint !== undefined) {
           if (!settings.orderMethodsToPrint?.includes(order.orderType)) {
             console.log(
@@ -3408,6 +3472,7 @@ export const printOrder = async (
         }
 
         const kioskSkip = kioskSkipReason(settings, appId);
+
         if (kioskSkip) {
           skipped.push({ printerIdentifier, reason: kioskSkip });
           continue;
@@ -3430,6 +3495,7 @@ export const printOrder = async (
             );
 
         console.log(productsToPrint);
+
         if (!productsToPrint?.length) {
           // Find which categories caused the filtering
           if (
@@ -3464,6 +3530,7 @@ export const printOrder = async (
           continue;
         }
         const requiredDocument = isFull ? 'FULL-ORDER' : 'ORDER';
+
         if (settings.documentsToPrint !== undefined) {
           if (!settings.documentsToPrint?.includes(requiredDocument)) {
             console.log(`${requiredDocument} is not in documentsToPrint`);
@@ -3478,11 +3545,13 @@ export const printOrder = async (
         const isReprint = order?.isReprint || false;
         const isPartialReprint =
           isReprint && order?.trigger === 'reprint:order-actions-partial';
+
         if (!isFull && isEdit === true) {
           productsToPrint = productsToPrint.filter((product) => {
             const editStatus = getEditStatus(product);
             return editStatus === 'NEW' || editStatus === 'UPDATED';
           });
+
           if (!productsToPrint?.length) {
             skipped.push({
               printerIdentifier,
@@ -3595,10 +3664,12 @@ export const printOrder = async (
             alreadyEnlarged = false
           ) => {
             const enlarge = boldPrices && !alreadyEnlarged;
+
             if (enlarge) {
               printer.setTextSize(1, 0);
             }
             print();
+
             if (enlarge) {
               printer.setTextSize(0, 0);
               printer.setTextNormal();
@@ -3691,6 +3762,7 @@ export const printOrder = async (
           printer.bold(true);
           printer.print(orderTypeLabel);
           printer.bold(false);
+
           if (boldOrderType) {
             printer.bold(true);
             printer.setTextSize(1, 0);
@@ -3728,6 +3800,7 @@ export const printOrder = async (
             const padding =
               42 - orderTypeLabel.length - typeWidth - buzzerText.length;
             printer.bold(true);
+
             if (padding >= 1) printer.print(' '.repeat(padding));
             else printer.newLine();
             printer.print(buzzerText);
@@ -3795,12 +3868,13 @@ export const printOrder = async (
             });
           }
           const vatBreakdown: {
-            vat: number;
-            total: number;
             netValue: number;
+            total: number;
+            vat: number;
           }[] = [];
 
           printer.alignCenter();
+
           if (settings.startOrder) {
             printer.println(
               tr(
@@ -3820,6 +3894,7 @@ export const printOrder = async (
             const boldCategories =
               settings.textOptions.includes('BOLD_CATEGORIES');
             printer.bold(true);
+
             if (boldCategories) {
               printer.setTextSize(1, 0);
             }
@@ -3827,6 +3902,7 @@ export const printOrder = async (
               tr(normalizeGreek(title.toUpperCase()), settings.transliterate)
             );
             printer.bold(false);
+
             if (boldCategories) {
               printer.setTextSize(0, 0);
               printer.setTextNormal();
@@ -3834,12 +3910,12 @@ export const printOrder = async (
           };
 
           const renderProduct = (product: (typeof productsToPrint)[number]) => {
-            let total = product.total || 0;
+            const total = product.total || 0;
             let printQuantity = product.quantity;
-            const leftAmount = `${product.quantity}x `.length;
 
             if (isEdit) {
               const editStatus = getEditStatus(product);
+
               if (editStatus === 'TRANSFERRED') {
                 printer.println(
                   tr(
@@ -3861,9 +3937,8 @@ export const printOrder = async (
                 const qtyDiffers = !!qc && qcIs !== qcWas;
 
                 let labelKey:
-                  | 'quantityReduced'
-                  | 'quantityChanged'
-                  | 'productChanged';
+                  'productChanged' | 'quantityChanged' | 'quantityReduced';
+
                 if (qtyDiffers && qcIs < qcWas) labelKey = 'quantityReduced';
                 else if (qtyDiffers && qcIs > qcWas)
                   labelKey = 'quantityChanged';
@@ -3878,6 +3953,7 @@ export const printOrder = async (
               }
             }
             const boldProducts = settings.textOptions.includes('BOLD_PRODUCTS');
+
             if (boldProducts) {
               printer.setTextSize(1, 0);
             } else {
@@ -3886,6 +3962,7 @@ export const printOrder = async (
 
             // Pad title and amount for alignment
             let productLine = `${product.quantity}x ${normalizeGreek(product.title)}`;
+
             if (
               isEdit &&
               product.quantityChanged &&
@@ -3899,6 +3976,7 @@ export const printOrder = async (
               productLine = `${diff}x ${normalizeGreek(product.title)}`;
             }
             let priceStr = '';
+
             if (
               settings.priceOnOrder === undefined ||
               settings.priceOnOrder === true
@@ -3922,6 +4000,7 @@ export const printOrder = async (
                 transliterate: settings.transliterate,
               }
             );
+
             // BOLD_PRODUCTS bolds the title, its options and their prices.
             if (boldProducts) printer.bold(true);
             leadingLines.forEach((line) => printer.println(line));
@@ -3940,6 +4019,7 @@ export const printOrder = async (
             // Handle product option details
             const optionGap = settings.optionSpacing === true;
             let printedOptions = 0;
+
             if (shouldPrintOptionDetails(settings) && product.options) {
               console.log('Printing details:', JSON.stringify(product.options));
               // BOLD_PRODUCTS leaves the text enlarged for the option lines too.
@@ -3952,7 +4032,9 @@ export const printOrder = async (
                 optionGap
               );
             }
+
             if (boldProducts) printer.bold(false);
+
             // Comments (if any)
             if (product.comments) {
               // Separates the comment from the last extra above it.
@@ -3974,6 +4056,7 @@ export const printOrder = async (
               const productDiscount = order.discounts.find(
                 (d) => d.productId === product._id
               );
+
               if (productDiscount) {
                 printBoldPrice(
                   () =>
@@ -3989,6 +4072,7 @@ export const printOrder = async (
             }
 
             let choicesTotal = 0;
+
             if (product.options) {
               product.options.forEach((option) => {
                 option.choices?.forEach((choice) => {
@@ -4028,6 +4112,7 @@ export const printOrder = async (
               const existingVat = vatBreakdown.find(
                 (item) => item.vat === vatRate
               );
+
               if (existingVat) {
                 existingVat.total += fullTotal;
                 existingVat.netValue += netValue;
@@ -4046,6 +4131,7 @@ export const printOrder = async (
               settings.priceOnOrder === true
             ) {
               printer.alignRight();
+
               if (boldProducts) printer.bold(true);
               printBoldPrice(
                 () =>
@@ -4054,6 +4140,7 @@ export const printOrder = async (
                   ),
                 boldProducts
               );
+
               if (boldProducts) printer.bold(false);
             }
             printer.alignLeft();
@@ -4094,6 +4181,7 @@ export const printOrder = async (
                   !renderedIds.has(product._id) &&
                   product.categories.includes(category._id)
               );
+
               if (!inCategory.length) {
                 return;
               }
@@ -4107,6 +4195,7 @@ export const printOrder = async (
             const rest = productsToPrint.filter(
               (product) => !renderedIds.has(product._id)
             );
+
             if (rest.length) {
               printCategoryHeader(translations.printOrder.otherCategory[lang]);
               rest.forEach(renderProduct);
@@ -4114,6 +4203,7 @@ export const printOrder = async (
           } else {
             productsToPrint.forEach(renderProduct);
           }
+
           if (
             vatBreakdown.length > 0 &&
             (settings.vatAnalysis === true ||
@@ -4150,8 +4240,10 @@ export const printOrder = async (
           }
 
           const boldComments = settings.textOptions?.includes('BOLD_COMMENTS');
+
           if (order.waiterComment) {
             printer.newLine();
+
             if (boldComments) printer.setTextSize(1, 0);
             printer.println(
               tr(
@@ -4159,10 +4251,13 @@ export const printOrder = async (
                 settings.transliterate
               )
             );
+
             if (boldComments) printer.setTextSize(0, 0);
           }
+
           if (order.customerComment) {
             printer.newLine();
+
             if (boldComments) printer.setTextSize(1, 0);
             printer.println(
               tr(
@@ -4170,6 +4265,7 @@ export const printOrder = async (
                 settings.transliterate
               )
             );
+
             if (boldComments) printer.setTextSize(0, 0);
           }
 
@@ -4216,6 +4312,7 @@ export const printOrder = async (
             0
           );
           console.log('totalNetValue', totalNetValue);
+
           if (
             settings.vatAnalysis === true ||
             settings.vatAnalysis === undefined
@@ -4227,6 +4324,7 @@ export const printOrder = async (
           }
           // Calculate total discount amount for overall discounts
           let totalDiscountAmount = 0;
+
           if (order.discounts) {
             const overallDiscounts = order.discounts.filter(
               (d) => !d.productId
@@ -4288,6 +4386,7 @@ export const printOrder = async (
           }
 
           printer.newLine();
+
           if (settings.poweredByQuickord) {
             printer.alignCenter();
             printer.println(
@@ -4296,6 +4395,7 @@ export const printOrder = async (
           }
           printer.newLine();
           printer.newLine();
+
           if (order.venue.hasAADE !== false) {
             printer.alignCenter();
             printer.println(
@@ -4378,10 +4478,10 @@ export const printOrder = async (
 export const printOrders = async (
   orders: z.infer<typeof Order>[],
   project: string = 'centrix',
-  mode: 'ORDER' | 'FULL-ORDER' = 'ORDER'
+  mode: 'FULL-ORDER' | 'ORDER' = 'ORDER'
 ) => {
   const allSuccesses: string[] = [];
-  const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const allErrors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (const order of orders) {
@@ -4404,13 +4504,13 @@ export type OrderCommentsInput = Pick<
   z.infer<typeof Order>,
   | '_id'
   | 'createdAt'
+  | 'customerComment'
   | 'number'
   | 'orderType'
   | 'tableNumber'
   | 'tableNumbers'
   | 'venue'
   | 'waiterComment'
-  | 'customerComment'
 >;
 
 export const printOrderComments = async (
@@ -4418,7 +4518,7 @@ export const printOrderComments = async (
   lang: SupportedLanguages = 'el'
 ) => {
   const successes: string[] = [];
-  const errors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const errors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const skipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   if (!order.waiterComment && !order.customerComment) {
@@ -4517,12 +4617,14 @@ export const printOrderComments = async (
               settings.transliterate
             ),
           ]);
+
           if (order?.orderType === 'DINE_IN') {
             const tablesLabel =
               Array.isArray(order?.tableNumbers) &&
               order.tableNumbers.length > 0
                 ? order.tableNumbers.join(', ')
                 : order?.tableNumber;
+
             if (tablesLabel) {
               printer.bold(true);
               printer.println(
@@ -4542,6 +4644,7 @@ export const printOrderComments = async (
             )
           );
           printer.bold(false);
+
           if (boldOrderType) {
             printer.bold(true);
             printer.setTextSize(1, 0);
@@ -4565,13 +4668,16 @@ export const printOrderComments = async (
                 settings.transliterate
               )
             );
+
             if (boldComments) printer.setTextSize(0, 0);
           }
+
           if (order.customerComment) {
             if (order.waiterComment) {
               printer.newLine();
               drawLine2(printer);
             }
+
             if (boldComments) printer.setTextSize(1, 0);
             printer.println(
               tr(
@@ -4579,6 +4685,7 @@ export const printOrderComments = async (
                 settings.transliterate
               )
             );
+
             if (boldComments) printer.setTextSize(0, 0);
           }
 
@@ -4647,7 +4754,7 @@ export const printOrderComments = async (
 
 export const printOrdersComments = async (orders: OrderCommentsInput[]) => {
   const allSuccesses: string[] = [];
-  const allErrors: Array<{ printerIdentifier: string; error: unknown }> = [];
+  const allErrors: Array<{ error: unknown; printerIdentifier: string }> = [];
   const allSkipped: Array<{ printerIdentifier: string; reason: string }> = [];
 
   for (const order of orders) {

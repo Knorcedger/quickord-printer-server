@@ -4,8 +4,8 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mock,
+  vi,
 } from 'vitest';
 
 // No top-level import/export of its own, so TS would treat this as a global
@@ -94,6 +94,7 @@ const jsonResponse = (payload: unknown) => ({
 
 const fakeBackend = async (url: string, init: any) => {
   const body = JSON.parse(init.body);
+
   if (url.endsWith('/print-jobs/result')) return jsonResponse({ ok: true });
 
   polls.push({ at: Date.now(), body });
@@ -127,6 +128,7 @@ const fakeBackend = async (url: string, init: any) => {
       queued = [];
       return jsonResponse({ jobs, ...settingsPayload });
     }
+
     if (answerAtOnce) break;
     await tick(100);
   }
@@ -134,13 +136,13 @@ const fakeBackend = async (url: string, init: any) => {
 };
 
 const load = async () => {
-  let pullClient!: typeof import('../src/modules/pullClient');
-  let executePrintJob!: Mock;
-  let checkPrinters!: Mock;
   vi.resetModules();
-  pullClient = await import('../src/modules/pullClient');
-  executePrintJob = (await import('../src/modules/printJob')).executePrintJob;
-  checkPrinters = (await import('../src/modules/printer')).checkPrinters;
+  const pullClient: typeof import('../src/modules/pullClient') =
+    await import('../src/modules/pullClient');
+  const executePrintJob: Mock = (await import('../src/modules/printJob'))
+    .executePrintJob;
+  const checkPrinters: Mock = (await import('../src/modules/printer'))
+    .checkPrinters;
   return { checkPrinters, executePrintJob, pullClient };
 };
 

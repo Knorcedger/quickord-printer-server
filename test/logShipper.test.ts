@@ -4,9 +4,9 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mock,
   type MockedFunction,
+  vi,
 } from 'vitest';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -48,15 +48,11 @@ type Logger = typeof import('../src/modules/logger').default;
 type UpdateLog = typeof import('../src/autoupdate/shipUpdateLog');
 
 const load = async () => {
-  let shipper!: Shipper;
-  let http!: Http;
-  let logger!: Logger;
-  let updateLog!: UpdateLog;
   vi.resetModules();
-  shipper = await import('../src/modules/logShipper');
-  http = await import('../src/modules/http');
-  logger = (await import('../src/modules/logger')).default;
-  updateLog = await import('../src/autoupdate/shipUpdateLog');
+  const shipper: Shipper = await import('../src/modules/logShipper');
+  const http: Http = await import('../src/modules/http');
+  const logger: Logger = (await import('../src/modules/logger')).default;
+  const updateLog: UpdateLog = await import('../src/autoupdate/shipUpdateLog');
   return {
     logger,
     shipper,
@@ -361,7 +357,7 @@ describe('logShipper', () => {
     const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
     // Spool appends wait for `gate`, or fail while `failSpool` is set.
-    let gate: Promise<void> | null;
+    let gate: null | Promise<void>;
     let failSpool: boolean;
     // Opens every gate on teardown, so a test that fails before release()
     // doesn't hang the reset in afterEach.
@@ -380,6 +376,7 @@ describe('logShipper', () => {
       ) => {
         if (file === loaded.shipper.SPOOL_FILE) {
           if (gate) await Promise.race([gate, teardown]);
+
           if (failSpool) throw new Error('EBUSY');
         }
         return realAppend(file, data);

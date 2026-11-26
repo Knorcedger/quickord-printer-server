@@ -9,8 +9,8 @@
  */
 import * as net from 'node:net';
 import {
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 import { isUSBPrinterOnline } from './common';
 import logger from './logger';
@@ -38,6 +38,7 @@ function classifyPrinterError(err: any): string {
     'ETIMEDOUT',
     'EPIPE',
   ];
+
   if (
     offlineCodes.includes(code) ||
     /timeout|offline|not found/i.test(message)
@@ -109,6 +110,7 @@ async function sendToLocalPrinter(
     const shareName = deviceInterface.split('\\').pop() || '';
     const online = await isUSBPrinterOnline(shareName);
     logger.debug(`Shared printer ${shareName} online check: ${online}`);
+
     if (!online) {
       throw new Error(`Printer offline or not found: ${deviceInterface}`);
     }
@@ -152,6 +154,7 @@ export function executePrintJob(
     (!printerIp && !printerPort)
   ) {
     logger.error('Invalid print job: missing required fields');
+
     if (jobId) reportResult(jobId, 'failed', 'Missing required fields');
     return;
   }

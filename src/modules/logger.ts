@@ -1,5 +1,3 @@
-/* eslint-disable no-underscore-dangle */
-/* eslint-disable no-await-in-loop */
 import AdmZip from 'adm-zip';
 
 import { existsSync } from 'node:fs';
@@ -28,7 +26,7 @@ const enqueue = (op: () => Promise<void>): Promise<void> => {
 
 // Bytes in the current log, counted here instead of a stat per line. Stat'd
 // once from disk when unknown (first write, or after init switches files).
-let logSize: number | null = null;
+let logSize: null | number = null;
 
 const rotate = async () => {
   if (logSize === null) {
@@ -37,6 +35,7 @@ const rotate = async () => {
       .then((s) => s.size)
       .catch(() => 0);
   }
+
   if (logSize < MAX_LOG_BYTES) return;
 
   await fs.rm(`${_filename}.${LOG_GENERATIONS - 1}.log`, { force: true });
@@ -70,7 +69,7 @@ const lineListeners = new Set<LineListener>();
 const formatArgs = (args: unknown[]): string =>
   args
     .map((arg) => {
-      let out = '';
+      let out: string;
 
       if (arg instanceof Error) {
         const errorWithCause = arg as { cause?: unknown }; // Type assertion to include cause
@@ -102,6 +101,7 @@ const appendLog = async (
 ) => {
   const ts = new Date().toISOString();
   const message = formatArgs(args);
+
   if (shippable) notify({ level, message, ts });
 
   const line = `${ts} ${message}\n`;

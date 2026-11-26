@@ -1,11 +1,12 @@
 export interface PelatologioRecord {
   amount?: number;
   cancellationReason?: string;
-  clientServiceType?: 'rental' | 'garage' | 'parkingcarwash';
+  clientServiceType?: 'garage' | 'parkingcarwash' | 'rental';
   comments?: string;
   completionDateTime?: Date | string;
   contactId?: string; // ObjectId as string
   cooperatingVatNumber?: string;
+  createdAt?: Date | string;
   customerVatNumber?: string;
   dateTime?: Date | string;
   dclId?: number;
@@ -19,11 +20,11 @@ export interface PelatologioRecord {
     fimNumber?: string;
   };
   foreignVehicleRegNumber?: string;
-  invoiceKind?: 'RECEIPT' | 'INVOICE' | 'FIM_RECEIPT';
+  invoiceKind?: 'FIM_RECEIPT' | 'INVOICE' | 'RECEIPT';
   invoiceMark?: string;
   isDiffVehReturnLocation?: boolean;
   nonIssueInvoice?: boolean;
-  offSiteProvidedService?: 'TEMPORARY_EXIT' | 'MOVE_TO_SAME_ENTITY';
+  offSiteProvidedService?: 'MOVE_TO_SAME_ENTITY' | 'TEMPORARY_EXIT';
   otherBranch?: number;
   providedServiceCategory?:
     | 'CATALOG_WORK'
@@ -34,10 +35,9 @@ export interface PelatologioRecord {
     | 'WARRANTY_COMPENSATION';
   providedServiceCategoryOther?: string;
   reasonNonIssueType?:
-    | 'FREE_SERVICE'
-    | 'GUARANTEE_PROVISION_COMPENSATION'
-    | 'SELF_USE';
-  status?: 'active' | 'completed' | 'cancelled' | 'noInvoiceYet';
+    'FREE_SERVICE' | 'GUARANTEE_PROVISION_COMPENSATION' | 'SELF_USE';
+  status?: 'active' | 'cancelled' | 'completed' | 'noInvoiceYet';
+  updatedAt?: Date | string;
   updatesHistory?: {
     comments?: string;
     dateTime?: Date | string;
@@ -48,111 +48,105 @@ export interface PelatologioRecord {
   vehicleFactory?: string;
   vehicleId?: string; // ObjectId as string
   vehicleMovementPurpose?:
-    | 'RENTAL'
-    | 'REPAIR'
-    | 'PERSONAL_USE'
-    | 'FREE_SERVICE'
-    | 'OTHER';
+    'FREE_SERVICE' | 'OTHER' | 'PERSONAL_USE' | 'RENTAL' | 'REPAIR';
   vehicleRegNumber?: string;
   vehicleReturnLocation?: string;
   venueId?: string; // ObjectId as string
-  createdAt?: Date | string;
-  updatedAt?: Date | string;
 }
 
 export interface AadeInvoice {
-  comments: string;
-  issuer: {
-    name: string;
-    activity: string;
-    address: {
-      street: string;
-      number?: string;
-      city: string;
-      postal_code: string;
-    };
-    branch?: number;
-    vat_number: string;
-    tax_office: string;
-    phone: string;
-  };
+  authentication_code: string;
   closed: boolean;
+  comments: string;
   counterpart: {
     activity: {
       description: 'Activity of the counterpart';
-      type: String;
+      type: string;
     };
     address: {
       city: {
         description: 'City of the counterpart';
-        type: String;
+        type: string;
       };
       number: {
         description: 'Street number of the counterpart';
-        type: String;
+        type: string;
       };
       postal_code: {
         description: 'Postal code of the counterpart';
-        type: String;
+        type: string;
       };
       street: {
         description: 'Street name of the counterpart';
-        type: String;
+        type: string;
       };
     };
     branch: {
       description: 'Branch number of the counterpart';
-      type: Number;
+      type: number;
     };
     country: {
       description: 'Country of the counterpart';
-      type: String;
+      type: string;
     };
     name: {
       description: 'Name of the counterpart';
-      type: String;
+      type: string;
     };
     phone: {
       description: 'Phone number of the counterpart';
-      type: String;
+      type: string;
     };
     tax_office: {
       description: 'Tax office of the counterpart';
-      type: String;
+      type: string;
     };
     vat_number: {
       description: 'VAT number of the counterpart';
-      type: String;
-    };
-  };
-  gross_value: number;
-  issue_date: string;
-  header: {
-    series: {
-      code: string;
-    };
-    serial_number: string;
-    code: string;
-  };
-  move_purpose?: {
-    code: {
-      description: 'Movement code is the reason why goods are transported (1-8).';
-      type: String;
+      type: string;
     };
   };
   details: {
     name: string;
-    quantity: number;
     net_value: number;
+    quantity: number;
     rec_type?: number;
   }[];
-  payment_methods: {
+  gross_value: number;
+  header: {
     code: string;
-    amount: number;
-  }[];
+    serial_number: string;
+    series: {
+      code: string;
+    };
+  };
+  issue_date: string;
+  issuer: {
+    activity: string;
+    address: {
+      city: string;
+      number?: string;
+      postal_code: string;
+      street: string;
+    };
+    branch?: number;
+    name: string;
+    phone: string;
+    tax_office: string;
+    vat_number: string;
+  };
   mark: string;
-  url: string;
-  uid: string;
-  authentication_code: string;
+  move_purpose?: {
+    code: {
+      description: 'Movement code is the reason why goods are transported (1-8).';
+      type: string;
+    };
+  };
+  payment_methods: {
+    amount: number;
+    code: string;
+  }[];
   qr: string;
+  uid: string;
+  url: string;
 }

@@ -15,10 +15,9 @@ const UPDATING: UpdateCheckResult = {
 // A started update latches updateInFlight for the life of the process, so each
 // test needs its own copy of the module.
 async function loadAutoUpdate(): Promise<typeof AutoUpdate> {
-  let mod: typeof AutoUpdate;
   vi.resetModules();
-  mod = await import('../src/autoupdate/autoupdate');
-  return mod!;
+  const mod: typeof AutoUpdate = await import('../src/autoupdate/autoupdate');
+  return mod;
 }
 
 describe('triggerUpdate handoff', () => {

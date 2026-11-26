@@ -1,8 +1,8 @@
 import { describe, expect, test, vi } from 'vitest';
 import {
   CharacterSet,
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 import { installCharsetGuard } from '../src/modules/charsetGuard';
 import {
@@ -46,7 +46,10 @@ const choice = (title: string) => ({
 
 // The second option wraps over several lines at 42 cells.
 const OPTIONS: any[] = [
-  { choices: [choice('gouda')], content: [{ language: 'en', title: 'Cheese' }] },
+  {
+    choices: [choice('gouda')],
+    content: [{ language: 'en', title: 'Cheese' }],
+  },
   {
     choices: [
       'tomato',
@@ -59,7 +62,10 @@ const OPTIONS: any[] = [
     ].map(choice),
     content: [{ language: 'en', title: 'Vegetables' }],
   },
-  { choices: [choice('ketchup')], content: [{ language: 'en', title: 'Sauce' }] },
+  {
+    choices: [choice('ketchup')],
+    content: [{ language: 'en', title: 'Sauce' }],
+  },
 ];
 
 const settings: any = { optionDetails: true, transliterate: false };

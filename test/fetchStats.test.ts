@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, type Mocked } from 'vitest';
+import { describe, expect, it, type Mocked, vi } from 'vitest';
 
 // No top-level import/export of its own, so TS would treat this as a global
 // script and collide `load` with the other suites.
@@ -18,11 +18,9 @@ type Http = typeof import('../src/modules/http');
 type Logger = typeof import('../src/modules/logger').default;
 
 const load = async () => {
-  let http!: Http;
-  let logger!: Logger;
   vi.resetModules();
-  http = await import('../src/modules/http');
-  logger = (await import('../src/modules/logger')).default;
+  const http: Http = await import('../src/modules/http');
+  const logger: Logger = (await import('../src/modules/logger')).default;
   return { http, logger: logger as Mocked<Logger> };
 };
 
@@ -88,6 +86,7 @@ describe('fetch stats line', () => {
       curlFn: async () => 'curl',
       fetchFn: async () => {
         attempts += 1;
+
         if (attempts === 1) throw connectFail('ECONNRESET');
         return { data: 'fetch' };
       },

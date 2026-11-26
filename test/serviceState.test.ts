@@ -64,8 +64,12 @@ describe('parseScQueryState', () => {
 
   it('reads the state on a localized Windows', () => {
     expect(parseScQueryState(SC_EL, 0)).toBe('RUNNING');
-    expect(parseScQueryState(SC_EL.replace(': 4  ΕΚΤΕΛΕΙΤΑΙ', ': 1  ΔΙΕΚΟΠΗ'), 0)).toBe('STOPPED');
-    expect(parseScQueryState(SC_EL.replace(': 4  ΕΚΤΕΛΕΙΤΑΙ', ': 3  ΔΙΑΚΟΠΤΕΤΑΙ'), 0)).toBe('PENDING');
+    expect(
+      parseScQueryState(SC_EL.replace(': 4  ΕΚΤΕΛΕΙΤΑΙ', ': 1  ΔΙΕΚΟΠΗ'), 0)
+    ).toBe('STOPPED');
+    expect(
+      parseScQueryState(SC_EL.replace(': 4  ΕΚΤΕΛΕΙΤΑΙ', ': 3  ΔΙΑΚΟΠΤΕΤΑΙ'), 0)
+    ).toBe('PENDING');
   });
 
   it('detects an absent service by its numeric code', () => {

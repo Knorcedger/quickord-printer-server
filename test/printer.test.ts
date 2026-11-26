@@ -1,7 +1,7 @@
-import { describe, expect, it, vi, type Mock } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  printer as ThermalPrinter,
   types as PrinterTypes,
+  printer as ThermalPrinter,
 } from 'node-thermal-printer';
 
 describe('Thermal Printer', () => {

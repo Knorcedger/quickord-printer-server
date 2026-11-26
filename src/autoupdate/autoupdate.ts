@@ -1,15 +1,10 @@
-/* eslint-disable no-continue */
-/* eslint-disable default-param-last */
-/* eslint-disable no-await-in-loop */
-/* eslint-disable no-restricted-syntax */
-
 import * as fs from 'node:fs';
 import { createWriteStream } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { spawn, exec } from 'node:child_process';
+import { exec, spawn } from 'node:child_process';
 import * as path from 'node:path';
 import JSZip from 'jszip';
 
@@ -38,7 +33,7 @@ import {
 
 nconf.argv().env().file({ file: './config.json' });
 let path2 = '';
-let args = ['--update', 'test'];
+const args = ['--update', 'test'];
 let destDir = '../';
 
 const tempDirPath = `${tmpdir()}${sep}quickord-cashier-server-update`;
@@ -77,6 +72,7 @@ export async function rmrf(target: string): Promise<void> {
     if (err?.code === 'ENOENT') return null;
     throw err;
   });
+
   if (!stat) return;
 
   // Read-only files are common in an extracted release; rimraf's own EPERM
@@ -187,6 +183,7 @@ export function launchDetached(
     const done = (ok: boolean) => {
       if (settled) return;
       settled = true;
+
       if (timer) clearTimeout(timer);
       resolve(ok);
     };
@@ -270,6 +267,7 @@ async function waitForExeLock(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (await isExeRunning(exe)) break;
+
     if (Date.now() >= deadline) return false;
     await sleep(500);
   }
@@ -277,6 +275,7 @@ async function waitForExeLock(
   const settleDeadline = Date.now() + settleMs;
   while (Date.now() < settleDeadline) {
     await sleep(500);
+
     if (!(await isExeRunning(exe))) return false;
   }
   return true;
@@ -363,8 +362,10 @@ const SERVICE_STATUS_PS = `powershell -NoProfile -NonInteractive -Command "$s = 
 
 export async function getServiceState(): Promise<ServiceState> {
   const ps = await runCmd(SERVICE_STATUS_PS, 20_000);
+
   if (ps.code === 0) {
     const state = parseServiceStatusName(ps.output);
+
     if (state) return state;
   }
   const sc = await runCmd(`sc.exe query ${SERVICE_NAME}`, 15_000);
@@ -421,6 +422,7 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
       `sc.exe stop ${SERVICE_NAME}`,
       30_000
     );
+
     // 1062 = service not started. Anything else non-zero (5 = access denied
     // when force_autoupdate.bat runs unelevated) is worth surfacing, but the
     // state poll below is what actually decides.
@@ -430,6 +432,7 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
       );
     }
     const state = await waitForState(['STOPPED', 'ABSENT'], 45_000);
+
     if (state !== 'STOPPED' && state !== 'ABSENT') {
       updateLogError(
         `Service did not reach Stopped (state: ${state}). Aborting update to avoid a half-copied install.`
@@ -443,7 +446,9 @@ export async function stopServiceAndFreePort(port: number): Promise<boolean> {
   const deadline = Date.now() + 30_000;
   for (;;) {
     const holders = await findPortHolders(port);
+
     if (holders.length === 0) return true;
+
     if (Date.now() > deadline) {
       updateLogError(
         `Port ${port} still held by PID(s) ${holders.join(', ')} after kill attempts. Aborting update.`
@@ -473,7 +478,7 @@ const SC_ERRORS: Record<string, string> = {
 };
 
 // sc.exe exits with the Win32 error itself; the printed text is localized.
-export function scErrorCode(code: number, output: string): number | null {
+export function scErrorCode(code: number, output: string): null | number {
   if (code) return code;
   const match = output.match(/FAILED\s+(\d+)|\b(\d{1,4})\b(?=:)/);
   const parsed = Number(match?.[1] ?? match?.[2]);
@@ -496,16 +501,18 @@ export async function isElevated(): Promise<boolean> {
     'powershell -NoProfile -NonInteractive -Command "(New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"',
     15_000
   );
+
   if (code === 0) return /true/i.test(output);
   return (await runCmd('net session', 15_000)).code === 0;
 }
 
 /** Where the SCM thinks the service lives — the install we are really updating. */
-export async function getServiceImagePath(): Promise<string | null> {
+export async function getServiceImagePath(): Promise<null | string> {
   const { code, output } = await runCmd(
     `powershell -NoProfile -NonInteractive -Command "(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\${SERVICE_NAME}' -ErrorAction SilentlyContinue).ImagePath"`,
     15_000
   );
+
   if (code !== 0) return null;
   const trimmed = output.trim();
   return trimmed || null;
@@ -525,6 +532,7 @@ const BOOT_GUARD_FILE = 'honors-failed-release';
  */
 export function xmlSuppressesUpdates(xml: string): boolean {
   const list = xml.match(/<arguments>([\s\S]*?)<\/arguments>/);
+
   if (list) return (list[1] ?? '').trim().split(/\s+/)[0] === NO_UPDATE_ARG;
   const first = xml.match(/<argument>([\s\S]*?)<\/argument>/);
   return first?.[1]?.trim() === NO_UPDATE_ARG;
@@ -535,7 +543,7 @@ export function xmlSuppressesUpdates(xml: string): boolean {
  * safely edit. WinSW reads <arguments> on every start — unlike <onfailure>,
  * which only reaches the SCM at install time.
  */
-export function serviceXmlWithNoUpdate(xml: string): string | null {
+export function serviceXmlWithNoUpdate(xml: string): null | string {
   // First, not last: index.ts only honours `--noupdate` as argv[0].
   if (/<arguments>[\s\S]*?<\/arguments>/.test(xml)) {
     return xml.replace(
@@ -546,9 +554,11 @@ export function serviceXmlWithNoUpdate(xml: string): string | null {
   }
   // WinSW's list form: keep it a list rather than mixing the two spellings.
   const firstArgument = xml.indexOf('<argument>');
+
   if (firstArgument !== -1) {
     return `${xml.slice(0, firstArgument)}<argument>${NO_UPDATE_ARG}</argument>\n  ${xml.slice(firstArgument)}`;
   }
+
   if (!xml.includes('</service>')) return null;
   return xml.replace(
     '</service>',
@@ -563,7 +573,7 @@ export function serviceXmlWithNoUpdate(xml: string): string | null {
  */
 export function suppressBootUpdates(buildsDir: string): boolean {
   const xmlPath = path.join(buildsDir, SERVICE_XML_FILE);
-  let xml = '';
+  let xml: string;
   try {
     xml = fs.readFileSync(xmlPath, 'utf-8');
   } catch (err: any) {
@@ -577,6 +587,7 @@ export function suppressBootUpdates(buildsDir: string): boolean {
   }
 
   const next = serviceXmlWithNoUpdate(xml);
+
   if (!next) {
     updateLogError(`${xmlPath} is not a service xml we can edit.`);
     return false;
@@ -661,18 +672,21 @@ export async function startServiceOrFallback(
       `sc.exe start ${SERVICE_NAME}`,
       30_000
     );
+
     // 1056 = already running.
     if (code === 0 || /1056/.test(output)) break;
 
     updateLogError(
       `sc start attempt ${attempt}/${START_ATTEMPTS} returned ${code}: ${describeScError(code, output)}`
     );
+
     // Denied is not a race — retrying the same call as the same user cannot
     // help, and the caller needs the fallback now.
     if (scErrorCode(code, output) === 5) {
       denied = true;
       break;
     }
+
     if (attempt < START_ATTEMPTS) await sleep(START_RETRY_MS);
   }
 
@@ -684,6 +698,7 @@ export async function startServiceOrFallback(
     );
   } else if (canStartService) {
     const state = await waitForState(['RUNNING'], 45_000);
+
     if (state === 'RUNNING') {
       updateLog('Service is running.');
       return true;
@@ -696,6 +711,7 @@ export async function startServiceOrFallback(
   updateLogError(
     `RUNNING UNMANAGED: ${SERVICE_NAME} is NOT running. The printer server was started as a plain process — it dies at logoff and nothing restarts it. Run install_printer_service.bat as administrator to repair.`
   );
+
   if (!(await launchDetached(exe, startArgs, buildsDir))) return false;
 
   // `cmd /c start` exits 0 even when it launched nothing (AV, Smart App
@@ -798,11 +814,13 @@ export async function isServiceManaged(): Promise<boolean> {
 export async function probeServiceManaged(): Promise<boolean | null> {
   if (process.platform !== 'win32') return false;
   const ppid = process.ppid;
+
   if (!ppid) return false;
   const { code, output } = await runCmd(
     `powershell -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId=${ppid}').Name"`,
     15_000
   );
+
   if (code !== 0) return null;
   return /printerServerService\.exe/i.test(output);
 }
@@ -824,6 +842,7 @@ export async function deleteFolderRecursive(
     }
 
     await fsp.rmdir(folderPath); // remove empty folder
+
     if (!silent) {
       updateLog(`Deleted: ${folderPath}`);
     }
@@ -855,7 +874,9 @@ function isLatestVersion(current, latest) {
   for (let i = 0; i < Math.max(c.length, l.length); i++) {
     const a = c[i] || 0;
     const b = l[i] || 0;
+
     if (a < b) return false;
+
     if (a > b) return true;
   }
   return true; // equal versions
@@ -881,6 +902,7 @@ export function readFailedRelease(buildsDir: string): FailedRelease | null {
   try {
     const raw = fs.readFileSync(failedReleasePath(buildsDir), 'utf-8');
     const { attempts, version } = JSON.parse(raw) || {};
+
     if (typeof version !== 'string' || !version) return null;
     return { attempts: Number(attempts) || 0, version };
   } catch {
@@ -915,6 +937,7 @@ export function noteFailedRelease(
     updateLog('No version file in the new build; nothing to mark as failed.');
     return;
   }
+
   if (!version) return;
 
   const previous = readFailedRelease(buildsDir);
@@ -943,7 +966,7 @@ export function noteFailedRelease(
  * to step aside. updater.js validates the same things, but it only gets to run
  * when the build it lives in works. This check is the one that has to hold.
  */
-export function validateStagedBuild(stagedDir: string): string | null {
+export function validateStagedBuild(stagedDir: string): null | string {
   const stagedBuilds = path.join(stagedDir, 'builds');
   for (const f of [
     'printerServer.exe',
@@ -977,9 +1000,9 @@ export function validateStagedBuild(stagedDir: string): string | null {
 export function overCapRelease(
   installDir: string,
   force: boolean
-): string | null {
+): null | string {
   if (!installDir || force) return null;
-  let version = '';
+  let version: string;
   try {
     version = fs.readFileSync('version', 'utf-8').trim();
   } catch {
@@ -987,6 +1010,7 @@ export function overCapRelease(
   }
 
   const failed = readFailedRelease(path.join(installDir, 'builds'));
+
   if (failed?.version !== version || failed.attempts < MAX_RELEASE_ATTEMPTS) {
     return null;
   }
@@ -1005,8 +1029,9 @@ const GITHUB_FETCH_RETRY = {
 const VERSION_CHECK_TIMEOUT_S = 20;
 const DOWNLOAD_TIMEOUT_S = 600;
 
-async function fetchLatestReleaseVersion(): Promise<string | null> {
+async function fetchLatestReleaseVersion(): Promise<null | string> {
   const versionUrl = nconf.get('CODE_VERSION_URL');
+
   if (!versionUrl) {
     updateLog('CODE_VERSION_URL not configured. Skipping version check.');
     return null;
@@ -1025,6 +1050,7 @@ async function fetchLatestReleaseVersion(): Promise<string | null> {
           headers: { 'User-Agent': 'quickord-printer-server' },
           signal: AbortSignal.timeout(VERSION_CHECK_TIMEOUT_S * 1000),
         });
+
         if (!response.ok) throw httpStatusError(response);
         return { data: (await response.json()) as { tag_name?: string } };
       },
@@ -1077,7 +1103,7 @@ export interface UpdateCheckResult {
   error?: string;
   errorCode?: UpdateErrorCode;
   latestVersion?: string;
-  state: 'already-latest' | 'updating' | 'failed';
+  state: 'already-latest' | 'failed' | 'updating';
 }
 
 /**
@@ -1131,6 +1157,7 @@ export async function downloadLatestCode(
     updateLog(`Current: ${currentVersion} -> Latest: ${latestVersion}`);
 
     const failed = readFailedRelease(buildsDir);
+
     if (failed?.version === latestVersion && !force) {
       if (failed.attempts >= MAX_RELEASE_ATTEMPTS) {
         const error = `Release ${latestVersion} failed to install here ${failed.attempts} times; not retrying automatically. Fix the machine (disk, antivirus, locked files) and run force_autoupdate.bat, or ask for an update from the backend.`;
@@ -1179,6 +1206,7 @@ export async function downloadLatestCode(
           redirect: 'follow',
           signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_S * 1000),
         });
+
         if (!response.ok || !response.body) throw httpStatusError(response);
         await pipeline(response.body, createWriteStream(zipPath));
         return { data: undefined as void };
@@ -1207,6 +1235,7 @@ export async function downloadLatestCode(
   // Before the handoff, while staying is still an option: a broken release
   // caught here costs a download, one caught after the handoff costs the venue.
   const invalid = validateStagedBuild(tempCodePath);
+
   if (invalid) {
     const error = `Refusing to install ${latestVersion}: ${invalid}. Staying on ${currentVersion}.`;
     updateLogError(error);
@@ -1226,6 +1255,7 @@ export async function downloadLatestCode(
   args[1] = tempCodePath;
   args[2] = '--parent';
   args[3] = parentDir;
+
   // The updater repeats the failed-release check, so it needs to know this run
   // is the explicit one that is allowed past it.
   if (force) args[4] = '--force';
@@ -1292,7 +1322,7 @@ type UpdateHandler = (
   force?: boolean
 ) => Promise<UpdateCheckResult>;
 
-let updateHandler: UpdateHandler | null = null;
+let updateHandler: null | UpdateHandler = null;
 
 export function setUpdateHandler(fn: UpdateHandler): void {
   updateHandler = fn;
@@ -1304,7 +1334,7 @@ export function setUpdateHandler(fn: UpdateHandler): void {
 // copying the same tree. The in-flight run is shared instead, so the second
 // caller gets the first one's answer — including its pre-handoff report, so a
 // duplicate command's own report stays fire-and-forget.
-let updateInFlight: Promise<UpdateCheckResult> | null = null;
+let updateInFlight: null | Promise<UpdateCheckResult> = null;
 
 export async function triggerUpdate(
   beforeHandoff?: BeforeHandoff,
@@ -1318,6 +1348,7 @@ export async function triggerUpdate(
       state: 'failed',
     };
   }
+
   if (updateInFlight) {
     updateLog('An update is already in flight; reusing its result.');
     return updateInFlight;
@@ -1336,6 +1367,7 @@ export async function triggerUpdate(
   })();
   try {
     const result = await updateInFlight;
+
     // Only a started update is worth latching: on `already-latest`/`failed`
     // this process keeps running and must stay able to retry later.
     if (result.state !== 'updating') updateInFlight = null;
@@ -1369,10 +1401,13 @@ export async function sweepTempUpdateDirs(): Promise<void> {
     const full = path.join(base, name);
     const lower = full.toLowerCase();
     const prefix = lower + path.sep;
+
     // Never delete the tree we are running from — by cwd or by exe, since the
     // updater chdir's into it but a fallback launch may not.
     if (cwd === lower || cwd.startsWith(prefix)) continue;
+
     if (self.startsWith(prefix)) continue;
+
     // We are the *new* server, started by an updater that is still waiting for
     // us to reach Running from its own temp tree. Its exe is locked while it
     // lives, so leave that tree to the next boot.
@@ -1394,6 +1429,7 @@ export async function safeCleanup(dirPath: string) {
   try {
     const resolvedPath = path.resolve(dirPath);
     const stat = await fsp.stat(resolvedPath).catch(() => null);
+
     if (!stat) return; // folder doesn't exist
 
     // Tiny delay to ensure all streams are closed
@@ -1453,15 +1489,16 @@ function missingBuildFiles(dir: string): string[] {
       return false;
     }
   })();
+
   if (!populated) missing.push('node_modules');
   return missing;
 }
 
 type InstallBackup = {
-  /** Where the previous install now lives. */
-  path: string;
   /** true = the install dir was renamed away, false = copied then emptied. */
   moved: boolean;
+  /** Where the previous install now lives. */
+  path: string;
 };
 
 /**
@@ -1495,6 +1532,7 @@ async function backupInstall(
   try {
     await removePath(tmpBackup);
     await copyWithCmd(installDir, tmpBackup);
+
     if (!hasServerExe(tmpBackup)) {
       throw new Error(
         `backup at ${tmpBackup} is missing builds\\printerServer.exe`
@@ -1538,6 +1576,7 @@ async function restoreInstall(
       await clearDirContents(installDir);
       await copyWithCmd(backup.path, installDir);
     }
+
     if (!hasServerExe(installDir)) {
       throw new Error(`restored install at ${installDir} has no exe`);
     }
@@ -1660,7 +1699,7 @@ function copySettingsFile(settingsPath, destDir) {
 async function preserveLogs(installDir: string, stagingDir: string) {
   const from = path.join(installDir, 'builds');
   const to = path.join(stagingDir, 'builds');
-  let names: string[] = [];
+  let names: string[];
   try {
     names = await fsp.readdir(from);
   } catch {
@@ -1681,10 +1720,12 @@ async function preserveLogs(installDir: string, stagingDir: string) {
       updateLogError(`Could not preserve ${name}:`, err.message || err);
     }
   }
+
   if (logs.length) updateLog(`Preserved ${logs.length} log file(s).`);
 }
 export default async function autoUpdate(path: string[]) {
   updateLog('AutoUpdate path:', path);
+
   // Check if running on Windows
   if (process.platform !== 'win32') {
     updateLog('Skipping auto-update: non-Windows OS detected.');
@@ -1748,6 +1789,7 @@ async function logUpdaterPreamble(): Promise<void> {
   const installed = imagePath
     ? path.resolve(path.dirname(imagePath.replace(/^"|"$/g, '')), '..')
     : null;
+
   if (
     installed &&
     destDir &&
@@ -1802,6 +1844,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // present, and aborting here costs a download instead of a stop-copy-rollback
   // cycle with the venue offline for it.
   const cappedRelease = overCapRelease(destDir, path.includes('--force'));
+
   if (cappedRelease) {
     updateLogError(`Update aborted: ${cappedRelease}`);
     // An install older than the boot-time check re-downloads this release the
@@ -1819,6 +1862,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // the whole install away, so a release found broken only after the copy costs
   // a rollback. Aborting here leaves the install exactly as it was.
   const staged = missingBuildFiles(srcDir);
+
   if (staged.length) {
     updateLogError(
       `Update aborted: the downloaded release at ${srcDir} is missing ${staged.join(', ')}.`
@@ -1838,6 +1882,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // means a venue with no printers configured, so a failed backup aborts the
   // update instead of deleting anything.
   const settingsPath = `${destDir}\\builds\\settings.json`;
+
   if (fs.existsSync(settingsPath)) {
     try {
       await copySettingsFile(settingsPath, srcDir);
@@ -1860,6 +1905,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   // leave the venue with an empty or half-written install directory. No
   // backup means no update: the install stays exactly as it was.
   const backup = await backupInstall(destDir);
+
   if (!backup) {
     updateLogError(
       'Update aborted: could not back up the current install. It was left untouched.'
@@ -1872,6 +1918,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
     updateLog('paths: ', srcDir, destDir);
     await copyWithCmd(srcDir, destDir);
     const missing = missingBuildFiles(destDir);
+
     if (missing.length) {
       throw new Error(
         `copy finished but ${destDir}\\builds is missing ${missing.join(', ')}`
@@ -1880,6 +1927,7 @@ async function runUpdater(path: string[]): Promise<boolean> {
   } catch (err: any) {
     updateLogError('Copy of the new build failed:', err.message || err);
     updateLogError('Restoring the previous install from the backup.');
+
     if (!(await restoreInstall(backup, destDir))) {
       // Starting here would run a knowingly incomplete install. Leave the
       // backup in place and say exactly where it is instead — a service that

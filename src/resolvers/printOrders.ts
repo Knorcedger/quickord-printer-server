@@ -3,9 +3,9 @@ import { z } from 'zod';
 
 import logger from '../modules/logger';
 import {
-  printOrders as printerPrintOrders,
-  determinePrintStatus,
   buildPrintResponse,
+  determinePrintStatus,
+  printOrders as printerPrintOrders,
 } from '../modules/printer';
 const updateStatusEnumValues = [
   'INITIAL',

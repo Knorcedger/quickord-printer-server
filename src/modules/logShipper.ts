@@ -108,6 +108,7 @@ const isVerbose = (): boolean => verboseUntil > Date.now();
 
 const forget = (entry: SpoolEntry): void => {
   queueBytes -= entryBytes(entry);
+
   if (entry.level === 'debug') debugCount -= 1;
 };
 
@@ -131,6 +132,7 @@ const pruneDebug = (): number => {
 const trimToCaps = (): void => {
   if (debugCount > MAX_DEBUG_ENTRIES) {
     const oldest = queue.findIndex((e) => e.level === 'debug');
+
     if (oldest >= 0) forget(queue.splice(oldest, 1)[0]!);
   }
   while (
@@ -139,6 +141,7 @@ const trimToCaps = (): void => {
   ) {
     const oldest = queue.shift()!;
     forget(oldest);
+
     if (oldest.level !== 'debug') dropped += 1;
   }
 };
@@ -162,10 +165,12 @@ const enqueue = (line: LogLine): Promise<boolean> => {
   queue.push(entry);
   const bytes = entryBytes(entry);
   queueBytes += bytes;
+
   if (entry.level === 'debug') debugCount += 1;
   trimToCaps();
 
   appendedBytes += bytes;
+
   if (appendedBytes > MAX_SPOOL_BYTES * 2) return rewriteSpool();
   return withFile(() =>
     fs.appendFile(SPOOL_FILE, `${JSON.stringify(entry)}\n`)
@@ -185,6 +190,7 @@ const loadSpool = async (): Promise<void> => {
     if (!line) return;
     try {
       const e = JSON.parse(line);
+
       if (
         typeof e?.seq === 'number' &&
         typeof e?.ts === 'string' &&
@@ -212,7 +218,9 @@ const takeBatch = (withDebug: boolean): SpoolEntry[] => {
   for (const entry of queue) {
     if (!withDebug && entry.level === 'debug') continue;
     const size = entryBytes(entry);
+
     if (batch.length >= BATCH_MAX_ENTRIES) break;
+
     if (batch.length > 0 && bytes + size > BATCH_MAX_BYTES) break;
     batch.push(entry);
     bytes += size;
@@ -251,6 +259,7 @@ const upload = async (
             method: 'POST',
             signal: controller.signal,
           });
+
           if (!response.ok) throw httpStatusError(response);
           return { data: await response.json() };
         } finally {
@@ -264,6 +273,7 @@ const upload = async (
     status = statusOf(result.fetchFailure);
   } catch (err: any) {
     status = statusOf(err?.fetchFailure);
+
     if (status === 404 || status === 401) return { outcome: 'unsupported' };
     return { outcome: 'failed' };
   }
@@ -274,6 +284,7 @@ const upload = async (
       outcome: 'ok',
     };
   }
+
   // The curl fallback flattens HTTP errors into parsed bodies.
   if (
     status === 404 ||
@@ -291,11 +302,14 @@ const upload = async (
 export async function shipOnce(): Promise<number> {
   const verbose = isVerbose();
   const idle = verbose ? VERBOSE_SHIP_INTERVAL_MS : SHIP_INTERVAL_MS;
+
   if (shipping) return idle;
+
   if (pruneDebug() > 0) await rewriteSpool();
   const venueId = getVenueId();
   const secret = getWsSecret();
   const batch = takeBatch(verbose);
+
   if (!venueId || !secret || (batch.length === 0 && dropped === 0)) {
     return idle;
   }
@@ -314,6 +328,7 @@ export async function shipOnce(): Promise<number> {
 
     if (outcome !== 'ok') {
       consecutiveFailures += 1;
+
       if (outcome === 'unsupported') return UNSUPPORTED_BACKOFF_MS;
       return (
         FAILURE_BACKOFF_MS[
@@ -329,6 +344,7 @@ export async function shipOnce(): Promise<number> {
     const removed = removeWhere(
       (e) => e.seq <= lastSeq && (verbose || e.level !== 'debug')
     );
+
     if (removed > 0) await rewriteSpool();
     // Backlog after an outage: keep draining.
     return takeBatch(isVerbose()).length > 0 ? BACKLOG_SHIP_INTERVAL_MS : idle;
@@ -372,8 +388,10 @@ export function setVerboseUntil(iso: unknown): void {
   const next = Number.isFinite(parsed) ? parsed : 0;
   const turnedOn = next > Date.now() && !isVerbose();
   verboseUntil = next;
+
   if (!turnedOn) return;
   logger.info(`Verbose log shipping on until ${new Date(next).toISOString()}`);
+
   // A ship already running picks the faster pace up on its own.
   if (timerPending && timer) {
     clearTimeout(timer);
@@ -397,6 +415,7 @@ export async function initLogShipper(): Promise<void> {
 /** Test-only: stop the loop and forget all state. */
 export async function resetLogShipperForTests(): Promise<void> {
   started = false;
+
   if (timer) clearTimeout(timer);
   timer = null;
   unsubscribe?.();

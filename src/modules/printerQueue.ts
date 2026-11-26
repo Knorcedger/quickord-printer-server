@@ -72,6 +72,7 @@ export async function lockPrinterBuffer(
   await prev;
   return () => {
     release();
+
     if (bufferLocks.get(owner) === tail) bufferLocks.delete(owner);
   };
 }

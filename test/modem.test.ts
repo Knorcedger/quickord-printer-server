@@ -4,8 +4,8 @@ import {
   describe,
   expect,
   it,
-  vi,
   type MockedFunction,
+  vi,
 } from 'vitest';
 import signale from 'signale';
 
@@ -349,7 +349,7 @@ describe('modem registry', () => {
 
     for (let i = 0; i < 3; i++) {
       emit('COM3', 'RING\r\n');
-      // eslint-disable-next-line no-await-in-loop
+
       await vi.advanceTimersByTimeAsync(35_000); // past RECENT_NMBR_WINDOW_MS
     }
 
@@ -375,7 +375,7 @@ describe('modem registry', () => {
 
     for (let i = 0; i < 4; i++) {
       emit('COM3', 'RING\r\n');
-      // eslint-disable-next-line no-await-in-loop
+
       await vi.advanceTimersByTimeAsync(11 * 60_000); // past the decay window
     }
 
@@ -468,7 +468,7 @@ describe('modem registry', () => {
         '4\r\nRING\r\n',
       ]) {
         emit('COM3', c);
-        // eslint-disable-next-line no-await-in-loop
+
         await settle();
       }
 

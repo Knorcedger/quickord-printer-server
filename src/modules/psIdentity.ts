@@ -35,12 +35,18 @@ export function getPrinterVersion(): string {
 // Get registered venueId from in-memory settings object.
 export function getVenueId(): string {
   try {
+    // Lazy, so loading this module never pulls in settings.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getModems, getSettings } = require('./settings');
     const settings = getSettings();
+
     if (settings?.venueId) return settings.venueId;
     const legacyVenueId = getModems(settings)[0]?.venueId;
+
     if (legacyVenueId) return legacyVenueId;
-  } catch {}
+  } catch {
+    // Settings not loadable yet: fall back to the config value.
+  }
   return nconf.get('VENUE_ID') || '';
 }
 
@@ -50,10 +56,14 @@ export function getVenueId(): string {
 // so a leaked shared key can no longer impersonate other venues.
 export function getWsSecret(): string {
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getSettings } = require('./settings');
     const secret = getSettings()?.wsSecret;
+
     if (secret) return secret;
-  } catch {}
+  } catch {
+    // Settings not loadable yet: fall back to the config value.
+  }
   return nconf.get('VENUE_WS_SECRET') || '';
 }
 

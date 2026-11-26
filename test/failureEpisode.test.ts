@@ -4,8 +4,8 @@ import {
   describe,
   expect,
   it,
-  vi,
   type Mocked,
+  vi,
 } from 'vitest';
 import { FailureEpisode } from '../src/modules/failureEpisode';
 import logger from '../src/modules/logger';

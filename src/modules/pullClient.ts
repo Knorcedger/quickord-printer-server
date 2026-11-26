@@ -124,7 +124,7 @@ const FETCH_FALLBACK_STREAK_TO_REPORT = 3;
 let consecutiveFetchFallbacks = 0;
 
 let running = false;
-let loopDone: Promise<void> | null = null;
+let loopDone: null | Promise<void> = null;
 // Claimed prints until their result report settles; an update drains these.
 const printsInFlight = new Set<Promise<void>>();
 
@@ -150,6 +150,7 @@ function alreadySeen(jobId: string): boolean {
   for (const [id, expiry] of seenJobs) {
     if (expiry <= now) seenJobs.delete(id);
   }
+
   if (seenJobs.has(jobId)) return true;
   seenJobs.set(jobId, now + SEEN_TTL_MS);
   return false;
@@ -172,13 +173,13 @@ async function postJson(
     attemptBudgetMs,
     curlFirst = false,
   }: {
-    timeoutMs: number;
-    fetchRetries?: number;
-    trackFallbackStreak?: boolean;
-    suppressFailureLogs?: boolean;
     // Total for fetch + curl; curl gets the remainder. Unset: curl gets timeoutMs.
     attemptBudgetMs?: number;
     curlFirst?: boolean;
+    fetchRetries?: number;
+    suppressFailureLogs?: boolean;
+    timeoutMs: number;
+    trackFallbackStreak?: boolean;
   }
 ): Promise<any> {
   const url = `${getBackendBaseUrl()}${path}`;
@@ -212,6 +213,7 @@ async function postJson(
           method: 'POST',
           signal: controller.signal,
         });
+
         if (!response.ok) {
           throw httpStatusError(response);
         }
@@ -244,6 +246,7 @@ async function postJson(
       `${path}: fetch failed, curl fallback answered`,
       result.fetchFailure
     );
+
     // A 401 is an auth rejection, not the transient fetch/proxy failure the
     // curl fallback exists to paper over — curl just re-fetches the same 401,
     // and on a backend that predates the poll endpoint the 401 body carries no
@@ -257,6 +260,7 @@ async function postJson(
       throw new PollRejectedError('backend rejected credentials (HTTP 401)');
     }
     const now = Date.now();
+
     if (
       trackFallbackStreak &&
       consecutiveFetchFallbacks >= FETCH_FALLBACK_STREAK_TO_REPORT &&
@@ -309,6 +313,7 @@ function reportResult(
             timeoutMs: RESULT_FETCH_TIMEOUT_MS,
           }
         );
+
         // The curl fallback surfaces HTTP errors as parsed bodies, so a 4xx
         // arrives here as data without ok — treat anything unacknowledged as
         // a failed attempt.
@@ -318,6 +323,7 @@ function reportResult(
         );
       } catch (err) {
         const delay = RESULT_RETRY_DELAYS_MS[attempt];
+
         if (delay === undefined) {
           logger.error(
             `Failed to report print result for job ${jobId} after ${attempt + 1} attempts:`,
@@ -358,6 +364,7 @@ async function pollOnce(): Promise<boolean> {
       trackFallbackStreak: true,
     }
   );
+
   // See PollRejectedError: a 401 read through the curl fallback parses as a
   // body with this code instead of throwing. Value mirrors the backend's
   // ERRORS.PRINT_JOBS.AUTH_REJECTED — keep the two in sync.
@@ -366,6 +373,7 @@ async function pollOnce(): Promise<boolean> {
       typeof data?.error === 'string' ? data.error : 'invalid venue credentials'
     );
   }
+
   // A successful poll always carries a jobs array (empty on an idle hold). A
   // body without one is an error the curl fallback didn't reject (a 5xx JSON
   // body: curl doesn't fail on HTTP status by default) — throw so the loop
@@ -379,6 +387,7 @@ async function pollOnce(): Promise<boolean> {
   logger.debug(
     `Poll answered in ${Date.now() - startedAt}ms: ${data.jobs.length} job(s)${data.settings ? ', settings' : ''}`
   );
+
   // Settings first: jobs in this same answer must print with the config the
   // backend just sent, not the one it already knows is stale. A failure here
   // never costs the jobs — they print with what is on disk.
@@ -396,6 +405,7 @@ async function pollOnce(): Promise<boolean> {
     } catch (err) {
       thrown = err;
     }
+
     // A settings.json that can't be written doesn't throw — it just leaves the
     // hash unacknowledged, so read the outcome instead of the exception.
     if (getSyncedHash() !== data.settingsHash) {
@@ -470,8 +480,10 @@ function dispatchJob(job: {
           registerPreExitTask(report);
           return report;
         });
+
         if (pending.report) {
           await pending.report;
+
           // A handoff report went out saying the update started. It only comes
           // back 'failed' when the updater never came up and we are still here,
           // and then that report is a lie the backend would wait on forever —
@@ -555,6 +567,7 @@ async function loop(): Promise<void> {
       markFirstPoll();
       authFailureLogged = false;
       pollFailures.succeed();
+
       // See SETTINGS_SPIN_GUARD_MS: a backend that held the poll has already
       // paced this retry — and held it with the channel open, so jobs kept
       // arriving. An answer that carried jobs is the venue printing, not a
@@ -571,6 +584,7 @@ async function loop(): Promise<void> {
         // Its own episode with its own log line — don't let it inflate the
         // consecutive-failure count of the next transport outage.
         pollFailures.reset();
+
         if (!authFailureLogged) {
           authFailureLogged = true;
           logger.error(
@@ -590,6 +604,7 @@ async function loop(): Promise<void> {
 function startLoop(): void {
   loopDone = loop().finally(() => {
     loopDone = null;
+
     // Resumed while this loop was already on its way out.
     if (running) startLoop();
   });
@@ -602,6 +617,7 @@ export function initPullClient(): void {
   if (running) return;
   running = true;
   logger.info('Starting print-job pull loop');
+
   if (!loopDone) startLoop();
 }
 

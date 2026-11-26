@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import { transliterate } from 'transliteration';
 import { printer as ThermalPrinter } from 'node-thermal-printer';
 import { shouldPrintOptionDetails } from './settings';
-import { DEFAULT_CODE_PAGE, changeCodePage } from './printer';
+import { changeCodePage, DEFAULT_CODE_PAGE } from './printer';
 import { sanitizeForPrinter } from './charsetGuard';
 import { SupportedLanguages, translations } from './translations';
 import sharp from 'sharp';
@@ -99,6 +99,7 @@ const getCachedImage = (url: string): Buffer | null => {
 
       if (ageInDays < CACHE_EXPIRY_DAYS) {
         const cached = fs.readFileSync(cachePath);
+
         // A truncated entry (process died mid-write) would throw deep inside the
         // PNG decoder and silently drop the image for the whole TTL — drop it here.
         if (cached.length) {
@@ -139,6 +140,7 @@ const downloadAndProcessImage = async (
   // different rasters, so they must not share an entry.
   const cacheKey = trimTransparent ? `${url}#trim` : url;
   const cachedImage = getCachedImage(cacheKey);
+
   if (cachedImage) {
     return cachedImage;
   }
@@ -155,6 +157,7 @@ const downloadAndProcessImage = async (
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
           },
         });
+
         if (!response.ok) throw httpStatusError(response);
         return { data: Buffer.from(await response.arrayBuffer()) };
       },
@@ -187,6 +190,7 @@ const downloadAndProcessImage = async (
     // Sharp runs trim before resize, so the logo is cropped at full resolution
     // and then scaled up to the target width.
     let shouldTrim = false;
+
     if (trimTransparent) {
       const cornerAlpha = (
         await sharp(result.data)
@@ -202,6 +206,7 @@ const downloadAndProcessImage = async (
       .resize(300)
       .ensureAlpha()
       .flatten({ background: '#ffffff' }); // transparent → white
+
     if (shouldTrim) {
       pipeline = pipeline.trim({ threshold: 10 });
     }
@@ -234,7 +239,7 @@ const downloadAndProcessImage = async (
     return processedImage;
   } catch (err: any) {
     logger.error('Failed to download or process image:', err.message || err);
-    throw new Error('Image download or processing failed');
+    throw new Error('Image download or processing failed', { cause: err });
   }
 };
 
@@ -272,12 +277,13 @@ export const readMarkdown = async (
   console.log(`Printing text with alignment ${text}`);
   let index = 0;
   let buffer = '';
-  let formatting = { bold: false, italic: false, underline: false };
+  const formatting = { bold: false, italic: false, underline: false };
 
   while (index < text.length) {
     if (text[index] === '<') {
       // Check for img tag first
       const imgMatch = text.slice(index).match(/^<img>(.*?)<\/img>/);
+
       if (imgMatch) {
         // Print current buffer before processing image
         if (buffer) {
@@ -313,6 +319,7 @@ export const readMarkdown = async (
 
       // Check for qr tag
       const qrMatch = text.slice(index).match(/^<qr>(.*?)<\/qr>/);
+
       if (qrMatch) {
         // Print current buffer before processing QR code
         if (buffer) {
@@ -346,6 +353,7 @@ export const readMarkdown = async (
 
       // Check for other tags
       const tagMatch = text.slice(index).match(/^<(\/?)(b|u|s1|s2|s3|s4)>/);
+
       if (tagMatch) {
         // Print current buffer before changing formatting
         if (buffer) {
@@ -362,17 +370,22 @@ export const readMarkdown = async (
         }
 
         const [, closing, tag] = tagMatch;
+
         if (closing) {
           // Closing tag
           if (tag === 'b') formatting.bold = false;
+
           if (tag === 'u') formatting.underline = false;
+
           if (tag === 's1' || tag === 's2' || tag === 's3') {
             printer.setTextNormal();
           }
         } else {
           // Opening tag
           if (tag === 'b') formatting.bold = true;
+
           if (tag === 'u') formatting.underline = true;
+
           if (tag === 's1') {
             printer.setTextSize(1, 0);
           } else if (tag === 's2') {
@@ -468,9 +481,9 @@ export const cutPaper = (printer: ThermalPrinter) => {
 };
 
 export type ServiceType = {
-  value: string;
-  label_en: string;
   label_el: string;
+  label_en: string;
+  value: string;
 };
 
 export const SERVICES: Record<string, ServiceType> = {
@@ -641,6 +654,7 @@ export const printMarks = (
 
   let providerUrl = '';
   console.log('Invoice URL:', url);
+
   if (url.includes('invoiceportal')) {
     providerUrl = 'www.invoiceportal.gr';
   } else if (url.includes('etimologiera')) {
@@ -671,6 +685,7 @@ export const printPayments = (
   // payment_method amount. Fold it into the primary (largest) payment so the
   // printed payments reflect the money actually collected. `tip` is in cents.
   let tipIdx = -1;
+
   if (tip > 0) {
     let max = 0;
     methods.forEach((m: any, i: number) => {
@@ -682,6 +697,7 @@ export const printPayments = (
   }
   methods.forEach((detail: any, i: number) => {
     const amount = detail.amount + (i === tipIdx ? tip / 100 : 0);
+
     if (amount > 0) {
       const method = PaymentMethod[detail.code];
       const methodDescription =
@@ -706,15 +722,15 @@ export const getTitle = (content: any[], lang: string): string => {
 };
 
 interface OptionChoice {
-  content: { language: string; title?: string | null; description?: string }[];
-  amountLevel?: string | null;
-  quantity?: number;
+  amountLevel?: null | string;
+  content: { description?: string; language: string; title?: null | string }[];
   price?: number;
+  quantity?: number;
 }
 
 interface ProductOption {
-  content: { language: string; title?: string | null; description?: string }[];
   choices?: OptionChoice[];
+  content: { description?: string; language: string; title?: null | string }[];
 }
 
 // Lays out the choices of one option as a comma-separated run. A choice that
@@ -737,11 +753,14 @@ const wrapChoices = (
 
   const appendWord = (word: string) => {
     const sep = current.length > 0 && !current.endsWith(' ') ? ' ' : '';
+
     if (current.length + sep.length + word.length <= width) {
       current += sep + word;
       return;
     }
+
     if (current.trim().length > 0) pushCurrent();
+
     if (current.length + word.length <= width) {
       current += word;
       return;
@@ -749,12 +768,14 @@ const wrapChoices = (
     let rem = word;
     while (rem.length > 0) {
       const avail = width - current.length;
+
       if (avail <= 0) {
         pushCurrent();
         continue;
       }
       current += rem.slice(0, avail);
       rem = rem.slice(avail);
+
       if (rem.length > 0) pushCurrent();
     }
   };
@@ -776,22 +797,27 @@ const wrapChoices = (
           return;
         }
         const extra = current.endsWith(' ') ? ' ' : '  ';
+
         if (current.length + extra.length <= width) current += extra;
       });
+
     // Keep the separating space the caller put at the end of the label.
     if (firstPrefix.endsWith(' ') && current.length < width) current += ' ';
   }
 
   choices.forEach((choice, i) => {
     const sep = i === 0 ? '' : ', ';
+
     if (current.length + sep.length + choice.length <= width) {
       current += sep + choice;
       return;
     }
+
     if (i > 0) {
       if (current.length + 1 <= width) current += ',';
       pushCurrent();
     }
+
     if (current.length + choice.length <= width) {
       current += choice;
     } else {
@@ -895,11 +921,13 @@ export const printDeliveryInfo = (
     normalizeGreek(deliveryInfo.customerFloor || '')
   );
   const doorbell = normalizeGreek(deliveryInfo.customerDoorbell || '').trim();
+
   if (doorbell) line(labels.deliveryBell[lang], doorbell);
   line(labels.deliveryPhone[lang], deliveryInfo.customerPhoneNumber || '');
 
   const comments = normalizeGreek(deliveryInfo.customerBell || '').trim();
   const bottom = normalizeGreek(waiterComment || '').trim();
+
   if (comments && comments.toUpperCase() !== bottom.toUpperCase()) {
     line(labels.deliveryComments[lang], comments);
   }
@@ -929,6 +957,7 @@ export const printOptionDetails = (
         settings.transliterate
       )
     );
+
     if (!optionLabel.endsWith(':') && optionLabel.length > 0) {
       optionLabel = `${optionLabel}: `;
     } else if (optionLabel.length > 0) {
@@ -951,8 +980,10 @@ export const printOptionDetails = (
           settings.transliterate
         )
       );
+
       // A choice without a title would print as a stray `, `.
       if (value) choiceValues.push(value);
+
       if (choice.price && choice.price > 0)
         totalPrice += choice.price * (Number(choice.quantity) || 1);
     });
@@ -961,6 +992,7 @@ export const printOptionDetails = (
     // would eat a third of it.
     const indent = width < 30 ? ' ' : '     ';
     let priceStr = '';
+
     if (
       totalPrice > 0 &&
       (settings.priceOnOrder === undefined || settings.priceOnOrder === true)
@@ -982,14 +1014,17 @@ export const printOptionDetails = (
       continuationIndent,
       priceStr.length
     );
+
     // Wrapped lines of one option stay together; the gap goes before it.
     if (lines.length > 0) {
       printed += 1;
+
       if (gap) feedOptionGap(printer);
     }
     lines.forEach((wrapped, idx) => {
       const isLast = idx === lines.length - 1;
       let out = wrapped;
+
       if (isLast && priceStr.length > 0) {
         out =
           out.length + priceStr.length <= width
@@ -1011,11 +1046,13 @@ export const printProductDiscount = (
   if (discount?.amount && discount?.type) {
     const indent = '     ';
     let discountText = '';
+
     if (discount.type === 'FIXED') {
       discountText = `${(discount.amount / 100).toFixed(2)}€`;
     } else if (discount.type === 'PERCENTAGE' || discount.type === 'PERCENT') {
       discountText = `${discount.amount}%`;
     }
+
     if (discountText) {
       printer.println(
         `${indent}${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: -${discountText}`
@@ -1150,6 +1187,7 @@ export const printProducts = (
           vat.padStart(10)
       );
     }
+
     if (
       showOptions &&
       shouldPrintOptionDetails(settings) &&
@@ -1172,6 +1210,7 @@ export const printProducts = (
         const matchingContent = matchedProduct.content?.find(
           (c: any) => c._id === d.productId
         );
+
         if (matchingContent) return true;
 
         return false;
@@ -1215,6 +1254,7 @@ export const printDiscountAndTip = (
   overallDiscounts.forEach((discount: any) => {
     if (discount.amount && discount.type) {
       let discountAmount = '';
+
       if (discount.type === 'FIXED') {
         discountAmount = (discount.amount / 100).toFixed(2) + '€';
       } else if (
@@ -1223,6 +1263,7 @@ export const printDiscountAndTip = (
       ) {
         discountAmount = discount.amount.toString() + '%';
       }
+
       if (discountAmount !== '') {
         printer.println(
           `${tr(`${translations.printOrder.discount[lang]}`, transliterate)}: ${discountAmount}, ${tr(DISCOUNTTYPES[discount.type.toLocaleLowerCase()]?.label_el || '', transliterate)}`
@@ -1284,12 +1325,15 @@ export const getInvoiceTypeLabel = (
   if (code === '5.1') {
     return translations.printOrder.invoiceCreditNote[lang];
   }
+
   if (code === '9.3' && hasMovePurpose) {
     return translations.printOrder.deliveryNoteTitle[lang];
   }
+
   if (code === '1.1' && hasMovePurpose) {
     return translations.printOrder.invoiceDeliveryNote[lang];
   }
+
   if (['2.1', '2.2', '2.3'].includes(code)) {
     return translations.printOrder.serviceInvoice[lang];
   }
@@ -1325,6 +1369,7 @@ export const venueData = async (
   venueLogoUrl = ''
 ) => {
   printer.alignCenter();
+
   if (issuerText) {
     await readMarkdown(issuerText, printer, 'center', settings, true);
   } else {
@@ -1392,6 +1437,7 @@ export const receiptData = (
   const formattedTime = `${hours}:${minutes}`;
 
   printer.newLine();
+
   if (settings.textOptions.includes('BOLD_ORDER_NUMBER')) {
     printer.setTextSize(1, 0);
   }
@@ -1417,6 +1463,7 @@ export const receiptData = (
   }
 
   printer.alignLeft();
+
   if (orderType !== 'MYPELATES') {
     if (lang === 'el') {
       if (orderType.toLowerCase() !== 'generic') {
@@ -1576,6 +1623,7 @@ export const printDeliveryNoteProducts = (
   });
 
   drawLine2(printer);
+
   if (aadeInvoice?.comments) {
     printer.println(`ΠΑΡΑΤΗΡΗΣΕΙΣ: ${aadeInvoice?.comments}`);
     drawLine2(printer);
@@ -1616,7 +1664,7 @@ export const printDeliveryNoteVatBreakdown = (
   const vatRates = [24, 13, 6, 0];
   const vatMap = new Map<
     number,
-    { netValue: number; vatAmount: number; total: number }
+    { netValue: number; total: number; vatAmount: number }
   >();
 
   // Initialize all rates with 0

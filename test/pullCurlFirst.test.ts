@@ -84,9 +84,9 @@ const connectTimeout = () => {
 };
 
 const load = async () => {
-  let pullClient!: typeof import('../src/modules/pullClient');
   vi.resetModules();
-  pullClient = await import('../src/modules/pullClient');
+  const pullClient: typeof import('../src/modules/pullClient') =
+    await import('../src/modules/pullClient');
   return pullClient;
 };
 

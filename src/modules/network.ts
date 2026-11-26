@@ -3,7 +3,7 @@ import * as os from 'os';
 
 import logger from './logger';
 
-function getSubnetFromGateway(): string | null {
+function getSubnetFromGateway(): null | string {
   const interfaces = os.networkInterfaces();
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name] || []) {
@@ -32,7 +32,7 @@ const SCAN_CONCURRENCY = 128;
 async function checkPort(
   ip: string,
   port: number
-): Promise<{ ip: string; port: number; open: boolean }> {
+): Promise<{ ip: string; open: boolean; port: number }> {
   return new Promise((resolve) => {
     const socket = new net.Socket();
     let settled = false;
@@ -79,6 +79,7 @@ export default async function scanNetworkForConnections(): Promise<
   { ip: string; port: number }[]
 > {
   const subnet = getSubnetFromGateway();
+
   if (!subnet) {
     logger.warn(
       '⚠️ No active IPv4 network interface found, skipping network scan'
